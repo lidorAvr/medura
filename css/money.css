@@ -1,0 +1,601 @@
+/* ==========================================================================
+   Money (SPEC §8.7): balance hero, settle plan, payments, expenses,
+   per-member table, expense + payment sheets. Tokens come from styles.css.
+   ========================================================================== */
+
+.money { gap: 18px; }
+.money__fab-space { height: 64px; }
+.money-anchor { scroll-margin-top: calc(var(--topbar-h) + var(--safe-top) + 12px); }
+.money-note { margin-top: 10px; line-height: 1.45; }
+
+/* ---------- hero ---------- */
+.money-hero {
+  --hero-shadow: var(--shadow-accent);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 18px 16px;
+  border-radius: 24px;
+  color: #FFFFFF;
+  background: var(--sunset);
+  box-shadow: var(--hero-shadow), var(--shadow-1);
+}
+.money-hero::before {
+  content: "";
+  position: absolute;
+  inset: auto -18% -60% auto;
+  width: 72%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 228, 160, 0.45), transparent 66%);
+  z-index: -1;
+  pointer-events: none;
+}
+.money-hero--credit {
+  --hero-shadow: 0 10px 26px -10px rgba(24, 92, 62, 0.65);
+  background: linear-gradient(140deg, #46A574 0%, #2F7D57 46%, #1C5A3D 100%);
+}
+.money-hero--credit::before { background: radial-gradient(circle, rgba(190, 255, 214, 0.35), transparent 66%); }
+.money-hero--even,
+.money-hero--empty {
+  --hero-shadow: 0 10px 26px -12px rgba(70, 36, 94, 0.6);
+  background: linear-gradient(160deg, #3A2C68 0%, #7E3663 52%, #D8633D 100%);
+}
+.money-hero--loading {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  box-shadow: var(--shadow-1);
+  gap: 10px;
+}
+.money-hero--loading::before { display: none; }
+
+.money-hero__art {
+  position: absolute;
+  top: 6px;
+  inset-inline-end: 10px;
+  font-size: 76px;
+  line-height: 1;
+  opacity: 0.2;
+  transform: rotate(-14deg);
+  pointer-events: none;
+  z-index: -1;
+  filter: saturate(1.2);
+}
+.money-hero__kicker {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}
+.money-hero__balance {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 2px;
+}
+.money-hero__label { font-size: 17px; font-weight: 700; opacity: 0.95; }
+.money-hero__amount {
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 10px rgba(80, 20, 0, 0.18);
+  animation: money-pop 520ms var(--spring) both;
+}
+.money-hero__title { font-size: 26px; font-weight: 800; line-height: 1.2; margin-top: 4px; }
+.money-hero__title--even { font-size: 30px; animation: money-pop 520ms var(--spring) both; }
+.money-hero__text { max-width: 34ch; font-size: 15px; line-height: 1.5; opacity: 0.92; }
+.money-hero__breakdown {
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.94;
+}
+.money-hero__breakdown bdi { font-weight: 700; }
+.money-hero__sep { opacity: 0.7; }
+.money-hero__cta { margin-top: 10px; }
+.money-hero .btn--secondary {
+  --btn-bg: rgba(255, 255, 255, 0.95);
+  --btn-ink: #6B2A12;
+  --btn-border: transparent;
+}
+.money-hero--credit .btn--secondary { --btn-ink: #1C5A3D; }
+.money-hero--empty .btn--secondary { --btn-ink: #4A2A63; }
+
+.money-hero__stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(0, 0.9fr);
+  gap: 8px;
+  margin: 14px 0 0;
+}
+.money-stat {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.money-stat__value {
+  margin: 0;
+  font-size: clamp(15px, 4.4vw, 18px);
+  font-weight: 800;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.money-stat__label { font-size: 12px; font-weight: 600; opacity: 0.86; white-space: nowrap; }
+
+/* skeleton bits for the hero */
+.money-skel {
+  display: block;
+  height: 14px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 45%, var(--surface-2) 90%);
+  background-size: 300% 100%;
+  animation: shimmer 1.35s ease-in-out infinite;
+}
+.money-skel--sm { width: 36%; }
+.money-skel--md { width: 62%; }
+.money-skel--lg { width: 48%; height: 40px; border-radius: 12px; }
+.money-skel--tile { height: 52px; border-radius: 14px; }
+
+/* ---------- "how it works" (no expenses yet) ---------- */
+.money-how {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.money-how__step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.money-how__step .kbd-emoji { width: 42px; height: 42px; font-size: 22px; border-radius: 13px; }
+
+/* ---------- avatar pair (from → to) ---------- */
+.money-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+}
+.money-pair__arrow {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  color: var(--muted);
+}
+.money-pair__arrow .icon { stroke-width: 2.6; }
+
+/* ---------- settle plan ---------- */
+.money-settle .card__head { margin-bottom: 10px; }
+.money-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.money-progress .progress { height: 8px; }
+
+.settle-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settle-row {
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  animation: money-rise 280ms var(--ease) both;
+}
+.settle-row.is-out {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.settle-row.is-in {
+  background: var(--success-soft);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--success) 42%, transparent);
+}
+.settle-row__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.settle-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settle-row__who { font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.settle-row__arrow { color: var(--muted); font-weight: 800; }
+.settle-row__tag { font-size: 12.5px; font-weight: 700; color: var(--accent-text); }
+.settle-row.is-in .settle-row__tag { color: var(--success-text); }
+.settle-row__amount {
+  flex: none;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.settle-row.is-out .settle-row__amount { color: var(--ember-text); }
+.settle-row.is-in .settle-row__amount { color: var(--success-text); }
+.settle-row__actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.settle-row__actions > .btn:first-child { grid-column: 1 / -1; }
+.settle-row__actions > .btn { min-width: 0; }
+.settle-row__actions > .btn--sm { padding-inline: 10px; font-size: 14px; }
+.settle-row__actions > .btn:only-child { grid-column: 1 / -1; }
+.settle-row__hint { grid-column: 1 / -1; line-height: 1.4; }
+.settle-row__admin {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  margin-bottom: -4px;
+}
+
+.money-settled {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+.money-settled strong { font-size: 17px; }
+.money-settled .muted { color: color-mix(in srgb, var(--success-text) 72%, var(--muted)); }
+.money-settled__emoji { font-size: 34px; line-height: 1; animation: money-pop 600ms var(--spring) both; }
+
+.money-settle__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.money-name { display: inline-block; max-width: 100%; } /* keeps a name on one line when it fits */
+
+/* ---------- sections ---------- */
+.money-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.money-section__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+}
+.money-section__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 800;
+}
+.money-section__sum { font-size: 14px; color: var(--muted); font-weight: 600; }
+.money-section__sum bdi { color: var(--ink); font-weight: 800; }
+
+ul.list { list-style: none; margin: 0; padding: 0; }
+
+/* ---------- payments ---------- */
+.pay-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.pay-row + .pay-row { border-top: 1px solid var(--line); }
+.pay-row > .money-pair { margin-top: 2px; }
+.pay-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pay-row__who { font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.pay-row__sub { font-size: 13px; color: var(--muted); line-height: 1.35; overflow-wrap: anywhere; }
+.pay-row__confirm { align-self: flex-start; margin-top: 8px; }
+.pay-row__end {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.pay-row__amount { font-size: 16.5px; font-weight: 800; line-height: 1.3; }
+.pay-row__delete {
+  width: 40px;
+  height: 36px;
+  margin-inline-end: -8px;
+  color: var(--muted);
+}
+.pay-row__delete::after { content: ""; position: absolute; inset: -4px 0; }
+.pay-row__delete:hover { color: var(--danger-text); background: var(--danger-soft); }
+
+/* ---------- expenses ---------- */
+.money-exp-list > li + li { border-top: 1px solid var(--line); }
+.exp-row { align-items: flex-start; padding-block: 12px; }
+.exp-row.is-new { animation: money-flash 2s var(--ease); }
+.exp-row__icon { position: relative; flex: none; margin-top: 2px; }
+.exp-row__cat {
+  position: absolute;
+  bottom: -4px;
+  inset-inline-start: -6px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgba(40, 20, 0, 0.2);
+  font-size: 13px;
+  line-height: 1;
+}
+.exp-row__meta { font-size: 12.5px; }
+.exp-row__note { overflow-wrap: anywhere; }
+.exp-row__split { white-space: nowrap; }
+.exp-row__end {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding-top: 1px;
+}
+.exp-row__amount { font-size: 17px; font-weight: 800; }
+.exp-row__mine { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.exp-row__mine bdi { font-weight: 700; color: var(--accent-text); }
+
+/* ---------- per-member table ---------- */
+.money-table-wrap {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.money-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+.money-table th,
+.money-table td {
+  padding: 9px 6px;
+  text-align: end;
+  white-space: nowrap;
+}
+.money-table thead th {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface-2);
+  padding-block: 8px;
+}
+.money-table th:first-child,
+.money-table td:first-child { padding-inline-start: 12px; }
+.money-table th:last-child,
+.money-table td:last-child { padding-inline-end: 12px; }
+/* The name column takes whatever the numbers leave, and truncates. */
+.money-table .money-table__who { width: 100%; max-width: 0; text-align: start; font-weight: 600; }
+.money-table tbody tr + tr { border-top: 1px solid var(--line); }
+.money-table tbody tr.is-me { background: color-mix(in srgb, var(--accent-soft) 75%, transparent); }
+.money-table tbody tr.is-me .money-table__who { font-weight: 800; }
+.money-table__name { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.money-table__name .avatar { box-shadow: 0 0 0 1.5px var(--surface); }
+.money-table__bal { font-weight: 800; }
+.money-table__bal.is-plus { color: var(--success-text); }
+.money-table__bal.is-minus { color: var(--ember-text); }
+.money-table__bal.is-even { color: var(--muted); }
+
+/* ---------- sheets ---------- */
+.money-form .money-input__field.input { font-size: 30px; min-height: 64px; }
+.money-payer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 6px 14px 6px 8px;
+  padding-inline: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  align-self: flex-start;
+}
+.money-cats { padding-block: 2px 4px; }
+.money-methods { display: flex; flex-wrap: wrap; gap: 8px; }
+.money-form__extra { align-items: start; }
+.money-form__danger { display: flex; justify-content: center; }
+.money-danger-link.btn--ghost { --btn-ink: var(--danger-text); }
+.money-danger-link.btn--ghost:hover:not(:disabled) { --btn-bg: var(--danger-soft); }
+.money-pay-hint { text-align: center; }
+.money-readonly {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+/* live split preview */
+.split-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: linear-gradient(160deg, var(--accent-soft), color-mix(in srgb, var(--accent-soft) 40%, var(--surface)));
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.split-preview.is-idle {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+.split-preview__emoji { font-size: 22px; line-height: 1; }
+.split-preview__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+  font-weight: 600;
+}
+.split-preview__big {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--accent-text);
+  animation: money-pop 360ms var(--spring);
+}
+.split-preview__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.split-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 34px;
+  padding-inline: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  font-size: 13.5px;
+}
+.split-chip.is-me { box-shadow: inset 0 0 0 1.5px var(--accent), var(--shadow-1); }
+.split-chip__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.split-chip__amount { font-weight: 800; color: var(--ink); }
+
+/* read-only expense details */
+.money-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.money-detail__amount { font-size: 38px; font-weight: 800; line-height: 1.1; }
+.money-detail__meta { display: flex; flex-direction: column; gap: 4px; }
+
+/* payment sheet: from → to */
+.pay-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border-radius: 20px;
+  background: var(--surface-2);
+}
+.pay-hero__side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  text-align: center;
+}
+.pay-hero__name {
+  max-width: 100%;
+  font-weight: 700;
+  font-size: 14.5px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.pay-hero__flow {
+  position: relative;
+  height: 28px;
+}
+.pay-hero__track {
+  position: absolute;
+  inset: 13px 4px auto;
+  height: 2px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--muted) 60%, transparent) 0 6px, transparent 6px 11px);
+}
+.pay-hero__coin {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #FFD36B, #F2A93B);
+  color: #6B3A00;
+  font-weight: 800;
+  font-size: 15px;
+  box-shadow: 0 3px 8px -2px rgba(160, 90, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  z-index: 1;
+  animation: money-coin 1.6s var(--ease) infinite;
+}
+
+/* ---------- keyframes ---------- */
+@keyframes money-pop {
+  0% { opacity: 0; transform: scale(0.86); }
+  60% { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes money-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes money-flash {
+  0%, 30% { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+  100% { background: transparent; box-shadow: inset 0 0 0 0 transparent; }
+}
+/* RTL: the coin travels from the payer (right) to the recipient (left). */
+@keyframes money-coin {
+  0% { inset-inline-start: 0; opacity: 0; transform: scale(0.7); }
+  15% { opacity: 1; transform: scale(1); }
+  80% { opacity: 1; transform: scale(1); }
+  100% { inset-inline-start: calc(100% - 28px); opacity: 0; transform: scale(0.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pay-hero__coin { animation: none; inset-inline-start: calc(50% - 14px); }
+  .money-hero__amount,
+  .money-hero__title--even,
+  .money-settled__emoji,
+  .split-preview__big,
+  .settle-row { animation: none; }
+}
+
+/* ---------- small phones ---------- */
+@media (max-width: 370px) {
+  .money-hero { padding: 16px 14px 14px; }
+  .money-hero__amount { font-size: 40px; }
+  .money-stat { padding: 8px; }
+  .money-table { font-size: 12.5px; }
+  .money-table th,
+  .money-table td { padding-inline: 4px; }
+  /* Tighter from→to pair so "את/ה ← מאיה ורון" keeps to one line at 360px. */
+  .money-pair__arrow { display: none; }
+  .money-pair__arrow + .avatar { margin-inline-start: calc(var(--av-size) * -0.28); }
+  .settle-row__top { gap: 8px; }
+  .settle-row__amount { font-size: 19px; }
+}

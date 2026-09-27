@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>בדיקות לוגיקה · מדורה</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { color-scheme: light dark; --ok: #2E9E6A; --bad: #D64545; --bg: #FBF6EE; --ink: #1E2A23; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0E1512; --ink: #EEF3EF; } }
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, "Segoe UI", Arial, sans-serif; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    #summary { font-weight: 700; font-variant-numeric: tabular-nums; }
+    #summary.ok { color: var(--ok); }
+    #summary.bad { color: var(--bad); }
+    pre { white-space: pre-wrap; direction: rtl; unicode-bidi: plaintext; }
+  </style>
+</head>
+<body>
+  <h1>🔥 בדיקות לוגיקה</h1>
+  <p id="summary">רץ…</p>
+  <pre id="failures"></pre>
+  <script type="module">
+    // Loads the module under test and the test file; exposes window.__RESULTS__ for Playwright.
+    const summary = document.getElementById('summary');
+    const failuresEl = document.getElementById('failures');
+    function publish(results) {
+      window.__RESULTS__ = results;
+      summary.textContent = `${results.passed} עברו · ${results.failed} נכשלו`;
+      summary.className = results.failed ? 'bad' : 'ok';
+      failuresEl.textContent = results.failures.join('\n\n');
+    }
+    try {
+      window.__LOGIC__ = await import('../../js/lib/logic.js');
+      const { run } = await import('./logic.test.js');
+      publish(run());
+    } catch (err) {
+      publish({ passed: 0, failed: 1, failures: [`load/crash: ${err && err.stack ? err.stack : err}`] });
+    }
+  </script>
+</body>
+</html>

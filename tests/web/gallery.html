@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>מדורה · גלריית רכיבים</title>
+  <link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap">
+  <link rel="stylesheet" href="../../css/styles.css">
+  <script>
+    // ?theme=light|dark forces a theme (default: follow the OS).
+    try {
+      var t = new URLSearchParams(location.search).get('theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { /* ignore */ }
+  </script>
+  <script type="importmap">{"imports":{
+    "preact":"../../js/vendor/preact.module.js",
+    "preact/hooks":"../../js/vendor/hooks.module.js",
+    "htm":"../../js/vendor/htm.module.js",
+    "htm/preact":"../../js/vendor/htm-preact.module.js"}}</script>
+  <style>
+    .gallery { max-width: 560px; margin: 0 auto; padding: 16px 16px 140px; display: flex; flex-direction: column; gap: 22px; }
+    .gallery h1 { display: flex; align-items: center; gap: 8px; }
+    .demo-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
+    .icon-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: 12px; background: var(--surface-2); font-size: 11px; color: var(--muted); text-align: center; }
+    .icon-cell .icon { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="portal-root"></div>
+  <script type="module">
+    import { html } from 'htm/preact';
+    import { render } from 'preact';
+    import { useState } from 'preact/hooks';
+    import {
+      Button, IconButton, Card, Sheet, confirmDialog, Avatar, AvatarStack, Chip, Segmented, ProgressRing, ProgressBar, Pill,
+      Stepper, Field, TextInput, TextArea, MoneyInput, Toggle, EmptyState, Section, Skeleton, EmojiPicker, ColorPicker,
+      MemberPicker, Fab, ShareButton, CopyButton, fireConfetti,
+    } from '../../js/ui/components.js';
+    import { Icon } from '../../js/ui/icons.js';
+
+    const ICON_NAMES = ['home', 'list', 'wallet', 'bell', 'users', 'user', 'plus', 'check', 'x', 'edit', 'trash', 'share', 'copy',
+      'cart', 'chevron-left', 'chevron-right', 'chevron-down', 'settings', 'map-pin', 'calendar', 'clock', 'sun', 'moon', 'flame',
+      'tent', 'search', 'filter', 'send', 'crown', 'sparkles', 'receipt', 'arrow-left-right', 'download', 'link', 'logout'];
+
+    const MEMBERS = [
+      { id: 'm1', display_name: 'נועה ואיתי', headcount: 2, people: ['נועה', 'איתי'], emoji: '🦊', color: '#E4572E', role: 'owner', claimed: true },
+      { id: 'm2', display_name: 'מאיה ורון', headcount: 2, people: ['מאיה', 'רון'], emoji: '🍺', color: '#F28C28', role: 'member', claimed: true },
+      { id: 'm3', display_name: 'יואב', headcount: 1, people: ['יואב'], emoji: '🎸', color: '#3A86FF', role: 'admin', claimed: true },
+      { id: 'm4', display_name: 'שירה', headcount: 1, people: ['שירה'], emoji: '🌈', color: '#8E44AD', role: 'member', claimed: false },
+      { id: 'm5', display_name: 'משפחת לוי', headcount: 4, people: [], emoji: '🏕️', color: '#16A085', role: 'member', claimed: true },
+      { id: 'm6', display_name: 'דניאל', headcount: 1, people: ['דניאל'], emoji: '🐢', color: '#2C3E50', role: 'member', claimed: true },
+    ];
+
+    function Gallery() {
+      const [seg, setSeg] = useState('all');
+      const [chip, setChip] = useState('buy');
+      const [qty, setQty] = useState(2);
+      const [money, setMoney] = useState(120.5);
+      const [on, setOn] = useState(true);
+      const [emoji, setEmoji] = useState('🦊');
+      const [color, setColor] = useState('#E4572E');
+      const [one, setOne] = useState('m1');
+      const [many, setMany] = useState(['m1', 'm3']);
+      const [sheet, setSheet] = useState(false);
+      const [answer, setAnswer] = useState('—');
+      const [name, setName] = useState('');
+      const [checked, setChecked] = useState(true);
+
+      const ask = async (danger) => {
+        const ok = await confirmDialog(danger
+          ? { title: 'למחוק את הפריט?', text: 'אי אפשר לבטל את זה.', confirmText: 'מחיקה', danger: true }
+          : { title: 'לסמן שהכל ארוז?', text: 'נעדכן את כולם שאת/ה מוכנ/ה 🎒', confirmText: 'כן, ארוז!' });
+        setAnswer(ok ? 'אישור' : 'ביטול');
+      };
+
+      return html`<main class="gallery">
+        <header class="stack-sm">
+          <h1><${Icon} name="flame" size=${28} /> גלריית רכיבים</h1>
+          <p class="muted">כל הרכיבים המשותפים של מדורה — בהיר וכהה.</p>
+        </header>
+
+        <${Section} title="כפתורים" emoji="🔘">
+          <div class="stack">
+            <div class="demo-row">
+              <${Button}>ראשי</${Button}>
+              <${Button} variant="accent" icon="plus">הוסף פריט</${Button}>
+              <${Button} variant="secondary" icon="share">שיתוף</${Button}>
+              <${Button} variant="ghost">משני</${Button}>
+              <${Button} variant="danger" icon="trash">מחיקה</${Button}>
+            </div>
+            <div class="demo-row">
+              <${Button} size="sm" icon="check">קטן</${Button}>
+              <${Button} size="lg" variant="accent">גדול 🔥</${Button}>
+              <${Button} loading>שומר…</${Button}>
+              <${Button} disabled>מושבת</${Button}>
+            </div>
+            <${Button} block size="lg" variant="accent" icon="✋">אני מביא/ה!</${Button}>
+            <div class="demo-row">
+              <${IconButton} icon="bell" label="הודעות" badge=${3} />
+              <${IconButton} icon="settings" label="הגדרות" />
+              <${IconButton} icon="more" label="עוד" badge=${true} />
+              <${IconButton} icon="search" label="חיפוש" />
+            </div>
+          </div>
+        </${Section}>
+
+        <${Section} title="כרטיסים" emoji="🃏" count=${5}>
+          <div class="stack">
+            <${Card} tone="accent" title="קמפינג סוכות" emoji="⛺" action=${html`<${Pill}>בעוד 4 ימים</${Pill}>`}>
+              <div class="row row--between">
+                <div class="stat"><span class="stat__value">82%</span><span class="stat__label muted">מוכנים לטיול</span></div>
+                <${ProgressRing} value=${82} size=${72} stroke=${9} label="מוכנות">82%</${ProgressRing}>
+              </div>
+            </${Card}>
+            <${Card} title="המשימות שלי" emoji="🎒" action=${html`<${Button} size="sm" variant="ghost">הכל</${Button}>`}>
+              <div class="list">
+                <div class="list-row">
+                  <button type="button" class="check" role="checkbox" aria-checked=${checked ? 'true' : 'false'} aria-label="ארוז" onClick=${() => setChecked(!checked)}><${Icon} name="check" /></button>
+                  <div class="list-row__main"><span class="list-row__title">כסאות קמפינג</span><span class="list-row__sub">2 מתוך 11</span></div>
+                  <div class="list-row__end"><${Pill} tone="warning">חלקי 2/11</${Pill}></div>
+                </div>
+                <div class="list-row">
+                  <button type="button" class="check" role="checkbox" aria-checked="false" aria-label="נקנה"><${Icon} name="check" /></button>
+                  <div class="list-row__main"><span class="list-row__title">פחמים</span><span class="list-row__sub">3 חבילות</span></div>
+                  <div class="list-row__end"><${AvatarStack} members=${MEMBERS.slice(0, 2)} /></div>
+                </div>
+              </div>
+            </${Card}>
+            <${Card} tone="success" title="הכל מכוסה!" emoji="✅">כל הפריטים של ציוד קבוצתי שובצו.</${Card}>
+            <${Card} tone="warning" title="ממתינים לאישור" emoji="⏳">3 הצעות חדשות מחכות למנהל/ת.</${Card}>
+            <${Card} tone="danger" title="עדיין חסר" emoji="🙋" onClick=${() => {}}>תבלין על האש · קפה טורקי</${Card}>
+          </div>
+        </${Section}>
+
+        <${Section} title="אווטרים" emoji="🙂">
+          <div class="demo-row">
+            ${MEMBERS.map((m) => html`<${Avatar} member=${m} size=${48} />`)}
+            <${Avatar} member=${null} size=${48} />
+          </div>
+          <div class="gap-12"></div>
+          <div class="demo-row">
+            <${AvatarStack} members=${MEMBERS} max=${4} size=${32} />
+            <${Avatar} member=${MEMBERS[0]} size=${28} />
+            <${Avatar} member=${MEMBERS[1]} size=${72} />
+          </div>
+        </${Section}>
+
+        <${Section} title="צ׳יפים ותגיות" emoji="🏷️">
+          <div class="stack">
+            <div class="h-scroll">
+              ${[['buy', '🛒 לקנות'], ['bring', '🎒 מהבית'], ['each', '🙋 כל אחד'], ['task', '✅ משימה']].map(([v, l]) =>
+                html`<${Chip} active=${chip === v} onClick=${() => setChip(v)}>${l}</${Chip}>`)}
+            </div>
+            <div class="demo-row">
+              <${Chip} tone="accent">אקסנט</${Chip}><${Chip} tone="success">הצלחה</${Chip}><${Chip} tone="warning">אזהרה</${Chip}>
+              <${Chip} tone="danger">סכנה</${Chip}><${Chip} tone="info">מידע</${Chip}><${Chip}>רגיל</${Chip}>
+            </div>
+            <div class="demo-row">
+              <${Pill}>רגיל</${Pill}><${Pill} tone="primary">מכוסה</${Pill}><${Pill} tone="accent">בעוד 4 ימים</${Pill}>
+              <${Pill} tone="success">נקנה ✓</${Pill}><${Pill} tone="warning">חלקי 2/10</${Pill}><${Pill} tone="danger">חסר</${Pill}>
+              <${Pill} tone="info">ממתין לאישור</${Pill}><${Pill} tone="ember">דחוף</${Pill}>
+            </div>
+            <${Segmented}
+              label="סוג רשימה"
+              value=${seg}
+              onChange=${setSeg}
+              options=${[
+                { value: 'all', label: 'הכל' }, { value: 'buy', label: '🛒 קניות' }, { value: 'bring', label: '🎒 מהבית' },
+                { value: 'each', label: '🙋 כל אחד' }, { value: 'task', label: '✅ משימות' }, { value: 'pending', label: '⏳ לאישור', badge: 3 },
+                { value: 'mine', label: '⭐ שלי' },
+              ]}
+            />
+          </div>
+        </${Section}>
+
+        <${Section} title="התקדמות" emoji="📈">
+          <div class="stack">
+            <div class="demo-row">
+              <${ProgressRing} value=${0} size=${56} stroke=${7}>0%</${ProgressRing}>
+              <${ProgressRing} value=${45} size=${64} stroke=${8}>45%</${ProgressRing}>
+              <${ProgressRing} value=${100} size=${80} stroke=${10}>🎉</${ProgressRing}>
+            </div>
+            <${ProgressBar} value=${35} label="ארוז" />
+            <${ProgressBar} value=${70} tone="accent" />
+            <${ProgressBar} value=${100} tone="success" />
+            <${ProgressBar} value=${20} tone="danger" />
+          </div>
+        </${Section}>
+
+        <${Section} title="טפסים" emoji="📝">
+          <div class="stack">
+            <${Field} label="שם הפריט" hint="למשל: כסאות ים">
+              <${TextInput} value=${name} placeholder="מה צריך?" onInput=${(e) => setName(e.target.value)} />
+            </${Field}>
+            <${Field} label="טלפון" error="המספר לא נראה תקין">
+              <${TextInput} type="tel" value="12" />
+            </${Field}>
+            <${Field} label="הערה">
+              <${TextArea} placeholder="פרטים נוספים…" />
+            </${Field}>
+            <${Field} label="סכום">
+              <${MoneyInput} value=${money} onChange=${setMoney} />
+            </${Field}>
+            <div class="row row--between"><span>כמות: <span class="num" data-testid="qty">${qty}</span></span><${Stepper} value=${qty} min=${0} max=${10} onChange=${setQty} /></div>
+            <${Toggle} checked=${on} onChange=${setOn} label="התראות על שיבוצים" hint="נודיע כשמשבצים אותך לפריט" />
+            <${Toggle} checked=${false} onChange=${() => {}} label="שעות שקטות" disabled />
+          </div>
+        </${Section}>
+
+        <${Section} title="בוחרים" emoji="🎨" collapsible>
+          <div class="stack">
+            <${Field} label="אימוג׳י"><${EmojiPicker} value=${emoji} onChange=${setEmoji} /></${Field}>
+            <${Field} label="צבע"><${ColorPicker} value=${color} onChange=${setColor} /></${Field}>
+            <${Field} label="מי שילם?"><${MemberPicker} members=${MEMBERS} value=${one} onChange=${setOne} /></${Field}>
+            <${Field} label="מי משתתף?"><${MemberPicker} members=${MEMBERS} value=${many} onChange=${setMany} multi /></${Field}>
+          </div>
+        </${Section}>
+
+        <${Section} title="מצבים ריקים וטעינה" emoji="🫙" collapsible defaultOpen=${true}>
+          <div class="stack">
+            <${Card}>
+              <${EmptyState} emoji="🏕️" title="עוד אין פריטים" text="הוסיפו את הפריט הראשון — או ייבאו רשימה מהוואטסאפ." action=${html`<${Button} icon="plus" variant="accent">הוספת פריט</${Button}>`} />
+            </${Card}>
+            <${Skeleton} lines=${3} />
+          </div>
+        </${Section}>
+
+        <${Section} title="פעולות" emoji="⚡" right=${html`<span class="muted small" data-testid="answer">${answer}</span>`}>
+          <div class="stack">
+            <div class="demo-row">
+              <${Button} variant="secondary" onClick=${() => setSheet(true)} data-testid="open-sheet">פתח גיליון</${Button}>
+              <${Button} variant="secondary" onClick=${() => ask(false)} data-testid="open-confirm">אישור</${Button}>
+              <${Button} variant="secondary" onClick=${() => ask(true)}>מחיקה</${Button}>
+              <${Button} variant="secondary" icon="sparkles" onClick=${() => fireConfetti()} data-testid="confetti">קונפטי</${Button}>
+            </div>
+            <${ShareButton} text="בואו לטיול! 🔥" label="שיתוף בוואטסאפ" block />
+            <${CopyButton} text="https://example.com/#/join/abc123" label="העתקת קישור" block />
+          </div>
+        </${Section}>
+
+        <${Section} title="אייקונים" emoji="✨" count=${ICON_NAMES.length}>
+          <div class="icon-grid">
+            ${ICON_NAMES.map((n) => html`<div class="icon-cell"><${Icon} name=${n} size=${24} /><span>${n}</span></div>`)}
+          </div>
+        </${Section}>
+
+        <${Sheet} open=${sheet} onClose=${() => setSheet(false)} title="הוספת פריט ✨"
+          footer=${html`<${Button} variant="secondary" onClick=${() => setSheet(false)}>ביטול</${Button}><${Button} onClick=${() => setSheet(false)}>שמירה</${Button}>`}>
+          <div class="stack">
+            <${Field} label="מה צריך?"><${TextInput} value=${name} placeholder="למשל: מחצלות" onInput=${(e) => setName(e.target.value)} /></${Field}>
+            <div class="h-scroll">
+              ${['🥩 בשר', '🥗 ירקות', '⛺ ציוד', '🎲 משחקים', '🍿 נשנושים'].map((c, i) => html`<${Chip} active=${i === 2} onClick=${() => {}}>${c}</${Chip}>`)}
+            </div>
+            <div class="row row--between"><span>כמה צריך? <span class="num" data-testid="sheet-qty">${qty}</span></span><${Stepper} value=${qty} onChange=${setQty} /></div>
+            <${Toggle} checked=${on} onChange=${setOn} label="אני לוקח/ת את זה" />
+          </div>
+        </${Sheet}>
+        <${Fab} icon="plus" label="פריט חדש" onClick=${() => setSheet(true)} />
+      </main>`;
+    }
+
+    render(html`<${Gallery} />`, document.getElementById('app'));
+    document.body.dataset.galleryReady = '1';
+  </script>
+</body>
+</html>

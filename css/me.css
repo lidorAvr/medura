@@ -1,0 +1,254 @@
+/* ==========================================================================
+   Me screen (js/screens/me.js) + the shared profile form (`pf-`, also used by People).
+   Screen classes are prefixed `me-`.
+   ========================================================================== */
+
+/* ---------- profile hero ---------- */
+.me-hero {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 16px;
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--accent-soft) 85%, transparent) 0%, transparent 60%),
+    var(--surface);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  isolation: isolate;
+}
+.me-hero::after {
+  content: "🔥";
+  position: absolute;
+  inset-inline-end: -8px;
+  bottom: -18px;
+  font-size: 84px;
+  opacity: 0.08;
+  z-index: -1;
+  transform: rotate(-12deg);
+  pointer-events: none;
+}
+.me-hero__avatar { flex: none; animation: pop 420ms var(--spring) both; }
+.me-hero__avatar .avatar { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px color-mix(in srgb, var(--accent) 45%, transparent), 0 6px 16px rgba(60, 30, 0, 0.18); }
+.me-hero__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.me-hero__name { font-size: 23px; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
+.me-hero__people { font-size: 14px; color: var(--muted); font-weight: 600; }
+.me-hero__pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.me-hero__pills .pill .icon { width: 12px; height: 12px; }
+.me-hero__edit { flex: none; }
+
+.me-card__lead { margin-top: -4px; margin-bottom: 12px; }
+
+/* ---------- inventory ---------- */
+.me-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.me-chips .chip { min-height: 38px; }
+.me-chips .chip .icon { margin-inline-start: 2px; opacity: 0.85; }
+.me-inv__add { display: flex; gap: 8px; margin-top: 14px; }
+.me-inv__add .input { flex: 1; min-width: 0; }
+.me-inv__add .btn { flex: none; min-height: 50px; }
+.me-inv .field__error { margin-top: 6px; }
+
+/* ---------- diet ---------- */
+.me-diet__chips { margin-bottom: 10px; }
+.me-diet__actions { margin-top: 12px; animation: fade-in 200ms var(--ease); }
+
+/* ---------- notifications ---------- */
+.me-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--success-text);
+  animation: fade-in 200ms var(--ease);
+}
+.me-saved.is-saving { color: var(--muted); }
+.me-toggles { display: flex; flex-direction: column; }
+.me-toggles .toggle-row + .toggle-row { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.me-toggles .toggle-row { padding-block: 6px; }
+.me-sub {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+  animation: fade-in 200ms var(--ease);
+}
+.me-sub__title { font-size: 14px; font-weight: 800; color: var(--muted); margin-bottom: 4px; }
+.me-quiet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 6px; }
+.me-quiet .input { text-align: center; direction: ltr; }
+
+.me-push {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.me-push--on,
+.me-push--granted { background: var(--success-soft); }
+.me-push--denied { background: var(--warning-soft); }
+.me-push .me-sub__title { margin-bottom: 0; color: var(--ink); }
+.me-push__text { font-size: 14px; line-height: 1.5; }
+.me-push__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* ---------- device link ---------- */
+.me-linkbox {
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px dashed var(--line);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: left; /* RTL box + LTR run: long links lose their start, the code at the end stays visible */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+  animation: fade-in 220ms var(--ease);
+}
+.me-linkbox__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.me-linkbox__actions .btn { padding-inline: 10px; }
+
+/* ---------- trips ---------- */
+.me-trips__list {
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: var(--surface-2);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.me-trip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 8px 12px;
+  color: inherit;
+  text-decoration: none;
+  transition: background-color var(--dur) var(--ease);
+}
+.me-trip + .me-trip { border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent); }
+.me-trip:active { background: var(--surface-3); }
+.me-trip:focus-visible { border-radius: 16px; }
+.me-trip.is-current { background: color-mix(in srgb, var(--success-soft) 70%, var(--surface-2)); }
+.me-trip__emoji {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  border-radius: 13px;
+  background: var(--sunset);
+  box-shadow: var(--shadow-accent);
+}
+.me-trip__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.me-trip__name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-trip__date { font-size: 13px; color: var(--muted); }
+.me-trip > .icon { color: var(--muted); }
+.me-trips__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ---------- demo switcher ---------- */
+.me-demo {
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--accent-soft) 55%, var(--surface)) 0 14px, var(--surface) 14px 28px);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.me-demo__list { display: flex; flex-direction: column; gap: 6px; }
+.me-demo__opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 12px 6px 8px;
+  padding-inline: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: transform 160ms var(--ease), border-color var(--dur);
+}
+.me-demo__opt:active:not(:disabled) { transform: scale(0.98); }
+.me-demo__opt:disabled { opacity: 0.6; cursor: progress; }
+.me-demo__opt[aria-busy="true"] { opacity: 1; border-color: var(--accent); }
+.me-demo__opt:focus-visible { border-radius: 14px; }
+.me-demo__name { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-demo__role { flex: none; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+
+/* ---------- leave ---------- */
+.me-leave { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 4px; text-align: center; }
+.me-leave__btn.btn--ghost { --btn-ink: var(--danger-text); }
+.me-leave__btn.btn--ghost:hover:not(:disabled) { --btn-bg: var(--danger-soft); }
+
+/* ==========================================================================
+   Shared profile form (pf-) — Me → edit profile, People → add a profile
+   ========================================================================== */
+.pf-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+.pf-preview .avatar { transition: background-color 240ms var(--ease); }
+.pf-preview__text { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.pf-preview__name { font-size: 19px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+.pf-preview__name.is-empty { color: var(--muted); }
+
+.pf-kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pf-kinds--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pf-kind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 88px;
+  padding: 10px 6px;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease), transform 160ms var(--ease);
+}
+.pf-kind:active { transform: scale(0.96); }
+.pf-kind:focus-visible { border-radius: 18px; }
+.pf-kind__emoji { font-size: 32px; line-height: 1; transition: transform 260ms var(--spring); }
+.pf-kind__label { font-size: 15.5px; font-weight: 800; }
+.pf-kind[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 8px 20px -12px rgba(228, 87, 46, 0.6);
+}
+.pf-kind[aria-checked="true"] .pf-kind__emoji { transform: scale(1.14) rotate(-4deg); }
+.pf-kind[aria-checked="true"] .pf-kind__label { color: var(--accent-text); }
+
+.pf-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; animation: fade-in 200ms var(--ease); }
+.pf-names { display: grid; gap: 12px; }
+.pf-names--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .me-hero__avatar { animation: none; }
+  .pf-kind:active,
+  .me-demo__opt:active:not(:disabled) { transform: none; }
+}
+
+@media (max-width: 370px) {
+  .me-hero { padding: 16px 14px; gap: 12px; }
+  .me-hero__name { font-size: 21px; }
+  .me-linkbox__actions { grid-template-columns: 1fr; }
+  .pf-names--two { grid-template-columns: 1fr; }
+}

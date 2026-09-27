@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Medura API tests</title>
+  <link rel="icon" href="data:,">
+  <style>
+    body { font: 14px/1.5 system-ui, "Segoe UI", Arial, sans-serif; margin: 16px; background: #FBF6EE; color: #1E2A23; }
+    pre { white-space: pre-wrap; direction: ltr; text-align: left; }
+  </style>
+  <!-- Real supabase-js (UMD) for the HTTP-level tests in tests/test_api.py. -->
+  <script src="../../js/vendor/supabase.umd.js"></script>
+</head>
+<body>
+  <h1>🔥 מדורה — בדיקות API</h1>
+  <p id="status">רץ…</p>
+  <pre id="out"></pre>
+  <script type="module">
+    // ?suite=supabase | demo | all (default) | none (just load the page, used by pytest helpers)
+    const suite = new URLSearchParams(location.search).get('suite') || 'all';
+    const results = {};
+    try {
+      if (suite === 'all' || suite === 'supabase') {
+        results.supabase = await (await import('./supabase_api.test.js')).run();
+      }
+      if (suite === 'all' || suite === 'demo') {
+        results.demo = await (await import('./demo_api.test.js')).run();
+      }
+    } catch (e) {
+      results.fatal = String((e && e.stack) || e);
+    }
+    const failed = Object.values(results).reduce((n, r) => n + (r && r.failed ? r.failed : 0), 0);
+    document.getElementById('status').textContent = results.fatal ? 'שגיאה חמורה' : failed ? `${failed} נכשלו` : 'הכל עבר ✅';
+    document.getElementById('out').textContent = JSON.stringify(results, null, 2);
+    window.__RESULTS__ = results;
+  </script>
+</body>
+</html>

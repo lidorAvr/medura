@@ -1,0 +1,1706 @@
+// In-browser fake backend (SPEC §7.2 "Demo impl").
+// Mirrors the SQL contract of SPEC §3–§5: same RPC semantics, permission rules, validations,
+// error codes, system notifications, visibility rules and snapshot shape.
+//
+// Storage: the whole database lives as one JSON document in localStorage['medura:demo:v1'];
+// the demo "auth user" id lives in localStorage['medura:demo:uid'].
+// Every call loads a fresh copy, runs one RPC against it, and saves only on success —
+// so a failed call never leaves partial changes behind (like a SQL transaction).
+
+import { ApiError } from './errors.js';
+import {
+  DEMO_VERSION,
+  DEFAULT_CATEGORIES,
+  DEFAULT_TRIP_INFO,
+  DEFAULT_TRIP_SETTINGS,
+  PERSONAL_TEMPLATE,
+  buildDemoSeed,
+  jerusalemYmd,
+} from './demo-seed.js';
+
+export const DEMO_STORAGE_KEY = 'medura:demo:v1';
+export const DEMO_UID_KEY = 'medura:demo:uid';
+
+const LIMITS = Object.freeze({ members: 60, items: 600, expenses: 300, personal: 100, bulk: 150 });
+const CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+const ITEM_TYPES = ['buy', 'bring', 'each', 'task'];
+const PAY_METHODS = ['bit', 'paybox', 'cash', 'transfer', 'other'];
+const SPLIT_MODES = ['all', 'members'];
+const MAX_MONEY = 100000;
+
+const TABLES = [
+  'trips', 'members', 'member_secrets', 'member_users', 'categories', 'items', 'pledges',
+  'expenses', 'expense_shares', 'payments', 'notifications', 'notification_reads',
+  'admin_votes', 'polls', 'poll_votes', 'personal_items', 'push_subscriptions',
+];
+
+// Snapshot projections (SPEC §5) — the exact key sets.
+const K = {
+  trip: ['id', 'name', 'emoji', 'location', 'location_url', 'lat', 'lon', 'starts_at', 'ends_at', 'info', 'settings', 'invite_code', 'rev', 'created_at'],
+  tripBrief: ['id', 'name', 'emoji', 'location', 'starts_at', 'ends_at'],
+  memberBrief: ['id', 'display_name', 'emoji', 'color', 'role'],
+  unclaimed: ['id', 'display_name', 'headcount', 'people', 'emoji', 'color'],
+  category: ['id', 'name', 'emoji', 'sort', 'default_buyer_id', 'note'],
+  item: ['id', 'category_id', 'title', 'note', 'type', 'qty', 'unit', 'per_person', 'needed', 'status', 'done', 'done_at', 'reject_reason', 'created_by', 'approved_by', 'sort', 'created_at', 'updated_at'],
+  pledge: ['id', 'item_id', 'member_id', 'qty', 'done', 'assigned_by', 'created_at'],
+  expense: ['id', 'title', 'amount', 'paid_by', 'category_id', 'note', 'split_mode', 'created_by', 'spent_on', 'created_at'],
+  share: ['expense_id', 'member_id', 'weight'],
+  payment: ['id', 'from_member', 'to_member', 'amount', 'method', 'note', 'status', 'created_by', 'created_at', 'confirmed_at'],
+  notification: ['id', 'kind', 'title', 'body', 'audience', 'author_member', 'urgent', 'link', 'created_at'],
+  read: ['notification_id', 'member_id', 'read_at'],
+  vote: ['voter_id', 'candidate_id'],
+  pollVote: ['poll_id', 'member_id', 'option_id'],
+  personal: ['id', 'title', 'done', 'sort', 'created_at'],
+};
+
+// ---------------------------------------------------------------------------
+// Small utilities
+// ---------------------------------------------------------------------------
+
+const fail = (code) => {
+  throw new ApiError(code);
+};
+const bad = () => fail('invalid_input');
+
+const clone = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
+const pick = (row, keys) => {
+  const out = {};
+  for (const k of keys) out[k] = row[k] === undefined ? null : row[k];
+  return out;
+};
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const has = (o, k) => isObj(o) && Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
+const given = (o, k) => has(o, k) && o[k] !== null; // present and non-null (coalesce semantics)
+const cpLen = (s) => [...s].length;
+const clip = (s, max) => (cpLen(s) > max ? [...s].slice(0, max - 1).join('') + '…' : s);
+const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const isAdmin = (m) => !!m && (m.role === 'owner' || m.role === 'admin');
+const byId = (rows, id) => (typeof id === 'string' ? rows.find((r) => r.id === id) : undefined);
+const remove = (rows, pred) => {
+  for (let i = rows.length - 1; i >= 0; i--) if (pred(rows[i])) rows.splice(i, 1);
+};
+const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const byCreated = (a, b) => cmp(a.created_at, b.created_at);
+const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0) || byCreated(a, b);
+const newest = (a, b) => cmp(b.created_at, a.created_at);
+const nextSort = (rows) => rows.reduce((m, r) => Math.max(m, Number(r.sort) || 0), 0) + 1;
+
+function formatAmount(n) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+function randomBytes(n) {
+  const arr = new Uint8Array(n);
+  if (globalThis.crypto && globalThis.crypto.getRandomValues) globalThis.crypto.getRandomValues(arr);
+  else for (let i = 0; i < n; i++) arr[i] = Math.floor(Math.random() * 256);
+  return arr;
+}
+
+function newId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  const b = randomBytes(16);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+function randomCode() {
+  return [...randomBytes(10)].map((x) => CODE_ALPHABET[x % CODE_ALPHABET.length]).join('');
+}
+
+const normCode = (code) => (typeof code === 'string' ? code.trim().toLowerCase() : '');
+
+// Strictly increasing ISO timestamps so created_at ordering is stable within this tab.
+let lastMs = 0;
+function stamp() {
+  let t = Date.now();
+  if (t <= lastMs) t = lastMs + 1;
+  lastMs = t;
+  return new Date(t).toISOString();
+}
+
+// ---------------------------------------------------------------------------
+// Validation (every failure → invalid_input)
+// ---------------------------------------------------------------------------
+
+function reqText(v, min, max) {
+  if (typeof v !== 'string') bad();
+  const t = v.trim();
+  const n = cpLen(t);
+  if (n < min || n > max) bad();
+  return t;
+}
+
+function optText(v, max) {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== 'string') bad();
+  const t = v.trim();
+  if (cpLen(t) > max) bad();
+  return t === '' ? null : t;
+}
+
+function toNumber(v) {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  if (typeof n !== 'number' || !Number.isFinite(n)) bad();
+  return n;
+}
+
+function toInt(v, min, max) {
+  const n = toNumber(v);
+  if (!Number.isInteger(n) || n < min || n > max) bad();
+  return n;
+}
+
+function toBool(v) {
+  if (typeof v !== 'boolean') bad();
+  return v;
+}
+
+function oneOf(v, allowed) {
+  if (!allowed.includes(v)) bad();
+  return v;
+}
+
+function reqObj(v) {
+  if (!isObj(v)) bad();
+  return v;
+}
+
+function moneyVal(v) {
+  const n = round2(toNumber(v));
+  if (n <= 0 || n > MAX_MONEY) bad();
+  return n;
+}
+
+function textList(v, maxItems, maxLen) {
+  if (v === null || v === undefined) return [];
+  if (!Array.isArray(v)) bad();
+  const out = v.map((s) => optText(s, maxLen)).filter((s) => s !== null);
+  if (out.length > maxItems) bad();
+  return out;
+}
+
+function colorVal(v) {
+  if (typeof v !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(v.trim())) bad();
+  return v.trim();
+}
+
+function phoneVal(v) {
+  const t = optText(v, 20);
+  if (t !== null && !/^[0-9+\-\s().]+$/.test(t)) bad();
+  return t;
+}
+
+function timestampVal(v) {
+  if (v === null || v === '') return null;
+  if (typeof v !== 'string') bad();
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) bad();
+  return d.toISOString();
+}
+
+function dateVal(v) {
+  if (typeof v !== 'string') bad();
+  const s = v.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) bad();
+  const [y, m, d] = s.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== d) bad();
+  return s;
+}
+
+function urlVal(v) {
+  const t = optText(v, 1000);
+  if (t !== null && !/^https?:\/\/\S+$/i.test(t)) bad();
+  return t;
+}
+
+function jsonSize(v, max) {
+  if (JSON.stringify(v).length > max) bad();
+  return v;
+}
+
+function tripFields(p, creating) {
+  reqObj(p);
+  const out = {};
+  if (creating || given(p, 'name')) out.name = reqText(p.name, 1, 60);
+  if (given(p, 'emoji')) out.emoji = reqText(p.emoji, 1, 16);
+  if (has(p, 'location')) out.location = optText(p.location, 200);
+  if (has(p, 'location_url')) out.location_url = urlVal(p.location_url);
+  if (has(p, 'lat')) out.lat = p.lat === null ? null : toNumber(p.lat);
+  if (has(p, 'lon')) out.lon = p.lon === null ? null : toNumber(p.lon);
+  if (out.lat != null && (out.lat < -90 || out.lat > 90)) bad();
+  if (out.lon != null && (out.lon < -180 || out.lon > 180)) bad();
+  if (has(p, 'starts_at')) out.starts_at = timestampVal(p.starts_at);
+  if (has(p, 'ends_at')) out.ends_at = timestampVal(p.ends_at);
+  if (given(p, 'info')) out.info = infoVal(p.info);
+  if (given(p, 'settings')) out.settings = settingsVal(p.settings);
+  return out;
+}
+
+function infoVal(v) {
+  reqObj(v);
+  const out = {};
+  if (given(v, 'schedule')) {
+    if (!Array.isArray(v.schedule) || v.schedule.length > 60 || !v.schedule.every(isObj)) bad();
+    out.schedule = v.schedule;
+  }
+  if (given(v, 'rules')) {
+    if (!Array.isArray(v.rules) || v.rules.length > 60 || !v.rules.every(isObj)) bad();
+    out.rules = v.rules;
+  }
+  if (has(v, 'notes')) {
+    if (v.notes !== null && typeof v.notes !== 'string') bad();
+    out.notes = v.notes ?? '';
+    if (cpLen(out.notes) > 4000) bad();
+  }
+  return jsonSize(out, 40000);
+}
+
+function settingsVal(v) {
+  reqObj(v);
+  const out = {};
+  if (given(v, 'require_approval')) out.require_approval = toBool(v.require_approval);
+  return out;
+}
+
+function profileFields(p, creating) {
+  reqObj(p);
+  const out = {};
+  if (creating || given(p, 'display_name')) out.display_name = reqText(p.display_name, 1, 40);
+  if (given(p, 'headcount')) out.headcount = toInt(p.headcount, 1, 8);
+  if (has(p, 'people')) out.people = textList(p.people, 8, 40);
+  if (given(p, 'emoji')) out.emoji = reqText(p.emoji, 1, 16);
+  if (given(p, 'color')) out.color = colorVal(p.color);
+  if (has(p, 'phone')) out.phone = phoneVal(p.phone);
+  if (given(p, 'prefs')) out.prefs = jsonSize(reqObj(p.prefs), 8000);
+  if (has(p, 'inventory')) out.inventory = textList(p.inventory, 60, 40);
+  return out;
+}
+
+function applyProfile(member, f) {
+  for (const [k, v] of Object.entries(f)) {
+    member[k] = k === 'prefs' ? { ...(member.prefs || {}), ...v } : v;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Database access helpers (operate on ctx = { db, uid, now(), dirty, touched })
+// ---------------------------------------------------------------------------
+
+function emptyDb() {
+  const db = { version: DEMO_VERSION };
+  for (const t of TABLES) db[t] = [];
+  return db;
+}
+
+function validDb(db) {
+  return isObj(db) && db.version === DEMO_VERSION && TABLES.every((t) => Array.isArray(db[t]));
+}
+
+function need(rows, id) {
+  const row = byId(rows, id);
+  if (!row) fail('not_found');
+  return row;
+}
+
+function membersOf(db, tripId) {
+  return db.members.filter((m) => m.trip_id === tripId);
+}
+
+function myMember(db, tripId, uid) {
+  const link = db.member_users.find((l) => l.user_id === uid && l.trip_id === tripId);
+  return link ? byId(db.members, link.member_id) || null : null;
+}
+
+function requireMember(ctx, tripId) {
+  const me = typeof tripId === 'string' ? myMember(ctx.db, tripId, ctx.uid) : null;
+  if (!me) fail('forbidden');
+  return me;
+}
+
+function requireAdmin(ctx, tripId) {
+  const me = requireMember(ctx, tripId);
+  if (!isAdmin(me)) fail('forbidden');
+  return me;
+}
+
+function tripByCode(db, code) {
+  const c = normCode(code);
+  return c ? db.trips.find((t) => t.invite_code === c) : undefined;
+}
+
+function uniqueCode(db) {
+  for (;;) {
+    const c = randomCode();
+    if (!db.trips.some((t) => t.invite_code === c) && !db.member_secrets.some((s) => s.device_code === c)) return c;
+  }
+}
+
+function memberRef(db, tripId, id) {
+  const m = byId(db.members, id);
+  if (!m || m.trip_id !== tripId) bad();
+  return m.id;
+}
+
+function categoryRef(db, tripId, id) {
+  if (id === null || id === undefined || id === '') return null;
+  const c = byId(db.categories, id);
+  if (!c || c.trip_id !== tripId) bad();
+  return c.id;
+}
+
+function bump(ctx, tripId) {
+  const trip = byId(ctx.db.trips, tripId);
+  if (trip) {
+    trip.rev = (Number(trip.rev) || 0) + 1;
+    trip.updated_at = ctx.now();
+  }
+  ctx.dirty = true;
+  ctx.touched.add(tripId);
+}
+
+function notify(ctx, tripId, { title, body = null, audience = null, link = null }) {
+  ctx.db.notifications.push({
+    id: newId(),
+    trip_id: tripId,
+    kind: 'system',
+    title: clip(title, 80),
+    body: body ? clip(body, 2000) : null,
+    audience,
+    author_member: null,
+    urgent: false,
+    link,
+    created_at: ctx.now(),
+  });
+}
+
+function canSeeNotification(n, me) {
+  return (
+    n.audience == null ||
+    n.audience.includes(me.id) ||
+    n.author_member === me.id ||
+    (n.kind === 'announcement' && isAdmin(me))
+  );
+}
+
+function canSeeItem(item, me) {
+  return item.status !== 'rejected' || isAdmin(me) || item.created_by === me.id;
+}
+
+const itemLink = (tripId, itemId) => `#/t/${tripId}/lists?item=${itemId}`;
+
+function newMemberRow(ctx, tripId, prof, role, claimed) {
+  const now = ctx.now();
+  return {
+    id: newId(),
+    trip_id: tripId,
+    display_name: prof.display_name,
+    headcount: prof.headcount ?? 1,
+    people: prof.people ?? [],
+    emoji: prof.emoji ?? '🙂',
+    color: prof.color ?? '#2F6B4F',
+    role,
+    phone: prof.phone ?? null,
+    prefs: prof.prefs ?? {},
+    inventory: prof.inventory ?? [],
+    claimed_at: claimed ? now : null,
+    created_at: now,
+  };
+}
+
+function linkUser(ctx, tripId, memberId) {
+  ctx.db.member_users.push({ user_id: ctx.uid, trip_id: tripId, member_id: memberId, created_at: ctx.now() });
+}
+
+/** After a user link was removed: a member with no linked users becomes claimable again. */
+function releaseIfOrphan(db, memberId) {
+  const m = byId(db.members, memberId);
+  if (m && !db.member_users.some((l) => l.member_id === memberId)) m.claimed_at = null;
+}
+
+function itemFields(db, tripId, p, creating) {
+  reqObj(p);
+  const out = {};
+  if (creating || given(p, 'title')) out.title = reqText(p.title, 1, 120);
+  if (has(p, 'note')) out.note = optText(p.note, 500);
+  if (creating) out.type = given(p, 'type') ? oneOf(p.type, ITEM_TYPES) : 'buy';
+  else if (given(p, 'type')) out.type = oneOf(p.type, ITEM_TYPES);
+  if (has(p, 'qty')) {
+    if (p.qty === null || p.qty === '') out.qty = null;
+    else {
+      out.qty = toNumber(p.qty);
+      if (out.qty <= 0 || out.qty > 1000000) bad();
+    }
+  }
+  if (has(p, 'unit')) out.unit = optText(p.unit, 20);
+  if (given(p, 'per_person')) out.per_person = toBool(p.per_person);
+  if (given(p, 'needed')) out.needed = toInt(p.needed, 1, 200);
+  if (has(p, 'category_id')) out.category_id = categoryRef(db, tripId, p.category_id);
+  if (!creating && given(p, 'sort')) out.sort = toInt(p.sort, -1000000, 1000000);
+  return out;
+}
+
+function pledgeQtyVal(p) {
+  return given(p, 'pledge_qty') ? toInt(p.pledge_qty, -1000000, 200) : 0;
+}
+
+function insertItem(ctx, trip, me, f, pledgeQty, sort) {
+  const auto = trip.settings?.require_approval === false || isAdmin(me);
+  const now = ctx.now();
+  const item = {
+    id: newId(),
+    trip_id: trip.id,
+    category_id: f.category_id ?? null,
+    title: f.title,
+    note: f.note ?? null,
+    type: f.type,
+    qty: f.qty ?? null,
+    unit: f.unit ?? null,
+    per_person: f.per_person ?? false,
+    needed: f.needed ?? 1,
+    status: auto ? 'active' : 'proposed',
+    done: false,
+    done_at: null,
+    reject_reason: null,
+    created_by: me.id,
+    approved_by: auto && isAdmin(me) ? me.id : null,
+    sort,
+    created_at: now,
+    updated_at: now,
+  };
+  ctx.db.items.push(item);
+  if (pledgeQty > 0 && item.type !== 'each') {
+    ctx.db.pledges.push({
+      id: newId(), trip_id: trip.id, item_id: item.id, member_id: me.id,
+      qty: pledgeQty, done: false, assigned_by: null, created_at: ctx.now(),
+    });
+  }
+  return item;
+}
+
+function expenseFields(db, tripId, p, creating) {
+  reqObj(p);
+  const out = {};
+  if (creating || given(p, 'title')) out.title = reqText(p.title, 1, 80);
+  if (creating || given(p, 'amount')) out.amount = moneyVal(p.amount);
+  if (given(p, 'paid_by')) out.paid_by = memberRef(db, tripId, p.paid_by);
+  if (has(p, 'category_id')) out.category_id = categoryRef(db, tripId, p.category_id);
+  if (has(p, 'note')) out.note = optText(p.note, 500);
+  if (given(p, 'spent_on')) out.spent_on = dateVal(p.spent_on);
+  if (given(p, 'split_mode')) out.split_mode = oneOf(p.split_mode, SPLIT_MODES);
+  if (given(p, 'members')) out.members = sharesVal(db, tripId, p.members);
+  return out;
+}
+
+function sharesVal(db, tripId, list) {
+  if (!Array.isArray(list)) bad();
+  const seen = new Set();
+  return list.map((s) => {
+    reqObj(s);
+    const memberId = memberRef(db, tripId, s.member_id);
+    if (seen.has(memberId)) bad();
+    seen.add(memberId);
+    let weight;
+    if (given(s, 'weight')) {
+      weight = toNumber(s.weight);
+      if (weight <= 0 || weight > 1000) bad();
+    } else {
+      weight = byId(db.members, memberId).headcount;
+    }
+    return { member_id: memberId, weight };
+  });
+}
+
+function replaceShares(ctx, expense, shares) {
+  remove(ctx.db.expense_shares, (s) => s.expense_id === expense.id);
+  for (const s of shares) {
+    ctx.db.expense_shares.push({ expense_id: expense.id, trip_id: expense.trip_id, member_id: s.member_id, weight: s.weight });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The RPCs (SPEC §4). Each takes ctx + the RPC params in order.
+// ---------------------------------------------------------------------------
+
+const RPC = {
+  my_trips(ctx) {
+    const { db } = ctx;
+    const rows = [];
+    for (const l of db.member_users) {
+      if (l.user_id !== ctx.uid) continue;
+      const trip = byId(db.trips, l.trip_id);
+      const member = byId(db.members, l.member_id);
+      if (trip && member) rows.push({ trip: pick(trip, K.tripBrief), member: pick(member, K.memberBrief) });
+    }
+    rows.sort((a, b) => {
+      const x = a.trip.starts_at;
+      const y = b.trip.starts_at;
+      if (x === y) return cmp(a.trip.name, b.trip.name);
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return cmp(x, y);
+    });
+    return rows;
+  },
+
+  create_trip(ctx, pTrip, pProfile) {
+    const { db } = ctx;
+    const t = tripFields(pTrip, true);
+    const prof = profileFields(pProfile, true);
+    const now = ctx.now();
+    const trip = {
+      id: newId(),
+      name: t.name,
+      emoji: t.emoji ?? '⛺',
+      location: t.location ?? null,
+      location_url: t.location_url ?? null,
+      lat: t.lat ?? null,
+      lon: t.lon ?? null,
+      starts_at: t.starts_at ?? null,
+      ends_at: t.ends_at ?? null,
+      info: { ...clone(DEFAULT_TRIP_INFO), ...(t.info || {}) },
+      settings: { ...DEFAULT_TRIP_SETTINGS, ...(t.settings || {}) },
+      invite_code: uniqueCode(db),
+      rev: 0,
+      created_by: ctx.uid,
+      created_at: now,
+      updated_at: now,
+    };
+    db.trips.push(trip);
+    const member = newMemberRow(ctx, trip.id, prof, 'owner', true);
+    db.members.push(member);
+    linkUser(ctx, trip.id, member.id);
+    DEFAULT_CATEGORIES.forEach((c, i) => {
+      db.categories.push({
+        id: newId(), trip_id: trip.id, name: c.name, emoji: c.emoji, sort: i + 1,
+        default_buyer_id: null, note: null, created_at: ctx.now(),
+      });
+    });
+    bump(ctx, trip.id);
+    return { trip_id: trip.id, member_id: member.id };
+  },
+
+  preview_invite(ctx, code) {
+    const { db } = ctx;
+    const trip = tripByCode(db, code);
+    if (!trip) fail('invalid_code');
+    const members = membersOf(db, trip.id).sort(byCreated);
+    const mine = myMember(db, trip.id, ctx.uid);
+    return {
+      trip: pick(trip, K.tripBrief),
+      member_count: members.length,
+      headcount: members.reduce((s, m) => s + m.headcount, 0),
+      unclaimed: members.filter((m) => !m.claimed_at).map((m) => pick(m, K.unclaimed)),
+      my_member_id: mine ? mine.id : null,
+    };
+  },
+
+  join_trip(ctx, code, claimMemberId, profile) {
+    const { db } = ctx;
+    const trip = tripByCode(db, code);
+    if (!trip) fail('invalid_code');
+    const existing = myMember(db, trip.id, ctx.uid);
+    if (existing) return { trip_id: trip.id, member_id: existing.id };
+
+    const members = membersOf(db, trip.id);
+    const hadAdmin = members.some(isAdmin);
+    let member;
+    if (claimMemberId != null) {
+      member = byId(db.members, claimMemberId);
+      if (!member || member.trip_id !== trip.id) fail('not_found');
+      if (member.claimed_at) fail('already_claimed');
+      if (profile != null) applyProfile(member, profileFields(profile, false));
+      member.claimed_at = ctx.now();
+    } else {
+      if (profile == null) bad();
+      const prof = profileFields(profile, true);
+      if (members.length >= LIMITS.members) fail('limit_reached');
+      member = newMemberRow(ctx, trip.id, prof, 'member', true);
+      db.members.push(member);
+    }
+    if (!hadAdmin) member.role = 'owner';
+    linkUser(ctx, trip.id, member.id);
+
+    const admins = membersOf(db, trip.id).filter((m) => isAdmin(m) && m.id !== member.id).map((m) => m.id);
+    if (admins.length) {
+      notify(ctx, trip.id, {
+        title: `${member.display_name} הצטרפ/ה לטיול 🎉`,
+        audience: admins,
+        link: `#/t/${trip.id}/people`,
+      });
+    }
+    bump(ctx, trip.id);
+    return { trip_id: trip.id, member_id: member.id };
+  },
+
+  link_device(ctx, deviceCode) {
+    const { db } = ctx;
+    const c = normCode(deviceCode);
+    const secret = c ? db.member_secrets.find((s) => s.device_code === c) : null;
+    const member = secret ? byId(db.members, secret.member_id) : null;
+    if (!member) fail('invalid_code');
+    const prev = db.member_users.find((l) => l.user_id === ctx.uid && l.trip_id === member.trip_id);
+    if (!(prev && prev.member_id === member.id)) {
+      if (prev) {
+        remove(db.member_users, (l) => l === prev);
+        releaseIfOrphan(db, prev.member_id);
+      }
+      linkUser(ctx, member.trip_id, member.id);
+      if (!member.claimed_at) member.claimed_at = ctx.now();
+    }
+    bump(ctx, member.trip_id);
+    return { trip_id: member.trip_id, member_id: member.id };
+  },
+
+  get_device_code(ctx, memberId) {
+    const { db } = ctx;
+    const member = need(db.members, memberId);
+    const me = myMember(db, member.trip_id, ctx.uid);
+    if (!me || me.id !== member.id) fail('forbidden');
+    let secret = db.member_secrets.find((s) => s.member_id === member.id);
+    if (!secret) {
+      secret = { member_id: member.id, trip_id: member.trip_id, device_code: uniqueCode(db) };
+      db.member_secrets.push(secret);
+      ctx.dirty = true;
+    }
+    return secret.device_code;
+  },
+
+  get_trip_snapshot(ctx, tripId) {
+    const { db, uid } = ctx;
+    const me = requireMember(ctx, tripId);
+    const admin = isAdmin(me);
+    const trip = byId(db.trips, tripId);
+    const inTrip = (r) => r.trip_id === tripId;
+
+    const itemRows = db.items.filter((i) => inTrip(i) && canSeeItem(i, me)).sort(bySort);
+    const visibleItems = new Set(itemRows.map((i) => i.id));
+    const authored = new Set(db.notifications.filter((n) => inTrip(n) && n.author_member === me.id).map((n) => n.id));
+
+    return {
+      trip: { ...pick(trip, K.trip), info: { ...clone(DEFAULT_TRIP_INFO), ...(trip.info || {}) }, settings: { ...DEFAULT_TRIP_SETTINGS, ...(trip.settings || {}) } },
+      me: { member_id: me.id, role: me.role, user_id: uid },
+      members: membersOf(db, tripId).sort(byCreated).map((m) => ({
+        id: m.id,
+        display_name: m.display_name,
+        headcount: m.headcount,
+        people: m.people || [],
+        emoji: m.emoji,
+        color: m.color,
+        role: m.role,
+        phone: m.phone ?? null,
+        prefs: m.prefs || {},
+        inventory: m.inventory || [],
+        claimed: Boolean(m.claimed_at),
+        created_at: m.created_at,
+      })),
+      categories: db.categories.filter(inTrip).sort(bySort).map((c) => pick(c, K.category)),
+      items: itemRows.map((i) => pick(i, K.item)),
+      pledges: db.pledges.filter((p) => inTrip(p) && visibleItems.has(p.item_id)).sort(byCreated).map((p) => pick(p, K.pledge)),
+      expenses: db.expenses
+        .filter(inTrip)
+        .sort((a, b) => cmp(b.spent_on, a.spent_on) || newest(a, b))
+        .map((e) => pick(e, K.expense)),
+      expense_shares: db.expense_shares.filter(inTrip).map((s) => pick(s, K.share)),
+      payments: db.payments.filter(inTrip).sort(newest).map((p) => pick(p, K.payment)),
+      notifications: db.notifications
+        .filter((n) => inTrip(n) && canSeeNotification(n, me))
+        .sort(newest)
+        .slice(0, 200)
+        .map((n) => pick(n, K.notification)),
+      reads: db.notification_reads
+        .filter((r) => inTrip(r) && (admin || r.member_id === me.id || authored.has(r.notification_id)))
+        .map((r) => pick(r, K.read)),
+      admin_votes: db.admin_votes.filter(inTrip).sort(byCreated).map((v) => pick(v, K.vote)),
+      polls: db.polls.filter(inTrip).sort(newest).map((p) => ({
+        id: p.id,
+        question: p.question,
+        options: p.options.map((o) => ({ id: o.id, label: o.label })),
+        multi: p.multi,
+        closed: p.closed,
+        created_by: p.created_by ?? null,
+        created_at: p.created_at,
+      })),
+      poll_votes: db.poll_votes.filter(inTrip).map((v) => pick(v, K.pollVote)),
+      personal_items: db.personal_items
+        .filter((p) => inTrip(p) && p.member_id === me.id)
+        .sort(bySort)
+        .map((p) => pick(p, K.personal)),
+    };
+  },
+
+  update_trip(ctx, tripId, patch) {
+    requireAdmin(ctx, tripId);
+    const trip = byId(ctx.db.trips, tripId);
+    const f = tripFields(patch, false);
+    for (const [k, v] of Object.entries(f)) {
+      if (k === 'info') trip.info = { ...clone(DEFAULT_TRIP_INFO), ...(trip.info || {}), ...v };
+      else if (k === 'settings') trip.settings = { ...DEFAULT_TRIP_SETTINGS, ...(trip.settings || {}), ...v };
+      else trip[k] = v;
+    }
+    bump(ctx, tripId);
+    return null;
+  },
+
+  rotate_invite(ctx, tripId) {
+    requireAdmin(ctx, tripId);
+    const trip = byId(ctx.db.trips, tripId);
+    trip.invite_code = uniqueCode(ctx.db);
+    bump(ctx, tripId);
+    return trip.invite_code;
+  },
+
+  update_member(ctx, memberId, patch) {
+    const member = need(ctx.db.members, memberId);
+    const me = requireMember(ctx, member.trip_id);
+    if (me.id !== member.id && !isAdmin(me)) fail('forbidden');
+    applyProfile(member, profileFields(patch, false));
+    bump(ctx, member.trip_id);
+    return null;
+  },
+
+  create_member(ctx, tripId, profile) {
+    requireAdmin(ctx, tripId);
+    const prof = profileFields(profile, true);
+    if (membersOf(ctx.db, tripId).length >= LIMITS.members) fail('limit_reached');
+    const member = newMemberRow(ctx, tripId, prof, 'member', false);
+    ctx.db.members.push(member);
+    bump(ctx, tripId);
+    return member.id;
+  },
+
+  set_role(ctx, memberId, role) {
+    const { db } = ctx;
+    const member = need(db.members, memberId);
+    requireAdmin(ctx, member.trip_id);
+    oneOf(role, ['admin', 'member']);
+    if (member.role === 'owner') fail('owner_locked');
+    if (role === 'member' && isAdmin(member)) {
+      const others = membersOf(db, member.trip_id).some((m) => m.id !== member.id && isAdmin(m));
+      if (!others) fail('last_admin');
+    }
+    const promoted = role === 'admin' && member.role !== 'admin';
+    member.role = role;
+    if (promoted) {
+      notify(ctx, member.trip_id, { title: 'מונית למנהל/ת 👑', audience: [member.id], link: `#/t/${member.trip_id}/people` });
+    }
+    bump(ctx, member.trip_id);
+    return null;
+  },
+
+  remove_member(ctx, memberId) {
+    const { db } = ctx;
+    const member = need(db.members, memberId);
+    requireAdmin(ctx, member.trip_id);
+    if (member.role === 'owner') fail('owner_locked');
+    if (isAdmin(member) && !membersOf(db, member.trip_id).some((m) => m.id !== member.id && isAdmin(m))) fail('last_admin');
+    const id = member.id;
+    const hasMoney =
+      db.expenses.some((e) => e.paid_by === id || e.created_by === id) ||
+      db.expense_shares.some((s) => s.member_id === id) ||
+      db.payments.some((p) => p.from_member === id || p.to_member === id || p.created_by === id);
+    if (hasMoney) fail('has_money_records');
+
+    remove(db.pledges, (p) => p.member_id === id);
+    remove(db.admin_votes, (v) => v.voter_id === id || v.candidate_id === id);
+    remove(db.notification_reads, (r) => r.member_id === id);
+    remove(db.poll_votes, (v) => v.member_id === id);
+    remove(db.personal_items, (p) => p.member_id === id);
+    remove(db.member_users, (l) => l.member_id === id);
+    remove(db.member_secrets, (s) => s.member_id === id);
+    remove(db.push_subscriptions, (s) => s.member_id === id);
+    for (const c of db.categories) if (c.default_buyer_id === id) c.default_buyer_id = null;
+    for (const i of db.items) if (i.created_by === id) i.created_by = null;
+    for (const p of db.polls) if (p.created_by === id) p.created_by = null;
+    remove(db.members, (m) => m.id === id);
+    bump(ctx, member.trip_id);
+    return null;
+  },
+
+  leave_trip(ctx, tripId) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    if (isAdmin(me) && !membersOf(db, tripId).some((m) => m.id !== me.id && isAdmin(m))) fail('last_admin');
+    remove(db.member_users, (l) => l.user_id === ctx.uid && l.trip_id === tripId);
+    releaseIfOrphan(db, me.id);
+    bump(ctx, tripId);
+    return null;
+  },
+
+  vote_admin(ctx, candidateId, on) {
+    const { db } = ctx;
+    const candidate = need(db.members, candidateId);
+    const me = requireMember(ctx, candidate.trip_id);
+    const wanted = toBool(on);
+    const existing = db.admin_votes.find((v) => v.voter_id === me.id && v.candidate_id === candidate.id);
+    if (wanted && !existing) {
+      db.admin_votes.push({ trip_id: candidate.trip_id, voter_id: me.id, candidate_id: candidate.id, created_at: ctx.now() });
+    } else if (!wanted && existing) {
+      remove(db.admin_votes, (v) => v === existing);
+    }
+    bump(ctx, candidate.trip_id);
+    return null;
+  },
+
+  upsert_category(ctx, tripId, cat) {
+    const { db } = ctx;
+    requireAdmin(ctx, tripId);
+    reqObj(cat);
+    const f = {};
+    if (given(cat, 'name')) f.name = reqText(cat.name, 1, 40);
+    if (given(cat, 'emoji')) f.emoji = reqText(cat.emoji, 1, 16);
+    if (given(cat, 'sort')) f.sort = toInt(cat.sort, -1000000, 1000000);
+    if (has(cat, 'default_buyer_id')) f.default_buyer_id = cat.default_buyer_id === null ? null : memberRef(db, tripId, cat.default_buyer_id);
+    if (has(cat, 'note')) f.note = optText(cat.note, 500);
+
+    let row;
+    if (given(cat, 'id')) {
+      row = byId(db.categories, cat.id);
+      if (!row || row.trip_id !== tripId) fail('not_found');
+      Object.assign(row, f);
+    } else {
+      if (!f.name) bad();
+      const siblings = db.categories.filter((c) => c.trip_id === tripId);
+      row = {
+        id: newId(), trip_id: tripId, name: f.name, emoji: f.emoji ?? '📦', sort: f.sort ?? nextSort(siblings),
+        default_buyer_id: f.default_buyer_id ?? null, note: f.note ?? null, created_at: ctx.now(),
+      };
+      db.categories.push(row);
+    }
+    bump(ctx, tripId);
+    return row.id;
+  },
+
+  delete_category(ctx, categoryId) {
+    const { db } = ctx;
+    const cat = need(db.categories, categoryId);
+    requireAdmin(ctx, cat.trip_id);
+    remove(db.categories, (c) => c.id === cat.id);
+    for (const i of db.items) if (i.category_id === cat.id) i.category_id = null;
+    for (const e of db.expenses) if (e.category_id === cat.id) e.category_id = null;
+    bump(ctx, cat.trip_id);
+    return null;
+  },
+
+  add_item(ctx, tripId, p) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const trip = byId(db.trips, tripId);
+    const f = itemFields(db, tripId, p, true);
+    const pledgeQty = pledgeQtyVal(p);
+    const tripItems = db.items.filter((i) => i.trip_id === tripId);
+    if (tripItems.length >= LIMITS.items) fail('limit_reached');
+    const item = insertItem(ctx, trip, me, f, pledgeQty, nextSort(tripItems));
+    if (item.status === 'proposed') {
+      const admins = membersOf(db, tripId).filter(isAdmin).map((m) => m.id);
+      if (admins.length) {
+        notify(ctx, tripId, {
+          title: `הצעה חדשה: ${item.title}`,
+          body: `${me.display_name} הציע/ה להוסיף לרשימה`,
+          audience: admins,
+          link: itemLink(tripId, item.id),
+        });
+      }
+    }
+    bump(ctx, tripId);
+    return item.id;
+  },
+
+  add_items_bulk(ctx, tripId, list) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const trip = byId(db.trips, tripId);
+    if (!Array.isArray(list) || list.length > LIMITS.bulk) bad();
+    const tripItems = db.items.filter((i) => i.trip_id === tripId);
+    if (tripItems.length + list.length > LIMITS.items) fail('limit_reached');
+
+    // Validate everything first (all-or-nothing).
+    const prepared = list.map((raw) => {
+      reqObj(raw);
+      const { category_id: catId, category_name: catName, category_emoji: catEmoji, ...rest } = raw;
+      const f = itemFields(db, tripId, rest, true);
+      let category = null;
+      if (catId !== undefined && catId !== null && catId !== '') category = { id: categoryRef(db, tripId, catId) };
+      else if (typeof catName === 'string' && catName.trim()) {
+        category = { name: reqText(catName, 1, 40), emoji: catEmoji ? reqText(catEmoji, 1, 16) : null };
+      } else if (catName != null && typeof catName !== 'string') bad();
+      return { f, category, pledgeQty: pledgeQtyVal(raw) };
+    });
+
+    const norm = (s) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const resolved = new Map();
+    const resolveCategory = (c) => {
+      if (!c) return null;
+      if (c.id !== undefined) return c.id;
+      const key = norm(c.name);
+      if (resolved.has(key)) return resolved.get(key);
+      const found = db.categories.find((x) => x.trip_id === tripId && norm(x.name) === key);
+      let id = found ? found.id : null;
+      if (!found && isAdmin(me)) {
+        const siblings = db.categories.filter((x) => x.trip_id === tripId);
+        id = newId();
+        db.categories.push({
+          id, trip_id: tripId, name: c.name, emoji: c.emoji || '📦', sort: nextSort(siblings),
+          default_buyer_id: null, note: null, created_at: ctx.now(),
+        });
+      }
+      resolved.set(key, id);
+      return id;
+    };
+
+    let sort = nextSort(tripItems);
+    for (const { f, category, pledgeQty } of prepared) {
+      f.category_id = resolveCategory(category);
+      insertItem(ctx, trip, me, f, pledgeQty, sort++);
+    }
+    if (prepared.length) bump(ctx, tripId);
+    return prepared.length;
+  },
+
+  update_item(ctx, itemId, patch) {
+    const { db } = ctx;
+    const item = need(db.items, itemId);
+    const me = requireMember(ctx, item.trip_id);
+    if (!(isAdmin(me) || (item.created_by === me.id && item.status === 'proposed'))) fail('forbidden');
+    Object.assign(item, itemFields(db, item.trip_id, patch, false));
+    item.updated_at = ctx.now();
+    bump(ctx, item.trip_id);
+    return null;
+  },
+
+  review_item(ctx, itemId, approve, reason) {
+    const { db } = ctx;
+    const item = need(db.items, itemId);
+    const me = requireAdmin(ctx, item.trip_id);
+    const ok = toBool(approve);
+    const why = optText(reason, 500);
+    if (item.status !== 'proposed') fail('not_allowed_state');
+    if (ok) {
+      item.status = 'active';
+      item.approved_by = me.id;
+      item.reject_reason = null;
+    } else {
+      item.status = 'rejected';
+      item.reject_reason = why;
+    }
+    item.updated_at = ctx.now();
+    if (item.created_by && item.created_by !== me.id) {
+      notify(ctx, item.trip_id, {
+        title: ok ? `ההצעה אושרה ✅: ${item.title}` : `ההצעה נדחתה: ${item.title}`,
+        body: ok ? null : why,
+        audience: [item.created_by],
+        link: itemLink(item.trip_id, item.id),
+      });
+    }
+    bump(ctx, item.trip_id);
+    return null;
+  },
+
+  delete_item(ctx, itemId) {
+    const { db } = ctx;
+    const item = need(db.items, itemId);
+    const me = requireMember(ctx, item.trip_id);
+    const own = item.created_by === me.id && (item.status === 'proposed' || item.status === 'rejected');
+    if (!isAdmin(me) && !own) fail('forbidden');
+    remove(db.pledges, (p) => p.item_id === item.id);
+    remove(db.items, (i) => i.id === item.id);
+    bump(ctx, item.trip_id);
+    return null;
+  },
+
+  pledge(ctx, itemId, qty) {
+    const { db } = ctx;
+    const item = need(db.items, itemId);
+    const me = requireMember(ctx, item.trip_id);
+    const q = qty == null ? 1 : toInt(qty, -1000000, 200);
+    if (item.type === 'each') bad();
+    const allowed = item.status === 'active' || (item.status === 'proposed' && item.created_by === me.id);
+    if (!allowed) fail('not_allowed_state');
+    const existing = db.pledges.find((p) => p.item_id === item.id && p.member_id === me.id);
+    if (q <= 0) {
+      if (existing) remove(db.pledges, (p) => p === existing);
+    } else if (existing) {
+      existing.qty = q;
+    } else {
+      db.pledges.push({
+        id: newId(), trip_id: item.trip_id, item_id: item.id, member_id: me.id,
+        qty: q, done: false, assigned_by: null, created_at: ctx.now(),
+      });
+    }
+    bump(ctx, item.trip_id);
+    return null;
+  },
+
+  assign(ctx, itemId, memberId, qty) {
+    const { db } = ctx;
+    const item = need(db.items, itemId);
+    const me = requireAdmin(ctx, item.trip_id);
+    const target = byId(db.members, memberId);
+    if (!target || target.trip_id !== item.trip_id) fail('not_found');
+    const q = qty == null ? 1 : toInt(qty, -1000000, 200);
+    if (item.type === 'each') bad();
+    if (item.status === 'rejected') fail('not_allowed_state');
+    const existing = db.pledges.find((p) => p.item_id === item.id && p.member_id === target.id);
+    if (q <= 0) {
+      if (existing) remove(db.pledges, (p) => p === existing);
+    } else {
+      if (existing) {
+        existing.qty = q;
+        existing.assigned_by = me.id;
+      } else {
+        db.pledges.push({
+          id: newId(), trip_id: item.trip_id, item_id: item.id, member_id: target.id,
+          qty: q, done: false, assigned_by: me.id, created_at: ctx.now(),
+        });
+      }
+      if (target.id !== me.id) {
+        notify(ctx, item.trip_id, { title: `שובצת: ${item.title}`, audience: [target.id], link: itemLink(item.trip_id, item.id) });
+      }
+    }
+    bump(ctx, item.trip_id);
+    return null;
+  },
+
+  set_pledge_done(ctx, itemId, done) {
+    const { db } = ctx;
+    const item = need(db.items, itemId);
+    const me = requireMember(ctx, item.trip_id);
+    const d = toBool(done);
+    if (item.status === 'rejected') fail('not_allowed_state');
+    const existing = db.pledges.find((p) => p.item_id === item.id && p.member_id === me.id);
+    if (existing) existing.done = d;
+    else if (item.type === 'each') {
+      db.pledges.push({
+        id: newId(), trip_id: item.trip_id, item_id: item.id, member_id: me.id,
+        qty: 1, done: d, assigned_by: null, created_at: ctx.now(),
+      });
+    } else fail('not_found');
+    bump(ctx, item.trip_id);
+    return null;
+  },
+
+  set_item_done(ctx, itemId, done) {
+    const { db } = ctx;
+    const item = need(db.items, itemId);
+    const me = requireMember(ctx, item.trip_id);
+    const d = toBool(done);
+    if (item.type !== 'buy' && item.type !== 'task') bad();
+    if (item.status === 'rejected') fail('not_allowed_state');
+    const pledger = db.pledges.some((p) => p.item_id === item.id && p.member_id === me.id);
+    if (!pledger && !isAdmin(me)) fail('forbidden');
+    item.done = d;
+    item.done_at = d ? ctx.now() : null;
+    item.updated_at = ctx.now();
+    bump(ctx, item.trip_id);
+    return null;
+  },
+
+  add_personal(ctx, tripId, title) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const t = reqText(title, 1, 80);
+    const mine = db.personal_items.filter((p) => p.member_id === me.id);
+    if (mine.length >= LIMITS.personal) fail('limit_reached');
+    const row = { id: newId(), trip_id: tripId, member_id: me.id, title: t, done: false, sort: nextSort(mine), created_at: ctx.now() };
+    db.personal_items.push(row);
+    bump(ctx, tripId);
+    return row.id;
+  },
+
+  add_personal_template(ctx, tripId) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const mine = db.personal_items.filter((p) => p.member_id === me.id);
+    const have = new Set(mine.map((p) => p.title.trim()));
+    const toAdd = PERSONAL_TEMPLATE.filter((t) => !have.has(t));
+    if (mine.length + toAdd.length > LIMITS.personal) fail('limit_reached');
+    let sort = nextSort(mine);
+    for (const title of toAdd) {
+      db.personal_items.push({ id: newId(), trip_id: tripId, member_id: me.id, title, done: false, sort: sort++, created_at: ctx.now() });
+    }
+    if (toAdd.length) bump(ctx, tripId);
+    return toAdd.length;
+  },
+
+  update_personal(ctx, id, patch) {
+    const { db } = ctx;
+    const row = need(db.personal_items, id);
+    const me = myMember(db, row.trip_id, ctx.uid);
+    if (!me || me.id !== row.member_id) fail('forbidden');
+    reqObj(patch);
+    if (given(patch, 'title')) row.title = reqText(patch.title, 1, 80);
+    if (given(patch, 'done')) row.done = toBool(patch.done);
+    if (given(patch, 'sort')) row.sort = toInt(patch.sort, -1000000, 1000000);
+    bump(ctx, row.trip_id);
+    return null;
+  },
+
+  delete_personal(ctx, id) {
+    const { db } = ctx;
+    const row = need(db.personal_items, id);
+    const me = myMember(db, row.trip_id, ctx.uid);
+    if (!me || me.id !== row.member_id) fail('forbidden');
+    remove(db.personal_items, (p) => p.id === row.id);
+    bump(ctx, row.trip_id);
+    return null;
+  },
+
+  add_expense(ctx, tripId, exp) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const f = expenseFields(db, tripId, exp, true);
+    const paidBy = f.paid_by ?? me.id;
+    if (paidBy !== me.id && !isAdmin(me)) fail('forbidden');
+    const mode = f.split_mode ?? 'all';
+    if (mode === 'members' && !(f.members && f.members.length)) bad();
+    if (db.expenses.filter((e) => e.trip_id === tripId).length >= LIMITS.expenses) fail('limit_reached');
+    const row = {
+      id: newId(),
+      trip_id: tripId,
+      title: f.title,
+      amount: f.amount,
+      paid_by: paidBy,
+      category_id: f.category_id ?? null,
+      note: f.note ?? null,
+      split_mode: mode,
+      created_by: me.id,
+      spent_on: f.spent_on ?? jerusalemYmd(new Date()),
+      created_at: ctx.now(),
+    };
+    db.expenses.push(row);
+    if (mode === 'members') replaceShares(ctx, row, f.members);
+    bump(ctx, tripId);
+    return row.id;
+  },
+
+  update_expense(ctx, id, patch) {
+    const { db } = ctx;
+    const exp = need(db.expenses, id);
+    const me = requireMember(ctx, exp.trip_id);
+    if (!(isAdmin(me) || exp.created_by === me.id || exp.paid_by === me.id)) fail('forbidden');
+    const f = expenseFields(db, exp.trip_id, patch, false);
+    if (f.paid_by !== undefined && f.paid_by !== exp.paid_by && f.paid_by !== me.id && !isAdmin(me)) fail('forbidden');
+    const mode = f.split_mode ?? exp.split_mode;
+    if (mode === 'members') {
+      const shares = f.members ?? (exp.split_mode === 'members' ? db.expense_shares.filter((s) => s.expense_id === exp.id) : []);
+      if (!shares.length) bad();
+    }
+    for (const k of ['title', 'amount', 'paid_by', 'category_id', 'note', 'spent_on']) {
+      if (f[k] !== undefined) exp[k] = f[k];
+    }
+    exp.split_mode = mode;
+    if (mode === 'all') replaceShares(ctx, exp, []);
+    else if (f.members) replaceShares(ctx, exp, f.members);
+    bump(ctx, exp.trip_id);
+    return null;
+  },
+
+  delete_expense(ctx, id) {
+    const { db } = ctx;
+    const exp = need(db.expenses, id);
+    const me = requireMember(ctx, exp.trip_id);
+    if (!(isAdmin(me) || exp.created_by === me.id || exp.paid_by === me.id)) fail('forbidden');
+    remove(db.expense_shares, (s) => s.expense_id === exp.id);
+    remove(db.expenses, (e) => e.id === exp.id);
+    bump(ctx, exp.trip_id);
+    return null;
+  },
+
+  add_payment(ctx, tripId, pay) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    reqObj(pay);
+    const from = given(pay, 'from_member') ? memberRef(db, tripId, pay.from_member) : me.id;
+    if (!given(pay, 'to_member')) bad();
+    const to = memberRef(db, tripId, pay.to_member);
+    if (from === to) bad();
+    const amount = moneyVal(pay.amount);
+    const method = given(pay, 'method') ? oneOf(pay.method, PAY_METHODS) : 'bit';
+    const note = optText(pay.note, 500);
+    let status = 'sent';
+    if (from !== me.id) {
+      if (to === me.id) status = 'confirmed';
+      else if (!isAdmin(me)) fail('forbidden');
+    }
+    const now = ctx.now();
+    const row = {
+      id: newId(), trip_id: tripId, from_member: from, to_member: to, amount, method, note, status,
+      created_by: me.id, created_at: now, confirmed_at: status === 'confirmed' ? now : null,
+    };
+    db.payments.push(row);
+
+    const fromName = byId(db.members, from).display_name;
+    const toName = byId(db.members, to).display_name;
+    const link = `#/t/${tripId}/money`;
+    if (from !== me.id && to === me.id) {
+      notify(ctx, tripId, { title: `${toName} אישר/ה שקיבל/ה ₪${formatAmount(amount)} ✅`, audience: [from], link });
+    } else {
+      notify(ctx, tripId, { title: `${fromName} סימן/ה שהעביר/ה לך ₪${formatAmount(amount)}`, audience: [to], link });
+    }
+    bump(ctx, tripId);
+    return row.id;
+  },
+
+  confirm_payment(ctx, id) {
+    const { db } = ctx;
+    const pay = need(db.payments, id);
+    const me = requireMember(ctx, pay.trip_id);
+    if (pay.to_member !== me.id && !isAdmin(me)) fail('forbidden');
+    if (pay.status !== 'confirmed') {
+      pay.status = 'confirmed';
+      pay.confirmed_at = ctx.now();
+      if (pay.from_member !== me.id) {
+        const toName = byId(db.members, pay.to_member).display_name;
+        notify(ctx, pay.trip_id, {
+          title: `${toName} אישר/ה שקיבל/ה ₪${formatAmount(pay.amount)} ✅`,
+          audience: [pay.from_member],
+          link: `#/t/${pay.trip_id}/money`,
+        });
+      }
+    }
+    bump(ctx, pay.trip_id);
+    return null;
+  },
+
+  delete_payment(ctx, id) {
+    const { db } = ctx;
+    const pay = need(db.payments, id);
+    const me = requireMember(ctx, pay.trip_id);
+    if (!isAdmin(me)) {
+      if (pay.created_by !== me.id) fail('forbidden');
+      if (pay.status === 'confirmed') fail('not_allowed_state');
+    }
+    remove(db.payments, (p) => p.id === pay.id);
+    bump(ctx, pay.trip_id);
+    return null;
+  },
+
+  send_announcement(ctx, tripId, title, body, audience, urgent) {
+    const { db } = ctx;
+    const me = requireAdmin(ctx, tripId);
+    const t = reqText(title, 1, 80);
+    const b = optText(body, 2000);
+    let aud = null;
+    if (audience != null) {
+      if (!Array.isArray(audience)) bad();
+      const ids = [...new Set(audience)].map((id) => memberRef(db, tripId, id));
+      aud = ids.length ? ids : null;
+    }
+    const row = {
+      id: newId(), trip_id: tripId, kind: 'announcement', title: t, body: b, audience: aud,
+      author_member: me.id, urgent: urgent == null ? false : toBool(urgent), link: null, created_at: ctx.now(),
+    };
+    db.notifications.push(row);
+    bump(ctx, tripId);
+    return row.id;
+  },
+
+  delete_notification(ctx, id) {
+    const { db } = ctx;
+    const n = need(db.notifications, id);
+    const me = requireMember(ctx, n.trip_id);
+    if (!isAdmin(me) && n.author_member !== me.id) fail('forbidden');
+    remove(db.notification_reads, (r) => r.notification_id === n.id);
+    remove(db.notifications, (x) => x.id === n.id);
+    bump(ctx, n.trip_id);
+    return null;
+  },
+
+  mark_read(ctx, tripId, ids) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    if (ids != null && !Array.isArray(ids)) bad();
+    let added = 0;
+    for (const id of new Set(ids || [])) {
+      const n = byId(db.notifications, id);
+      if (!n || n.trip_id !== tripId || !canSeeNotification(n, me)) continue;
+      if (db.notification_reads.some((r) => r.notification_id === n.id && r.member_id === me.id)) continue;
+      db.notification_reads.push({ notification_id: n.id, trip_id: tripId, member_id: me.id, read_at: ctx.now() });
+      added++;
+    }
+    // Only bump when something changed, so "open screen → mark read → refresh" can't loop.
+    if (added) bump(ctx, tripId);
+    return null;
+  },
+
+  create_poll(ctx, tripId, question, options, multi) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const q = reqText(question, 1, 140);
+    if (!Array.isArray(options) || options.length < 2 || options.length > 8) bad();
+    const labels = options.map((o) => reqText(o, 1, 80));
+    const row = {
+      id: newId(), trip_id: tripId, question: q,
+      options: labels.map((label, i) => ({ id: `o${i + 1}`, label })),
+      multi: multi == null ? false : toBool(multi), closed: false, created_by: me.id, created_at: ctx.now(),
+    };
+    db.polls.push(row);
+    bump(ctx, tripId);
+    return row.id;
+  },
+
+  vote_poll(ctx, pollId, optionIds) {
+    const { db } = ctx;
+    const poll = need(db.polls, pollId);
+    const me = requireMember(ctx, poll.trip_id);
+    if (poll.closed) fail('not_allowed_state');
+    if (optionIds != null && !Array.isArray(optionIds)) bad();
+    const ids = [...new Set(optionIds || [])];
+    const valid = new Set(poll.options.map((o) => o.id));
+    if (ids.some((x) => !valid.has(x))) bad();
+    if (!poll.multi && ids.length > 1) bad();
+    remove(db.poll_votes, (v) => v.poll_id === poll.id && v.member_id === me.id);
+    for (const optionId of ids) {
+      db.poll_votes.push({ poll_id: poll.id, trip_id: poll.trip_id, member_id: me.id, option_id: optionId });
+    }
+    bump(ctx, poll.trip_id);
+    return null;
+  },
+
+  close_poll(ctx, pollId, closed) {
+    const { db } = ctx;
+    const poll = need(db.polls, pollId);
+    const me = requireMember(ctx, poll.trip_id);
+    if (!isAdmin(me) && poll.created_by !== me.id) fail('forbidden');
+    poll.closed = toBool(closed);
+    bump(ctx, poll.trip_id);
+    return null;
+  },
+
+  delete_poll(ctx, pollId) {
+    const { db } = ctx;
+    const poll = need(db.polls, pollId);
+    const me = requireMember(ctx, poll.trip_id);
+    if (!isAdmin(me) && poll.created_by !== me.id) fail('forbidden');
+    remove(db.poll_votes, (v) => v.poll_id === poll.id);
+    remove(db.polls, (p) => p.id === poll.id);
+    bump(ctx, poll.trip_id);
+    return null;
+  },
+
+  save_push_subscription(ctx, tripId, sub) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    reqObj(sub);
+    const endpoint = reqText(sub.endpoint, 1, 2000);
+    if (!/^https:\/\//i.test(endpoint)) bad();
+    const keys = reqObj(sub.keys);
+    const p256dh = reqText(keys.p256dh, 1, 500);
+    const auth = reqText(keys.auth, 1, 500);
+    const existing = db.push_subscriptions.find((s) => s.endpoint === endpoint);
+    if (existing) Object.assign(existing, { trip_id: tripId, member_id: me.id, user_id: ctx.uid, p256dh, auth });
+    else {
+      db.push_subscriptions.push({ id: newId(), trip_id: tripId, member_id: me.id, user_id: ctx.uid, endpoint, p256dh, auth, created_at: ctx.now() });
+    }
+    ctx.dirty = true; // not part of the snapshot → no rev bump needed
+    return null;
+  },
+
+  delete_push_subscription(ctx, endpoint) {
+    const { db } = ctx;
+    if (typeof endpoint !== 'string') bad();
+    const before = db.push_subscriptions.length;
+    remove(db.push_subscriptions, (s) => s.endpoint === endpoint && s.user_id === ctx.uid);
+    if (db.push_subscriptions.length !== before) ctx.dirty = true;
+    return null;
+  },
+};
+
+/** Demo-only (api.demo.actAs): re-link the current user to `memberId` within its trip. */
+function actAsMember(ctx, memberId) {
+  const { db } = ctx;
+  const member = need(db.members, memberId);
+  remove(db.member_users, (l) => l.user_id === ctx.uid && l.trip_id === member.trip_id);
+  linkUser(ctx, member.trip_id, member.id);
+  bump(ctx, member.trip_id);
+  return { trip_id: member.trip_id, member_id: member.id };
+}
+
+// ---------------------------------------------------------------------------
+// Change bus (one per tab, shared by all demo api instances) + cross-tab events
+// ---------------------------------------------------------------------------
+
+const bus = typeof EventTarget === 'function' ? new EventTarget() : null;
+let storageHooked = false;
+
+function emit(tripIds) {
+  if (!bus) return;
+  // Deliver after the current call resolves, like a realtime message after the RPC reply.
+  setTimeout(() => bus.dispatchEvent(new CustomEvent('change', { detail: { tripIds } })), 0);
+}
+
+function changedTrips(oldRaw, newRaw) {
+  let before;
+  let after;
+  try {
+    before = oldRaw ? JSON.parse(oldRaw) : null;
+    after = newRaw ? JSON.parse(newRaw) : null;
+  } catch {
+    return '*';
+  }
+  if (!validDb(before) || !validDb(after)) return '*';
+  const oldRev = new Map(before.trips.map((t) => [t.id, t.rev]));
+  const changed = after.trips.filter((t) => oldRev.get(t.id) !== t.rev).map((t) => t.id);
+  const gone = before.trips.some((t) => !after.trips.some((x) => x.id === t.id));
+  return gone ? '*' : changed;
+}
+
+function hookStorage() {
+  if (storageHooked || typeof window === 'undefined') return;
+  storageHooked = true;
+  window.addEventListener('storage', (e) => {
+    if (e.key !== null && e.key !== DEMO_STORAGE_KEY) return;
+    const tripIds = e.key === null ? '*' : changedTrips(e.oldValue, e.newValue);
+    if (tripIds === '*' || tripIds.length) emit(tripIds);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The API object
+// ---------------------------------------------------------------------------
+
+function defaultStorage() {
+  try {
+    const s = globalThis.localStorage;
+    const probe = '__medura_probe__';
+    s.setItem(probe, '1');
+    s.removeItem(probe);
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function latencyRange(opt) {
+  if (typeof opt === 'number') return [opt, opt];
+  if (Array.isArray(opt) && opt.length === 2) return [Number(opt[0]) || 0, Number(opt[1]) || 0];
+  return [60, 120];
+}
+
+/**
+ * @param {object} [options]
+ * @param {Storage|null} [options.storage]  defaults to localStorage (falls back to memory when blocked)
+ * @param {number|[number, number]} [options.latency]  simulated latency in ms (default 60–120)
+ */
+export function createDemoApi(options = {}) {
+  let storage = options.storage !== undefined ? options.storage : defaultStorage();
+  const [latMin, latMax] = latencyRange(options.latency);
+  let memoryRaw = null;
+  let memoryUid = null;
+  let uid = null;
+  let initialized = false;
+
+  const sleep = () => {
+    const ms = latMin + Math.random() * Math.max(0, latMax - latMin);
+    return ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();
+  };
+
+  function readKey(key) {
+    if (storage) {
+      try {
+        return storage.getItem(key);
+      } catch {
+        storage = null;
+      }
+    }
+    return key === DEMO_UID_KEY ? memoryUid : memoryRaw;
+  }
+
+  function writeKey(key, value) {
+    if (key === DEMO_UID_KEY) memoryUid = value;
+    else memoryRaw = value;
+    if (storage) {
+      try {
+        storage.setItem(key, value);
+      } catch (err) {
+        console.warn('[medura demo] storage unavailable, continuing in memory', err);
+        storage = null;
+      }
+    }
+  }
+
+  function load() {
+    const raw = readKey(DEMO_STORAGE_KEY);
+    if (!raw) return null;
+    try {
+      const db = JSON.parse(raw);
+      return validDb(db) ? db : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function save(db) {
+    writeKey(DEMO_STORAGE_KEY, JSON.stringify(db));
+  }
+
+  function seed() {
+    const db = { ...emptyDb(), ...buildDemoSeed({ userId: uid, newId, newCode: randomCode }) };
+    save(db);
+    return db;
+  }
+
+  function ensureUid() {
+    if (!uid) uid = readKey(DEMO_UID_KEY);
+    if (!uid) {
+      uid = newId();
+      writeKey(DEMO_UID_KEY, uid);
+    }
+    return uid;
+  }
+
+  async function exec(fn, args, { mutating = true } = {}) {
+    if (!initialized) await api.init();
+    await sleep();
+    if (!uid) throw new ApiError('not_authenticated');
+    const db = load() || seed();
+    const ctx = { db, uid, now: stamp, dirty: false, touched: new Set() };
+    const out = fn(ctx, ...args);
+    if (mutating && ctx.dirty) {
+      save(db);
+      if (ctx.touched.size) emit([...ctx.touched]);
+    }
+    return clone(out);
+  }
+
+  const call = (name, ...args) => exec(RPC[name], args);
+  const read = (name, ...args) => exec(RPC[name], args, { mutating: false });
+
+  const api = {
+    mode: 'demo',
+
+    async init() {
+      if (initialized) return api;
+      ensureUid();
+      if (!load()) seed();
+      hookStorage();
+      initialized = true;
+      return api;
+    },
+
+    async ensureSession() {
+      if (!initialized) await api.init();
+      return { userId: ensureUid() };
+    },
+
+    /** Synchronous: the demo user id (null before init on a fresh browser). */
+    getUserId() {
+      return uid || readKey(DEMO_UID_KEY) || null;
+    },
+
+    myTrips: () => read('my_trips'),
+    createTrip: (trip, profile) => call('create_trip', trip, profile),
+    previewInvite: (code) => read('preview_invite', code),
+    joinTrip: (code, { claimMemberId, profile } = {}) => call('join_trip', code, claimMemberId ?? null, profile ?? null),
+    linkDevice: (code) => call('link_device', code),
+    getDeviceCode: (memberId) => call('get_device_code', memberId),
+
+    getSnapshot: (tripId) => read('get_trip_snapshot', tripId),
+
+    /** Fires onChange on same-tab mutations of the trip and on cross-tab storage changes. */
+    subscribe(tripId, onChange) {
+      hookStorage();
+      if (!bus) return () => {};
+      let active = true;
+      const listener = (e) => {
+        const ids = e.detail && e.detail.tripIds;
+        if (!active || !(ids === '*' || (Array.isArray(ids) && ids.includes(tripId)))) return;
+        try {
+          onChange();
+        } catch (err) {
+          console.error('[medura demo] subscribe callback failed', err);
+        }
+      };
+      bus.addEventListener('change', listener);
+      return function unsubscribe() {
+        active = false;
+        bus.removeEventListener('change', listener);
+      };
+    },
+
+    updateTrip: (tripId, patch) => call('update_trip', tripId, patch),
+    rotateInvite: (tripId) => call('rotate_invite', tripId),
+    updateMember: (memberId, patch) => call('update_member', memberId, patch),
+    createMember: (tripId, profile) => call('create_member', tripId, profile),
+    setRole: (memberId, role) => call('set_role', memberId, role),
+    removeMember: (memberId) => call('remove_member', memberId),
+    leaveTrip: (tripId) => call('leave_trip', tripId),
+    voteAdmin: (candidateId, on) => call('vote_admin', candidateId, Boolean(on)),
+
+    upsertCategory: (tripId, cat) => call('upsert_category', tripId, cat),
+    deleteCategory: (categoryId) => call('delete_category', categoryId),
+
+    addItem: (tripId, item) => call('add_item', tripId, item),
+    addItemsBulk: (tripId, items) => call('add_items_bulk', tripId, items),
+    updateItem: (itemId, patch) => call('update_item', itemId, patch),
+    reviewItem: (itemId, approve, reason) => call('review_item', itemId, Boolean(approve), reason ?? null),
+    deleteItem: (itemId) => call('delete_item', itemId),
+
+    pledge: (itemId, qty) => call('pledge', itemId, qty ?? 1),
+    assign: (itemId, memberId, qty) => call('assign', itemId, memberId, qty ?? 1),
+    setPledgeDone: (itemId, done) => call('set_pledge_done', itemId, Boolean(done)),
+    setItemDone: (itemId, done) => call('set_item_done', itemId, Boolean(done)),
+
+    addPersonal: (tripId, title) => call('add_personal', tripId, title),
+    addPersonalTemplate: (tripId) => call('add_personal_template', tripId),
+    updatePersonal: (id, patch) => call('update_personal', id, patch),
+    deletePersonal: (id) => call('delete_personal', id),
+
+    addExpense: (tripId, exp) => call('add_expense', tripId, exp),
+    updateExpense: (id, patch) => call('update_expense', id, patch),
+    deleteExpense: (id) => call('delete_expense', id),
+
+    addPayment: (tripId, pay) => call('add_payment', tripId, pay),
+    confirmPayment: (id) => call('confirm_payment', id),
+    deletePayment: (id) => call('delete_payment', id),
+
+    sendAnnouncement: (tripId, { title, body, audience, urgent } = {}) =>
+      call('send_announcement', tripId, title, body ?? null, Array.isArray(audience) && audience.length ? audience : null, Boolean(urgent)),
+    deleteNotification: (id) => call('delete_notification', id),
+    markRead: (tripId, ids) => call('mark_read', tripId, ids || []),
+
+    createPoll: (tripId, { question, options, multi } = {}) => call('create_poll', tripId, question, options, Boolean(multi)),
+    votePoll: (pollId, optionIds) => call('vote_poll', pollId, optionIds || []),
+    closePoll: (pollId, closed) => call('close_poll', pollId, closed !== false),
+    deletePoll: (pollId) => call('delete_poll', pollId),
+
+    savePushSubscription: (tripId, sub) =>
+      call('save_push_subscription', tripId, sub && typeof sub.toJSON === 'function' ? sub.toJSON() : sub),
+    deletePushSubscription: (endpoint) => call('delete_push_subscription', endpoint),
+
+    /** Demo-only tools (the "🎭 החלף משתמש" control and E2E tests). */
+    demo: {
+      /** Wipe all demo data and re-seed the sample trip, owned by the current demo user. */
+      async reset() {
+        ensureUid();
+        await sleep();
+        seed();
+        initialized = true;
+        hookStorage();
+        emit('*');
+      },
+
+      /** Re-link the current demo user to another member (of that member's trip). */
+      actAs(memberId) {
+        return exec(actAsMember, [memberId]);
+      },
+
+      /** Become a different person/device; a new id is created when none is given. */
+      async switchUser(userId) {
+        if (!initialized) await api.init();
+        uid = typeof userId === 'string' && userId ? userId : newId();
+        writeKey(DEMO_UID_KEY, uid);
+        emit('*');
+        return { userId: uid };
+      },
+
+      currentUserId() {
+        return api.getUserId();
+      },
+    },
+  };
+
+  return api;
+}

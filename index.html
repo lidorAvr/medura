@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>מדורה 🔥 כל החבר'ה סביב המדורה</title>
+  <meta name="description" content="רשימות, מי מביא מה, קניות, התחשבנות והודעות — כל הטיול במקום אחד.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FBF6EE" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0E1512" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="מדורה">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="he_IL">
+  <meta property="og:title" content="מדורה 🔥 כל החבר'ה סביב המדורה">
+  <meta property="og:description" content="הוזמנתם לטיול! כל הרשימות, מי מביא מה והכסף — במקום אחד.">
+  <meta property="og:image" content="assets/icons/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap">
+
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/onboarding.css">
+  <link rel="stylesheet" href="css/home.css">
+  <link rel="stylesheet" href="css/trip.css">
+  <link rel="stylesheet" href="css/lists.css">
+  <link rel="stylesheet" href="css/money.css">
+  <link rel="stylesheet" href="css/messages.css">
+  <link rel="stylesheet" href="css/people.css">
+  <link rel="stylesheet" href="css/me.css">
+
+  <script>
+    // Apply a saved theme before first paint (no light→dark flash).
+    try {
+      var t = localStorage.getItem('medura:theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { /* storage blocked */ }
+  </script>
+  <script type="importmap">{"imports":{
+    "preact":"./js/vendor/preact.module.js",
+    "preact/hooks":"./js/vendor/hooks.module.js",
+    "htm":"./js/vendor/htm.module.js",
+    "htm/preact":"./js/vendor/htm-preact.module.js"}}</script>
+  <link rel="modulepreload" href="js/vendor/preact.module.js">
+  <link rel="modulepreload" href="js/vendor/hooks.module.js">
+  <link rel="modulepreload" href="js/app.js">
+  <link rel="modulepreload" href="js/store.js">
+  <link rel="modulepreload" href="js/ui/components.js">
+  <link rel="modulepreload" href="js/lib/logic.js">
+  <script defer src="./js/vendor/supabase.umd.js"></script>
+  <script defer src="./config.js"></script>
+  <script type="module" src="./js/main.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div class="splash" role="status" aria-label="טוען את מדורה">
+      <div class="splash__fire" aria-hidden="true">🔥</div>
+      <div class="splash__name">מדורה</div>
+    </div>
+  </div>
+  <div id="portal-root"></div>
+  <noscript>
+    <p style="padding:24px;text-align:center;font-family:system-ui,sans-serif">כדי להשתמש במדורה צריך להפעיל JavaScript 🙏</p>
+  </noscript>
+</body>
+</html>
