@@ -378,7 +378,7 @@ export default function TripScreen({ route }) {
 
     ${isAdmin
       ? html`<${Button} variant="secondary" size="lg" block icon="edit" onClick=${openEdit}>עריכת פרטי הטיול</${Button}>
-        <${EditTripSheet} open=${editing} onClose=${closeEdit} trip=${trip} />`
+        <${EditTripSheet} open=${editing} onClose=${closeEdit} trip=${trip} snap=${snap} />`
       : null}
   </div>`;
 }
@@ -628,10 +628,11 @@ function validateDraft(d) {
   return { errors, patch };
 }
 
-function EditTripSheet({ open, onClose, trip }) {
+function EditTripSheet({ open, onClose, trip, snap }) {
   const [d, setD] = useState(() => draftFrom(trip));
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const initial = useRef('');
   const focusKey = useRef(null);
 
@@ -690,6 +691,31 @@ function EditTripSheet({ open, onClose, trip }) {
     const res = await actions.run((api) => api.updateTrip(trip.id, patch), { success: 'פרטי הטיול עודכנו ✅' });
     setSaving(false);
     if (res !== undefined) onClose();
+  };
+
+  const deleteTrip = async () => {
+    if (saving || deleting) return;
+    const count = (list) => (Array.isArray(list) ? list.length : 0);
+    const yes = await confirmDialog({
+      title: `למחוק את "${trip.name}"?`,
+      text: `הטיול יימחק לכולם, כולל ${hebrewCount(count(snap?.members), 'משתתף/ת', 'משתתפים')}, `
+        + `${hebrewCount(count(snap?.items), 'פריט', 'פריטים')} ו-${hebrewCount(count(snap?.expenses), 'הוצאה', 'הוצאות')}. `
+        + 'אי אפשר לשחזר.',
+      confirmText: 'מחיקה לצמיתות',
+      cancelText: 'ביטול',
+      danger: true,
+    });
+    if (!yes) return;
+    setDeleting(true);
+    const done = await actions.run(async (api) => { await api.deleteTrip(trip.id); return true; },
+      { success: 'הטיול נמחק 🗑️', refresh: false });
+    if (!done) {
+      setDeleting(false);
+      return;
+    }
+    navigate('/', { replace: true });
+    actions.closeTrip();
+    actions.loadTrips();
   };
 
   return html`<${Sheet}
@@ -803,5 +829,11 @@ function EditTripSheet({ open, onClose, trip }) {
         />
       </section>
     </form>
+
+    <section class="trip-edit__group trip-edit__danger" aria-labelledby="trip-delete-h">
+      <h3 class="trip-edit__h" id="trip-delete-h">🗑️ מחיקת הטיול</h3>
+      <p class="trip-edit__hint">מוחק לכולם את הטיול, כולל כל הרשימות, ההוצאות וההודעות. אי אפשר לשחזר.</p>
+      <${Button} variant="danger" icon="trash" loading=${deleting} disabled=${saving} onClick=${deleteTrip}>מחיקת הטיול</${Button}>
+    </section>
   </${Sheet}>`;
 }

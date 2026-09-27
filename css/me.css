@@ -123,7 +123,12 @@
   overflow: hidden;
   margin-bottom: 12px;
 }
+.me-trip-row { display: flex; align-items: center; min-width: 0; }
+.me-trip-row + .me-trip-row { border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent); }
+.me-trip-row.is-current { background: color-mix(in srgb, var(--success-soft) 70%, var(--surface-2)); }
 .me-trip {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -133,10 +138,9 @@
   text-decoration: none;
   transition: background-color var(--dur) var(--ease);
 }
-.me-trip + .me-trip { border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent); }
 .me-trip:active { background: var(--surface-3); }
 .me-trip:focus-visible { border-radius: 16px; }
-.me-trip.is-current { background: color-mix(in srgb, var(--success-soft) 70%, var(--surface-2)); }
+.me-trip__edit { flex: none; margin-inline-end: 6px; color: var(--muted); }
 .me-trip__emoji {
   width: 42px;
   height: 42px;

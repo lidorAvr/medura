@@ -176,6 +176,7 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS } = {
 
     updateTrip: (tripId, patch) => rpc('update_trip', { p_trip: tripId, p_patch: patch }),
     rotateInvite: (tripId) => rpc('rotate_invite', { p_trip: tripId }),
+    deleteTrip: (tripId) => rpc('delete_trip', { p_trip: tripId }),
     updateMember: (memberId, patch) => rpc('update_member', { p_member: memberId, p_patch: patch }),
     createMember: (tripId, profile) => rpc('create_member', { p_trip: tripId, p_profile: profile }),
     setRole: (memberId, role) => rpc('set_role', { p_member: memberId, p_role: role }),

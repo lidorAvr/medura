@@ -670,6 +670,7 @@ const RPC = {
 
   get_trip_snapshot(ctx, tripId) {
     const { db, uid } = ctx;
+    if (!myMember(db, tripId, uid) && !byId(db.trips, tripId)) fail('not_found'); // deleted trip
     const me = requireMember(ctx, tripId);
     const admin = isAdmin(me);
     const trip = byId(db.trips, tripId);
@@ -750,6 +751,16 @@ const RPC = {
     trip.invite_code = uniqueCode(ctx.db);
     bump(ctx, tripId);
     return trip.invite_code;
+  },
+
+  delete_trip(ctx, tripId) {
+    const { db } = ctx;
+    requireAdmin(ctx, tripId);
+    bump(ctx, tripId); // marks the DB dirty + tells open subscribers to refetch (→ not_found)
+    const memberIds = new Set(membersOf(db, tripId).map((m) => m.id));
+    remove(db.member_secrets, (s) => memberIds.has(s.member_id));
+    for (const t of TABLES) if (t !== 'member_secrets') remove(db[t], (r) => (t === 'trips' ? r.id : r.trip_id) === tripId);
+    return null;
   },
 
   update_member(ctx, memberId, patch) {
@@ -1622,6 +1633,7 @@ export function createDemoApi(options = {}) {
 
     updateTrip: (tripId, patch) => call('update_trip', tripId, patch),
     rotateInvite: (tripId) => call('rotate_invite', tripId),
+    deleteTrip: (tripId) => call('delete_trip', tripId),
     updateMember: (memberId, patch) => call('update_member', memberId, patch),
     createMember: (tripId, profile) => call('create_member', tripId, profile),
     setRole: (memberId, role) => call('set_role', memberId, role),

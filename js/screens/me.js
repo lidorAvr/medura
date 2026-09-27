@@ -705,21 +705,24 @@ function TripsCard({ tripId }) {
   return html`<${Card} emoji="🗺️" title="הטיולים שלי" class="me-trips">
     ${trips.length
       ? html`<div class="me-trips__list">
-          ${trips.map(({ trip }) => {
+          ${trips.map(({ trip, member }) => {
             const current = trip.id === tripId;
-            return html`<a
-              key=${trip.id}
-              class=${cx('me-trip', current && 'is-current')}
-              href=${`#/t/${trip.id}`}
-              aria-current=${current ? 'page' : undefined}
-            >
-              <span class="me-trip__emoji" aria-hidden="true">${trip.emoji || '⛺'}</span>
-              <span class="me-trip__main">
-                <span class="me-trip__name">${trip.name}</span>
-                <span class="me-trip__date">${trip.starts_at ? formatDate(trip.starts_at) : 'בלי תאריך עדיין'}</span>
-              </span>
-              ${current ? html`<${Pill} tone="success">כאן עכשיו</${Pill}>` : html`<${Icon} name="chevron-left" size=${18} />`}
-            </a>`;
+            const manages = member?.role === 'owner' || member?.role === 'admin';
+            return html`<div key=${trip.id} class=${cx('me-trip-row', current && 'is-current')}>
+              <a class="me-trip" href=${`#/t/${trip.id}`} aria-current=${current ? 'page' : undefined}>
+                <span class="me-trip__emoji" aria-hidden="true">${trip.emoji || '⛺'}</span>
+                <span class="me-trip__main">
+                  <span class="me-trip__name">${trip.name}</span>
+                  <span class="me-trip__date">${trip.starts_at ? formatDate(trip.starts_at) : 'בלי תאריך עדיין'}</span>
+                </span>
+                ${current ? html`<${Pill} tone="success">כאן עכשיו</${Pill}>` : html`<${Icon} name="chevron-left" size=${18} />`}
+              </a>
+              ${manages
+                ? html`<a class="icon-btn me-trip__edit" href=${`#/t/${trip.id}/trip?edit=1`} aria-label=${`עריכה או מחיקה של ${trip.name}`}>
+                    <${Icon} name="edit" size=${18} />
+                  </a>`
+                : null}
+            </div>`;
           })}
         </div>`
       : null}

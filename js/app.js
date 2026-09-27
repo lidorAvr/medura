@@ -265,15 +265,18 @@ function Toasts() {
 
 function AccessGate({ code }) {
   const network = code === 'network';
+  const missing = code === 'not_found'; // deleted by an admin (or a link to a trip that never existed)
   return html`<div class="screen gate">
     <div class="gate__brand" aria-hidden="true">🔥 מדורה</div>
     <${Card}>
       <${EmptyState}
-        emoji=${network ? '📶' : '🔒'}
-        title=${network ? 'אין חיבור כרגע' : 'הטיול הזה עוד לא אצלך'}
+        emoji=${network ? '📶' : missing ? '🪵' : '🔒'}
+        title=${network ? 'אין חיבור כרגע' : missing ? 'הטיול הזה לא קיים יותר' : 'הטיול הזה עוד לא אצלך'}
         text=${network
           ? 'לא הצלחנו לטעון את הטיול. בדקו את החיבור ונסו שוב.'
-          : 'כדי להיכנס צריך קישור הזמנה מאחד החברים. קיבלתם קישור? הדביקו אותו במסך הראשי.'}
+          : missing
+            ? 'כנראה שאחד המנהלים מחק אותו — או שהקישור לא מדויק.'
+            : 'כדי להיכנס צריך קישור הזמנה מאחד החברים. קיבלתם קישור? הדביקו אותו במסך הראשי.'}
         action=${html`<div class="row row--center wrap">
           ${network
             ? html`<${Button} icon="refresh" onClick=${() => actions.refresh()}>לנסות שוב</${Button}>`

@@ -181,6 +181,7 @@ async function refreshLoop() {
       if (state.tripId !== tripId) continue;
       if (TRIP_GONE.has(err.code)) {
         store.set({ snap: null, loading: false, error: { code: err.code, scope: 'trip', tripId } });
+        actions.loadTrips(); // e.g. deleted by an admin → drop it from "my trips" too
       } else if (err.code === 'network') {
         store.set({ loading: false, online: false, error: state.snap ? null : { code: 'network', scope: 'trip', tripId } });
       } else {
@@ -280,6 +281,21 @@ export const actions = {
       }
     }
     return snap;
+  },
+
+  /**
+   * Close the open trip (after deleting it): stop listening and forget its snapshot.
+   * tripId stays set (marked gone) so the route→openTrip effect doesn't reopen it, and "back"
+   * lands on the "this trip was deleted" gate.
+   */
+  closeTrip() {
+    const { tripId } = state;
+    if (unsubscribeTrip) {
+      unsubscribeTrip();
+      unsubscribeTrip = null;
+    }
+    clearTimeout(refreshTimer);
+    store.set({ snap: null, loading: false, error: tripId ? { code: 'not_found', scope: 'trip', tripId } : null });
   },
 
   /** Re-fetch the current trip snapshot. Concurrent calls share one request (+1 follow-up). */

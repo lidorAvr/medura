@@ -1,9 +1,0 @@
-private/
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-test-results/
-tests/e2e/artifacts/
-.claude/settings.local.json
-tests/e2e/__pycache__/
