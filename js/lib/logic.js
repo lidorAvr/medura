@@ -364,7 +364,11 @@ function shareCents(expense, snap) {
         String(a.member_id).localeCompare(String(b.member_id)),
     );
   } else {
-    parts = members.filter((m) => m && m.id != null).map((m) => ({ member_id: m.id, weight: headcountOf(m) }));
+    // "everyone" = all but the members the admin marked exempt (settings.money.exempt) — unless that's nobody
+    const exempt = new Set(list(snap?.trip?.settings?.money?.exempt));
+    const all = members.filter((m) => m && m.id != null);
+    const payers = all.filter((m) => !exempt.has(m.id));
+    parts = (payers.length ? payers : all).map((m) => ({ member_id: m.id, weight: headcountOf(m) }));
   }
   return allocateCents(toCents(expense.amount), parts);
 }

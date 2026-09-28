@@ -608,7 +608,7 @@ const moneyParse = (t) => {
 };
 
 /** Shekel amount input. `onChange(number|null)`. */
-export function MoneyInput({ value, onChange, placeholder = '0', class: klass, ...rest }) {
+export function MoneyInput({ value, onChange, placeholder = '0', symbol = '₪', class: klass, ...rest }) {
   const [text, setText] = useState(moneyText(value));
   useEffect(() => {
     const incoming = value === '' || value === undefined ? null : Number(value);
@@ -624,7 +624,7 @@ export function MoneyInput({ value, onChange, placeholder = '0', class: klass, .
     onChange?.(moneyParse(t));
   };
   return html`<div class=${cx('money-input', klass)}>
-    <span class="money-input__sym" aria-hidden="true">₪</span>
+    <span class="money-input__sym" aria-hidden="true">${symbol}</span>
     <input
       type="text"
       inputmode="decimal"

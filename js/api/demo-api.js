@@ -44,7 +44,7 @@ const K = {
   category: ['id', 'name', 'emoji', 'sort', 'default_buyer_id', 'note'],
   item: ['id', 'category_id', 'title', 'note', 'type', 'qty', 'unit', 'per_person', 'needed', 'status', 'done', 'done_at', 'reject_reason', 'created_by', 'approved_by', 'sort', 'created_at', 'updated_at'],
   pledge: ['id', 'item_id', 'member_id', 'qty', 'done', 'assigned_by', 'accepted_at', 'created_at'],
-  expense: ['id', 'title', 'amount', 'paid_by', 'category_id', 'note', 'split_mode', 'created_by', 'spent_on', 'created_at'],
+  expense: ['id', 'title', 'amount', 'paid_by', 'category_id', 'note', 'split_mode', 'created_by', 'spent_on', 'created_at', 'currency', 'orig_amount', 'rate'],
   share: ['expense_id', 'member_id', 'weight'],
   payment: ['id', 'from_member', 'to_member', 'amount', 'method', 'note', 'status', 'created_by', 'created_at', 'confirmed_at'],
   notification: ['id', 'kind', 'title', 'body', 'audience', 'author_member', 'urgent', 'link', 'created_at'],
@@ -293,6 +293,14 @@ function settingsVal(v) {
     if (given(a, 'flights') && typeof a.flights !== 'boolean') bad();
     out.arrival = { ...a };
   }
+  if (given(v, 'money')) {
+    const m = v.money;
+    if (!isObj(m)) bad();
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    if (given(m, 'exempt') && (!Array.isArray(m.exempt) || m.exempt.length > 50 || !m.exempt.every((x) => typeof x === 'string' && uuid.test(x)))) bad();
+    if (given(m, 'currencies') && (!Array.isArray(m.currencies) || m.currencies.length > 6 || !m.currencies.every((x) => typeof x === 'string' && /^[A-Z]{3}$/.test(x)))) bad();
+    out.money = { ...m };
+  }
   return jsonSize(out, 4000);
 }
 
@@ -527,7 +535,25 @@ function expenseFields(db, tripId, p, creating) {
   reqObj(p);
   const out = {};
   if (creating || given(p, 'title')) out.title = reqText(p.title, 1, 80);
-  if (creating || given(p, 'amount')) out.amount = moneyVal(p.amount);
+  const cur = typeof p.currency === 'string' ? p.currency.trim().toUpperCase() : '';
+  if (cur && cur !== 'ILS') {
+    // a foreign sum: converted to ₪ here (amount = orig × rate), like the server
+    if (!/^[A-Z]{3}$/.test(cur)) bad();
+    const orig = Math.round(toNumber(p.orig_amount) * 100) / 100;
+    const rate = Math.round(toNumber(p.rate) * 1e6) / 1e6;
+    if (!(orig > 0 && orig <= 10000000 && rate > 0 && rate <= 100000)) bad();
+    out.currency = cur;
+    out.orig_amount = orig;
+    out.rate = rate;
+    out.amount = moneyVal(Math.round(orig * rate * 100) / 100);
+  } else {
+    if (has(p, 'currency') || (!creating && given(p, 'amount'))) {
+      out.currency = null;
+      out.orig_amount = null;
+      out.rate = null;
+    }
+    if (creating || given(p, 'amount')) out.amount = moneyVal(p.amount);
+  }
   if (given(p, 'paid_by')) out.paid_by = memberRef(db, tripId, p.paid_by);
   if (has(p, 'category_id')) out.category_id = categoryRef(db, tripId, p.category_id);
   if (has(p, 'note')) out.note = optText(p.note, 500);
@@ -1659,6 +1685,9 @@ const RPC = {
       created_by: me.id,
       spent_on: f.spent_on ?? jerusalemYmd(new Date()),
       created_at: ctx.now(),
+      currency: f.currency ?? null,
+      orig_amount: f.orig_amount ?? null,
+      rate: f.rate ?? null,
     };
     db.expenses.push(row);
     if (mode === 'members') replaceShares(ctx, row, f.members);
@@ -1688,7 +1717,7 @@ const RPC = {
       const shares = f.members ?? (exp.split_mode === 'members' ? db.expense_shares.filter((s) => s.expense_id === exp.id) : []);
       if (!shares.length) bad();
     }
-    for (const k of ['title', 'amount', 'paid_by', 'category_id', 'note', 'spent_on']) {
+    for (const k of ['title', 'amount', 'paid_by', 'category_id', 'note', 'spent_on', 'currency', 'orig_amount', 'rate']) {
       if (f[k] !== undefined) exp[k] = f[k];
     }
     exp.split_mode = mode;

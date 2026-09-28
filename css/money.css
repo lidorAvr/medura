@@ -599,3 +599,14 @@ ul.list { list-style: none; margin: 0; padding: 0; }
   .settle-row__top { gap: 8px; }
   .settle-row__amount { font-size: 19px; }
 }
+
+/* ---------- foreign currency & pay style ---------- */
+.money-cur { display: flex; flex-wrap: wrap; gap: 6px; }
+.money-rate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.money-rate__input { width: 7.5em; min-height: 40px; text-align: center; }
+.money-rate__label { font-weight: 700; }
+.money-rate__state { flex-basis: 100%; }
+.money-rate__ils { margin-inline-start: auto; }
+.exp-row__orig { font-size: 12.5px; color: var(--muted); }
+.settle-row__each { padding: 6px 10px; border-radius: 10px; background: var(--surface-2); }
+.money-paystyle { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }

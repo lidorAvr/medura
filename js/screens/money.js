@@ -14,6 +14,7 @@ import {
   ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, confirmDialog, fireConfetti,
 } from '../ui/components.js';
 import { Icon } from '../ui/icons.js';
+import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -225,6 +226,8 @@ export default function MoneyScreen({ route }) {
       active=${active}
       onAdd=${() => openExpense({})}
     />
+
+    ${active ? html`<${PayStyle} me=${me} />` : null}
 
     ${active
       ? html`<${SettleCard}
@@ -461,6 +464,32 @@ function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, onPay }) {
   </section>`;
 }
 
+/** Whole shekels split as evenly as possible (the first ones get the extra shekel). */
+function splitWhole(amount, n) {
+  const total = Math.round(Number(amount) || 0);
+  const base = Math.floor(total / n);
+  return Array.from({ length: n }, (_, i) => base + (i < total - base * n ? 1 : 0));
+}
+
+/** How a profile of 2+ pays its share: one transfer, or each person their part (prefs.pay). */
+function PayStyle({ me }) {
+  const [busy, setBusy] = useState(false);
+  if ((me.people || []).length < 2) return null;
+  const value = me.prefs?.pay === 'each' ? 'each' : 'together';
+  const set = async (v) => {
+    if (v === value) return;
+    setBusy(true);
+    await actions.run(async (api) => { await api.updateMember(me.id, { prefs: { pay: v } }); return true; },
+      { success: v === 'each' ? 'מעכשיו כל אחד רואה ומעביר את החלק שלו 🙋' : 'מעכשיו העברה אחת לכולכם 💑' });
+    setBusy(false);
+  };
+  return html`<div class="money-paystyle" data-testid="pay-style">
+    <span class="small"><b>איך אתם משלמים?</b></span>
+    <${Segmented} label="איך אתם משלמים?" value=${value} onChange=${set} disabled=${busy}
+      options=${[{ value: 'together', label: '💑 קופה אחת' }, { value: 'each', label: '🙋 כל אחד לחוד' }]} />
+  </div>`;
+}
+
 function SettleRow({ t, trip, me, admin, from, to, nameOf, onPay }) {
   const mineOut = t.from === me.id;
   const mineIn = t.to === me.id;
@@ -512,6 +541,10 @@ function SettleRow({ t, trip, me, admin, from, to, nameOf, onPay }) {
       </div>
       <${Money} value=${t.amount} class="settle-row__amount" />
     </div>
+    ${from?.prefs?.pay === 'each' && (from.people || []).length > 1
+      ? html`<p class="settle-row__each small" data-testid="settle-each">כל אחד לחוד: ${splitWhole(t.amount, from.people.length)
+          .map((a, i) => `${from.people[i]} ${formatMoney(a)}`).join(' · ')}</p>`
+      : null}
     ${actionsNode}
   </li>`;
 }
@@ -622,6 +655,7 @@ function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd }) {
                 </span>
                 <span class="exp-row__end">
                   <${Money} value=${e.amount} class="exp-row__amount" data-testid="expense-amount" />
+                  ${e.currency ? html`<span class="exp-row__orig num" dir="ltr">${symbolOf(e.currency)}${Number(e.orig_amount).toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>` : null}
                   ${myShare > 0 ? html`<span class="exp-row__mine">חלקך <${Money} value=${myShare} /></span>` : null}
                 </span>
               </button>
@@ -714,6 +748,13 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
     : [{ member_id: exp?.paid_by || me.id }];
 
   const [amount, setAmount] = useState(exp ? Number(exp.amount) : null);
+  const offered = Array.isArray(snap.trip.settings?.money?.currencies) ? snap.trip.settings.money.currencies : [];
+  const [cur, setCur] = useState(exp?.currency || 'ILS');
+  const [orig, setOrig] = useState(exp?.orig_amount != null ? Number(exp.orig_amount) : null);
+  const [rate, setRate] = useState(exp?.rate != null ? Number(exp.rate) : null);
+  const [rateState, setRateState] = useState(exp?.rate != null ? 'saved' : 'idle'); // idle | loading | auto | manual | failed | saved
+  const foreign = cur !== 'ILS';
+  const amountIls = foreign ? (orig > 0 && rate > 0 ? toShekels(orig, rate) : null) : amount;
   const [title, setTitle] = useState(exp?.title || '');
   const [paidBy, setPaidBy] = useState(exp?.paid_by || me.id);
   const [categoryId, setCategoryId] = useState(exp?.category_id || null);
@@ -725,16 +766,31 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // the day's rate, automatically (unless typed by hand, or kept from a saved expense)
+  useEffect(() => {
+    if (!foreign || rateState === 'manual' || rateState === 'saved') return undefined;
+    let alive = true;
+    setRateState('loading');
+    rateOn(cur, spentOn).then((v) => {
+      if (!alive) return;
+      if (v) {
+        setRate(Math.round(v * 10000) / 10000);
+        setRateState('auto');
+      } else setRateState('failed');
+    });
+    return () => { alive = false; };
+  }, [cur, spentOn, foreign]);
+
   const chosenIds = chosen.map((c) => c.member_id);
   const setChosenIds = (ids) => setChosen(ids.map((id) => chosen.find((c) => c.member_id === id) || { member_id: id }));
 
   // Live preview (logic.js: expenseShares / tripTotals).
   const participants = mode === 'all' ? members : chosenIds.map((id) => byId.get(id)).filter(Boolean);
-  const valid = amount > 0 && amount <= MAX_AMOUNT && participants.length > 0;
-  const draft = { amount: valid ? amount : 0, split_mode: mode, members: mode === 'members' ? chosen : undefined };
+  const valid = amountIls > 0 && amountIls <= MAX_AMOUNT && participants.length > 0;
+  const draft = { amount: valid ? amountIls : 0, split_mode: mode, members: mode === 'members' ? chosen : undefined };
   const shares = valid ? expenseShares(draft, snap) : [];
   const customWeights = mode === 'members' && chosen.some((c) => c.weight != null && Number(c.weight) !== (Number(byId.get(c.member_id)?.headcount) || 1));
-  const perHead = valid && !customWeights ? tripTotals({ members: participants, expenses: [{ amount }] }).perHead : null;
+  const perHead = valid && !customWeights ? tripTotals({ members: participants, expenses: [{ amount: amountIls }] }).perHead : null;
   const heads = headcountTotal(participants);
 
   const payer = byId.get(paidBy);
@@ -743,7 +799,9 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
   const save = async () => {
     if (saving || deleting) return; // Enter in a field while a call is in flight
     const errs = {};
-    const amountErr = moneyError(amount);
+    const amountErr = foreign
+      ? (!(orig > 0) ? 'כמה זה עלה?' : !(rate > 0) ? 'חסר שער — הקלידו אותו ידנית' : moneyError(amountIls))
+      : moneyError(amount);
     if (amountErr) errs.amount = amountErr;
     if (!title.trim()) errs.title = 'על מה ההוצאה?';
     if (mode === 'members' && !chosen.length) errs.members = 'בחרו לפחות משתתף/ת אחד/ת';
@@ -752,7 +810,9 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
 
     const payload = {
       title: title.trim(),
-      amount,
+      amount: amountIls,
+      currency: foreign ? cur : null,
+      ...(foreign ? { orig_amount: orig, rate } : {}),
       category_id: categoryId,
       note: note.trim() || null,
       spent_on: spentOn || todayYmd(),
@@ -797,9 +857,31 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
 
   return html`<${Sheet} open=${open} onClose=${onClose} title=${editing ? 'עריכת הוצאה ✏️' : 'הוצאה חדשה 🧾'} footer=${footer} class="money-sheet">
     <form class="stack-lg money-form" onSubmit=${(e) => { e.preventDefault(); save(); }} novalidate>
-      <${Field} label="כמה זה עלה?" error=${errors.amount}>
-        <${MoneyInput} value=${amount} onChange=${(v) => { setAmount(v); if (errors.amount) setErrors({ ...errors, amount: null }); }} />
+      ${offered.length || foreign
+        ? html`<div class="money-cur" role="group" aria-label="מטבע" data-testid="expense-currency">
+            ${['ILS', ...offered.filter((c) => c !== 'ILS')].map((c) => html`<${Chip} key=${c} active=${cur === c}
+              onClick=${() => { setCur(c); if (c !== cur && rateState !== 'manual') setRateState('idle'); if (errors.amount) setErrors({ ...errors, amount: null }); }}>
+              ${symbolOf(c)} ${c === 'ILS' ? 'שקל' : CURRENCIES.find((x) => x.code === c)?.label || c}
+            </${Chip}>`)}
+          </div>`
+        : null}
+      <${Field} label=${foreign ? `כמה זה עלה? (ב${CURRENCIES.find((x) => x.code === cur)?.label || cur})` : 'כמה זה עלה?'} error=${errors.amount}>
+        ${foreign
+          ? html`<${MoneyInput} symbol=${symbolOf(cur)} value=${orig} onChange=${(v) => { setOrig(v); if (errors.amount) setErrors({ ...errors, amount: null }); }} />`
+          : html`<${MoneyInput} value=${amount} onChange=${(v) => { setAmount(v); if (errors.amount) setErrors({ ...errors, amount: null }); }} />`}
       </${Field}>
+      ${foreign
+        ? html`<div class="money-rate" data-testid="expense-rate">
+            <span class="money-rate__label">שער ${symbolOf(cur)}1 =</span>
+            <input class="input money-rate__input num" dir="ltr" inputmode="decimal" aria-label="שער בשקלים"
+              value=${rate ?? ''} onInput=${(e) => { const v = Number(e.target.value.replace(',', '.')); setRate(v > 0 ? v : null); setRateState('manual'); }} />
+            <span class="money-rate__label">₪</span>
+            <span class="tiny muted money-rate__state">${rateState === 'loading' ? 'מביאים את השער…'
+              : rateState === 'auto' ? `לפי ${dayLabel(spentOn)} ✓` : rateState === 'failed' ? 'לא הצלחנו להביא שער — הקלידו ידנית'
+                : rateState === 'manual' ? 'שער ידני' : ''}</span>
+            ${amountIls ? html`<strong class="money-rate__ils">= <${Money} value=${amountIls} /></strong>` : null}
+          </div>`
+        : null}
 
       <${Field} label="על מה?" error=${errors.title}>
         <${TextInput}
@@ -837,10 +919,14 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
           <${Segmented}
             label="אופן החלוקה"
             value=${mode}
-            onChange=${(v) => { setMode(v); if (errors.members) setErrors({ ...errors, members: null }); }}
+            onChange=${(v) => {
+              setMode(v);
+              if (v === 'members' && chosen.length <= 1) setChosen(members.map((m) => ({ member_id: m.id })));
+              if (errors.members) setErrors({ ...errors, members: null });
+            }}
             options=${[
               { value: 'all', label: '👥 כולם (לפי ראשים)' },
-              { value: 'members', label: '🙋 רק חלק מהחבר׳ה' },
+              { value: 'members', label: '🙋 רק חלק / כולם חוץ מ…' },
             ]}
           />
           ${mode === 'members'

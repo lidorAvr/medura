@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { actions, useTrip } from '../store.js';
 import { RidesCard } from './rides.js';
 import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js';
+import { CURRENCIES } from '../lib/fx.js';
 import { href, navigate } from '../router.js';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
@@ -564,6 +565,10 @@ function draftFrom(trip) {
     type: tripType(trip).key,
     modules: Object.fromEntries(MODULES.map((m) => [m.key, hasModule(trip, m.key)])),
     arrival: arrivalOf(trip),
+    money: {
+      currencies: Array.isArray(trip.settings?.money?.currencies) ? [...trip.settings.money.currencies] : [],
+      exempt: Array.isArray(trip.settings?.money?.exempt) ? [...trip.settings.money.exempt] : [],
+    },
   };
 }
 
@@ -633,7 +638,7 @@ function validateDraft(d) {
     starts_at: starts,
     ends_at: ends,
     info: { schedule, rules, notes: d.notes.trim(), album_url: album || null },
-    settings: { require_approval: !!d.require_approval, modules: { ...d.modules }, arrival: { modes: [...d.arrival.modes], flights: !!d.arrival.flights } },
+    settings: { require_approval: !!d.require_approval, modules: { ...d.modules }, arrival: { modes: [...d.arrival.modes], flights: !!d.arrival.flights }, money: { currencies: [...d.money.currencies], exempt: [...d.money.exempt] } },
   };
   return { errors, patch };
 }
@@ -873,6 +878,29 @@ function EditTripSheet({ open, onClose, trip, snap }) {
               </div>
               <${Toggle} checked=${d.arrival.flights} onChange=${(v) => set({ arrival: { ...d.arrival, flights: v } })}
                 label="✈️ טיסות" hint="כל אחד מסמן את הטיסה שלו, ורואים מי טס עם מי" />
+            </div>`
+          : null}
+        ${d.modules.money
+          ? html`<div class="trip-edit__sub" data-testid="money-options">
+              <p class="field__label">💱 מטבעות זרים (השער לפי יום ההוצאה, אוטומטית)</p>
+              <div class="sched-quick" role="group" aria-label="מטבעות">
+                ${CURRENCIES.map((c) => {
+                  const on = d.money.currencies.includes(c.code);
+                  return html`<${Chip} key=${c.code} active=${on} onClick=${() => {
+                    const list = on ? d.money.currencies.filter((x) => x !== c.code) : [...d.money.currencies, c.code].slice(0, 6);
+                    set({ money: { ...d.money, currencies: list } });
+                  }}>${c.symbol} ${c.label}</${Chip}>`;
+                })}
+              </div>
+              <p class="field__label">🎁 פטורים מההוצאות המשותפות (לא חובה)</p>
+              <p class="trip-edit__hint">למשל החתן/הכלה. הוצאה של "כולם" מתחלקת בין השאר; אפשר גם לבחור בכל הוצאה על מי היא.</p>
+              <div class="sched-quick" role="group" aria-label="פטורים">
+                ${(snap?.members || []).map((m) => {
+                  const on = d.money.exempt.includes(m.id);
+                  return html`<${Chip} key=${m.id} active=${on} onClick=${() => set({ money: { ...d.money,
+                    exempt: on ? d.money.exempt.filter((x) => x !== m.id) : [...d.money.exempt, m.id] } })}>${displayName(m)}</${Chip}>`;
+                })}
+              </div>
             </div>`
           : null}
       </section>
