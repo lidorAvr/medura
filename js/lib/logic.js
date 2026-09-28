@@ -1546,3 +1546,74 @@ export function myInbox(snap, meId) {
   }
   return out;
 }
+// ───────────────────────── trip phases (home screen) ─────────────────────────
+
+/**
+ * Where we are relative to the trip (Israel time):
+ * 'before' → 'eve' (the day before) → 'departure' (start day, before it starts) →
+ * 'during' (started, not over) → 'after' (up to 14 days) → 'past'. No start date → 'before'.
+ */
+export function tripPhase(trip, now = new Date()) {
+  const start = trip?.starts_at ? new Date(trip.starts_at) : null;
+  if (!start || Number.isNaN(start.getTime())) return 'before';
+  const end = trip.ends_at ? new Date(trip.ends_at) : new Date(start.getTime() + 86400000);
+  if (now > end) return now - end > 14 * 86400000 ? 'past' : 'after';
+  if (now >= start) return 'during';
+  const today = ilWall(now).ymd;
+  const startDay = ilWall(start).ymd;
+  if (today === startDay) return 'departure';
+  const [y, m, d] = startDay.split('-').map(Number);
+  return today === new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10) ? 'eve' : 'before';
+}
+
+/**
+ * My "before the trip" checklist: contact details, how I get there, my open things to bring /
+ * buy, polls I haven't answered. Each: {key, done, label, detail?, href?}. Links are hash routes.
+ */
+export function myChecklist(snap, meId, extras = {}) {
+  if (!snap || !meId) return { items: [], done: 0, total: 0 };
+  const me = membersById(list(snap.members)).get(meId);
+  if (!me) return { items: [], done: 0, total: 0 };
+  const t = `#/t/${snap.trip.id}`;
+  const rides = rideModel(snap, meId);
+  const transport = me.prefs?.transport?.mode;
+  const arrive = rides.myRide || rides.mySeat || transport === 'own';
+  const openPledges = list(snap.pledges).filter((p) => p.member_id === meId && !p.done).length;
+  const myPledges = list(snap.pledges).filter((p) => p.member_id === meId).length;
+  const votedPolls = new Set(list(snap.poll_votes).filter((v) => v.member_id === meId).map((v) => v.poll_id));
+  const openPolls = list(snap.polls).filter((p) => !p.closed && !votedPolls.has(p.id)).length;
+  const items = [
+    { key: 'contact', done: Boolean(me.phone) || Boolean(extras.hasEmail), label: 'פרטי קשר (טלפון / מייל)', href: `${t}/welcome?step=contact` },
+    {
+      key: 'arrive', done: Boolean(arrive), label: 'איך מגיעים',
+      detail: rides.myRide ? 'נוהג/ת' : rides.mySeat ? `עם ${displayName(rides.mySeat.driver)}` : rides.myAsk ? `⏳ מחכה ל${displayName(rides.myAsk.driver)}` : transport === 'need' ? 'מחפשים טרמפ' : null,
+      href: arrive || transport === 'need' ? `${t}/trip` : `${t}/welcome?step=arrive`,
+    },
+    {
+      key: 'bring', done: myPledges > 0 && openPledges === 0, label: myPledges ? 'מה אני מביא/ה' : 'לקחת משהו מהרשימה',
+      detail: openPledges ? `עוד ${openPledges} לסמן` : null, href: `${t}/lists?tab=mine`,
+    },
+  ];
+  if (list(snap.polls).some((p) => !p.closed)) {
+    items.push({ key: 'polls', done: openPolls === 0, label: 'סקרים', detail: openPolls ? (openPolls === 1 ? 'אחד מחכה להצבעה' : `${openPolls} מחכים להצבעה`) : null, href: `${t}/messages` });
+  }
+  const done = items.filter((i) => i.done).length;
+  return { items, done, total: items.length };
+}
+
+/** "The trip in numbers" — for the after-trip card and sharing. */
+export function tripStats(snap) {
+  const members = list(snap?.members);
+  const heads = headcountTotal(members);
+  const items = list(snap?.items).filter((i) => i.status === 'active');
+  const spent = list(snap?.expenses).reduce((s, e) => s + toCents(e.amount), 0);
+  const rides = list(snap?.rides).length;
+  return {
+    people: heads,
+    items: items.length,
+    done: items.filter((i) => i.done).length,
+    spent: fromCents(spent),
+    perPerson: heads ? fromCents(Math.round(spent / heads)) : 0,
+    rides,
+  };
+}

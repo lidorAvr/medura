@@ -8,7 +8,7 @@ import { href, navigate } from '../router.js';
 import {
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
   hebrewCount, itemEffectiveQty, itemProgress, membersById, missingItems, myAgenda, similarItems, timeAgo, tripReadiness,
-  visibleNotifications, rideModel, tripDayPhase, wazeUrl,
+  visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats,
 } from '../lib/logic.js';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
@@ -161,34 +161,46 @@ export default function HomeScreen({ route }) {
     { success: `אושר ✅ ${item.title} ברשימה` },
   ));
 
-  return html`<div class="screen home">
+  const phase = tripPhase(trip, now);
+  const after = phase === 'after' || phase === 'past';
+
+  return html`<div class=${`screen home home--${phase}`}>
     <${Hero} model=${model} me=${me} now=${now} isAdmin=${isAdmin} />
-    <${TripDayCard} snap=${snap} me=${me} now=${now} />
-    <${InboxCard} snap=${snap} me=${me} skip=${['proposals']} />
+    <${PhaseStrip} phase=${phase} />
 
-    <div class="stack-sm">
-      <${Readiness} model=${model} />
-      <${MoneyRow} model=${model} />
-    </div>
+    ${phase === 'during'
+      ? html`<${RestCard} snap=${snap} />`
+      : html`
+        ${after ? html`<${AfterCard} snap=${snap} me=${me} isAdmin=${isAdmin} />` : html`<${TripDayCard} snap=${snap} me=${me} now=${now} />`}
+        <${InboxCard} snap=${snap} me=${me} skip=${['proposals']} />
+        ${phase === 'before' || phase === 'eve' ? html`<${ChecklistCard} snap=${snap} me=${me} />` : null}
 
-    <${QuickActions}
-      isAdmin=${isAdmin}
-      proposes=${!isAdmin && trip.settings?.require_approval !== false}
-      summary=${model.summary}
-      onItem=${() => setSheet('item')}
-      onExpense=${() => setSheet('expense')}
-      onAnnounce=${() => setSheet('announce')}
-    />
+        ${after
+          ? null
+          : html`<div class="stack-sm">
+              <${Readiness} model=${model} />
+              <${MoneyRow} model=${model} />
+            </div>`}
 
-    ${model.news ? html`<${LatestNews} model=${model} />` : null}
+        <${QuickActions}
+          isAdmin=${isAdmin}
+          proposes=${!isAdmin && trip.settings?.require_approval !== false}
+          summary=${model.summary}
+          onItem=${() => setSheet('item')}
+          onExpense=${() => setSheet('expense')}
+          onAnnounce=${() => setSheet('announce')}
+        />
 
-    ${isAdmin && model.pending.length
-      ? html`<${Approvals} model=${model} busy=${busy} onApprove=${approve} onReject=${(item) => setRejecting(item)} />`
-      : null}
+        ${model.news ? html`<${LatestNews} model=${model} />` : null}
 
-    <${MyList} model=${model} optimistic=${optimistic} busy=${busy} onToggle=${toggleMine} />
+        ${isAdmin && model.pending.length && !after
+          ? html`<${Approvals} model=${model} busy=${busy} onApprove=${approve} onReject=${(item) => setRejecting(item)} />`
+          : null}
 
-    <${StillMissing} model=${model} busy=${busy} onTake=${take} onAdd=${() => setSheet('item')} />
+        ${after ? null : html`<${MyList} model=${model} optimistic=${optimistic} busy=${busy} onToggle=${toggleMine} />`}
+
+        ${after ? null : html`<${StillMissing} model=${model} busy=${busy} onTake=${take} onAdd=${() => setSheet('item')} />`}
+      `}
 
     <${ItemSheet} open=${sheet === 'item'} onClose=${() => setSheet(null)} snap=${snap} isAdmin=${isAdmin} tripId=${tripId} />
     <${ExpenseSheet} open=${sheet === 'expense'} onClose=${() => setSheet(null)} snap=${snap} me=${me} tripId=${tripId} />
@@ -376,6 +388,108 @@ function TripDayCard({ snap, me, now }) {
         : null}
       <${Button} variant=${phase === 'day' && waze ? 'secondary' : 'accent'} href=${href(`/t/${trip.id}/trip`)}>לו״ז, מזג אוויר והסעות</${Button}>
     </div>
+  </section>`;
+}
+
+// ---------------------------------------------------------------------------
+// trip phases: before → eve → departure → during → after
+// ---------------------------------------------------------------------------
+
+const PHASES = [
+  ['before', 'לפני'], ['eve', 'ערב לפני'], ['departure', 'יוצאים'], ['during', 'בטיול'], ['after', 'אחרי'],
+];
+
+function PhaseStrip({ phase }) {
+  const at = PHASES.findIndex(([k]) => k === (phase === 'past' ? 'after' : phase));
+  return html`<ol class="phase-strip" aria-label="איפה אנחנו בטיול" data-testid="phase-strip">
+    ${PHASES.map(([k, label], i) => html`<li key=${k} class=${i === at ? 'is-now' : i < at ? 'is-past' : ''}
+      aria-current=${i === at ? 'step' : undefined}>${label}</li>`)}
+  </ol>`;
+}
+
+function ChecklistCard({ snap, me }) {
+  const { items, done, total } = myChecklist(snap, me.id, { hasEmail: Boolean(me.prefs?.has_email) });
+  if (!total) return null;
+  const all = done === total;
+  return html`<${Card} emoji=${all ? '🎉' : '✅'} title="הצ׳קליסט שלי לפני הטיול" class="checklist"
+    action=${html`<span class="checklist__count">${done}/${total}</span>`}>
+    <div class="checklist__bar" role="progressbar" aria-valuemin="0" aria-valuemax=${total} aria-valuenow=${done}>
+      <span style=${`width:${Math.round((done / total) * 100)}%`}></span>
+    </div>
+    ${all ? html`<p class="checklist__all">הכול סגור מצדך — אלופים 💪</p>` : null}
+    <ul class="checklist__list" data-testid="checklist">
+      ${items.map((it) => html`<li key=${it.key} class=${it.done ? 'is-done' : ''}>
+        <a href=${it.href}>
+          <span class="checklist__mark" aria-hidden="true">${it.done ? '✓' : ''}</span>
+          <span class="checklist__label">${it.label}</span>
+          ${it.detail ? html`<span class="checklist__detail">${it.detail}</span>` : null}
+          <${Icon} name="chevron-left" size=${16} />
+        </a>
+      </li>`)}
+    </ul>
+  </${Card}>`;
+}
+
+/** During the trip the app steps aside: where, how to get there, who to call — that's it. */
+function RestCard({ snap }) {
+  const trip = snap.trip;
+  const waze = wazeUrl(trip);
+  const admins = (snap.members || []).filter((m) => (m.role === 'owner' || m.role === 'admin') && m.phone);
+  return html`<section class="rest" data-testid="rest">
+    <p class="rest__emoji" aria-hidden="true">🔥</p>
+    <h2 class="rest__title">תהנו!</h2>
+    <p class="rest__text">האפליקציה נחה עד שחוזרים — מדברים אחד עם השני 🙂<br />התראות לא דחופות מושתקות בינתיים.</p>
+    <ul class="rest__facts">
+      ${trip.location ? html`<li>📍 ${trip.location}</li>` : null}
+      ${trip.ends_at ? html`<li>🏠 חוזרים ${formatDate(trip.ends_at, { weekday: 'long' })} בערך ב-${formatTime(trip.ends_at)}</li>` : null}
+    </ul>
+    <div class="rest__actions">
+      ${waze ? html`<${Button} variant="secondary" icon="map-pin" href=${waze} target="_blank" rel="noopener">ניווט ב-Waze</${Button}>` : null}
+      ${admins.map((m) => html`<${Button} key=${m.id} variant="ghost" href=${`tel:${m.phone.replace(/[^\d+]/g, '')}`}>📞 ${displayName(m)}</${Button}>`)}
+    </div>
+    <a class="rest__more" href=${href(`/t/${trip.id}/lists`)}>צריך בכל זאת לבדוק משהו? לרשימות ←</a>
+  </section>`;
+}
+
+/** After the trip: settle up, photos, the trip in numbers. */
+function AfterCard({ snap, me, isAdmin }) {
+  const trip = snap.trip;
+  const mine = balances(snap).find((b) => b.member_id === me.id);
+  const bal = mine ? mine.balance : 0;
+  const stats = tripStats(snap);
+  const album = trip.info?.album_url || null;
+  const share = [
+    `${trip.emoji || '⛺'} ${trip.name} — במספרים`,
+    `👥 ${hebrewCount(stats.people, 'משתתף', 'משתתפים')}`,
+    `📋 ${hebrewCount(stats.items, 'פריט', 'פריטים')} ברשימה`,
+    stats.spent ? `💸 ${formatMoney(stats.spent)} סה״כ · ${formatMoney(stats.perPerson)} לאדם` : null,
+    stats.rides ? `🚗 ${hebrewCount(stats.rides, 'רכב', 'רכבים')}` : null,
+    album ? `📸 האלבום: ${album}` : null,
+    'נתראה בטיול הבא 🔥',
+  ].filter(Boolean).join('\n');
+  return html`<section class="after" data-testid="after">
+    <h2 class="after__title">איך היה? 🔥</h2>
+    <div class="after__money">
+      ${Math.abs(bal) < 1
+        ? html`<p>💸 הכול מאוזן אצלך ✅</p>`
+        : html`<p>💸 ${bal > 0 ? 'מגיע לך' : 'עליך להעביר'} <b>${formatMoney(Math.abs(bal))}</b></p>`}
+      <${Button} size="sm" variant=${Math.abs(bal) < 1 ? 'ghost' : 'accent'} href=${href(`/t/${trip.id}/money`)}>
+        ${Math.abs(bal) < 1 ? 'למסך הכסף' : bal > 0 ? 'מי מעביר לי' : 'למי להעביר'}
+      </${Button}>
+    </div>
+    <div class="after__photos">
+      ${album
+        ? html`<${Button} variant="secondary" href=${album} target="_blank" rel="noopener">📸 לאלבום התמונות</${Button}>`
+        : isAdmin
+          ? html`<${Button} variant="ghost" href=${href(`/t/${trip.id}/trip?edit=1`)}>📸 הוספת קישור לאלבום משותף</${Button}>`
+          : html`<p class="muted small">📸 אלבום משותף — המנהלים יוסיפו קישור</p>`}
+    </div>
+    <div class="after__stats" aria-label="הטיול במספרים">
+      <span><b>${stats.people}</b> משתתפים</span>
+      <span><b>${stats.items}</b> פריטים ברשימה</span>
+      ${stats.spent ? html`<span><b>${formatMoney(stats.perPerson)}</b> לאדם</span>` : null}
+    </div>
+    <${ShareButton} text=${share} label="שיתוף ״הטיול במספרים״" />
   </section>`;
 }
 

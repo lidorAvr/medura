@@ -81,7 +81,8 @@ function Wizard({ snap, me, start }) {
     const list = emails.map((m) => m.trim().toLowerCase()).filter(Boolean);
     // Before the current list has loaded, an empty form must not wipe it — anything typed is saved.
     const skipEmails = !loaded && !list.length;
-    return (await run((api) => api.updateMember(me.id, { phone: phone.trim() || null })))
+    const flag = skipEmails ? {} : { prefs: { has_email: list.length > 0 } };
+    return (await run((api) => api.updateMember(me.id, { phone: phone.trim() || null, ...flag })))
       && (skipEmails || await run((api) => api.setMemberEmails(me.id, list)));
   };
 

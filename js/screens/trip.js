@@ -558,6 +558,7 @@ function draftFrom(trip) {
       key: rowKey(), emoji: String(r?.emoji ?? ''), text: String(r?.text ?? ''),
     })),
     notes: String(trip.info?.notes ?? ''),
+    album_url: String(trip.info?.album_url ?? ''),
     require_approval: trip.settings?.require_approval !== false,
   };
 }
@@ -616,6 +617,8 @@ function validateDraft(d) {
   const rules = d.rules.map((r) => ({ emoji: r.emoji.trim(), text: r.text.trim() })).filter((r) => r.text);
   if (rules.some((r) => cpLen(r.text) > 200 || cpLen(r.emoji) > 8)) errors.rules = 'טיפ ארוך מדי — עד 200 תווים';
   if (cpLen(d.notes) > 4000) errors.notes = 'עד 4000 תווים';
+  const album = d.album_url.trim();
+  if (album && (!/^https?:\/\/\S+$/i.test(album) || album.length > 500)) errors.album_url = 'צריך קישור מלא שמתחיל ב-https://';
   const patch = {
     name,
     emoji: d.emoji.trim() || '⛺',
@@ -625,7 +628,7 @@ function validateDraft(d) {
     lon: coords ? coords.lon : null,
     starts_at: starts,
     ends_at: ends,
-    info: { schedule, rules, notes: d.notes.trim() },
+    info: { schedule, rules, notes: d.notes.trim(), album_url: album || null },
     settings: { require_approval: !!d.require_approval },
   };
   return { errors, patch };
@@ -819,6 +822,10 @@ function EditTripSheet({ open, onClose, trip, snap }) {
         <${Field} label="הערות לכולם" error=${errors.notes}>
           <${TextArea} value=${d.notes} rows=${3} maxlength="4000" placeholder="חניה, כרטיסים, מה חשוב לזכור…"
             onInput=${(e) => { set({ notes: e.target.value }); clearError('notes'); }} />
+        </${Field}>
+        <${Field} label="📸 קישור לאלבום תמונות משותף (לא חובה)" hint="Google Photos / iCloud — יופיע לכולם אחרי הטיול" error=${errors.album_url}>
+          <${TextInput} type="url" dir="ltr" value=${d.album_url} placeholder="https://photos.app.goo.gl/…" autocomplete="off"
+            onInput=${(e) => { set({ album_url: e.target.value }); clearError('album_url'); }} />
         </${Field}>
       </section>
 

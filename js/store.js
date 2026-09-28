@@ -2,7 +2,7 @@
 import { useEffect, useReducer, useRef } from 'preact/hooks';
 import { createApi } from './api/index.js';
 import { hebrewError, toApiError } from './api/errors.js';
-import { isAdmin as memberIsAdmin, visibleNotifications } from './lib/logic.js';
+import { isAdmin as memberIsAdmin, tripPhase, visibleNotifications } from './lib/logic.js';
 import { parseHash, navigate } from './router.js';
 
 const THEME_KEY = 'medura:theme';
@@ -164,6 +164,7 @@ function announceNew(snap) {
     return;
   }
   const myId = snap.me?.member_id;
+  const quiet = tripPhase(snap.trip) === 'during'; // at the campsite: only urgent messages pop up
   let shown = 0;
   for (const n of list) {
     if (seenNotifications.has(n.id)) continue;
@@ -171,6 +172,7 @@ function announceNew(snap) {
     if (n.author_member && n.author_member === myId) continue;
     const created = Date.parse(n.created_at);
     if (Number.isFinite(created) && created < bootAt - 120000) continue;
+    if (quiet && !n.urgent) continue;
     if (shown++ >= 2) continue;
     toast(n.title, 'info', n.urgent ? 6000 : 4200, { href: `#/t/${snap.trip.id}/messages`, icon: n.urgent ? '🔴' : '🔔' });
     if (n.urgent) navigator.vibrate?.(30);

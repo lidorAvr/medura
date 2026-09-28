@@ -260,6 +260,11 @@ function infoVal(v) {
     out.notes = v.notes ?? '';
     if (cpLen(out.notes) > 4000) bad();
   }
+  if (has(v, 'album_url')) {
+    const u = v.album_url === '' ? null : v.album_url;
+    if (u !== null && (typeof u !== 'string' || u.length > 500 || !/^https?:\/\/\S+$/.test(u))) bad();
+    out.album_url = u;
+  }
   return jsonSize(out, 40000);
 }
 
