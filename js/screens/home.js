@@ -17,6 +17,7 @@ import {
 import { Icon } from '../ui/icons.js';
 import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js';
 import { InboxCard } from '../ui/inbox.js';
+import { hasModule } from '../lib/templates.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 6;
@@ -179,7 +180,7 @@ export default function HomeScreen({ route }) {
           ? null
           : html`<div class="stack-sm">
               <${Readiness} model=${model} />
-              <${MoneyRow} model=${model} />
+              ${hasModule(trip, 'money') ? html`<${MoneyRow} model=${model} />` : null}
             </div>`}
 
         <${QuickActions}
@@ -187,7 +188,7 @@ export default function HomeScreen({ route }) {
           proposes=${!isAdmin && trip.settings?.require_approval !== false}
           summary=${model.summary}
           onItem=${() => setSheet('item')}
-          onExpense=${() => setSheet('expense')}
+          onExpense=${hasModule(trip, 'money') ? () => setSheet('expense') : null}
           onAnnounce=${() => setSheet('announce')}
         />
 
@@ -324,7 +325,7 @@ function Hero({ model, me, now, isAdmin }) {
                 <${CountTile} value=${cd.hours} one="שעה" many="שעות" />
                 <${CountTile} value=${cd.minutes} one="דקה" many="דק׳" />
               </span>`
-            : cd.label === 'הטיול הסתיים'
+            : cd.label === 'הטיול הסתיים' && hasModule(trip, 'money')
               ? html`<a class="home-cd__cta" href=${href(`/t/${trip.id}/money`)}>💸 סוגרים חשבון</a>`
               : null}
         </div>`
@@ -377,7 +378,7 @@ function TripDayCard({ snap, me, now }) {
       </div>
     </div>
     <ul class="tripday__facts">
-      ${rideText ? html`<li>🚙 ${rideText}</li>` : html`<li>🚙 עוד אין לך הסעה — <a href=${href(`/t/${trip.id}/trip`)}>למצוא טרמפ</a></li>`}
+      ${!hasModule(trip, 'rides') ? null : rideText ? html`<li>🚙 ${rideText}</li>` : html`<li>🚙 עוד אין לך הסעה — <a href=${href(`/t/${trip.id}/rides`)}>למצוא טרמפ</a></li>`}
       ${open
         ? html`<li>🎒 עוד ${hebrewCount(open, 'דבר אחד', 'דברים')} לסמן — <a href=${href(`/t/${trip.id}/lists?tab=mine`)}>לרשימה שלי</a></li>`
         : html`<li>✅ הכול מסומן אצלך — אלופים</li>`}
@@ -469,14 +470,14 @@ function AfterCard({ snap, me, isAdmin }) {
   ].filter(Boolean).join('\n');
   return html`<section class="after" data-testid="after">
     <h2 class="after__title">איך היה? 🔥</h2>
-    <div class="after__money">
+    ${hasModule(trip, 'money') ? html`<div class="after__money">
       ${Math.abs(bal) < 1
         ? html`<p>💸 הכול מאוזן אצלך ✅</p>`
         : html`<p>💸 ${bal > 0 ? 'מגיע לך' : 'עליך להעביר'} <b>${formatMoney(Math.abs(bal))}</b></p>`}
       <${Button} size="sm" variant=${Math.abs(bal) < 1 ? 'ghost' : 'accent'} href=${href(`/t/${trip.id}/money`)}>
         ${Math.abs(bal) < 1 ? 'למסך הכסף' : bal > 0 ? 'מי מעביר לי' : 'למי להעביר'}
       </${Button}>
-    </div>
+    </div>` : null}
     <div class="after__photos">
       ${album
         ? html`<${Button} variant="secondary" href=${album} target="_blank" rel="noopener">📸 לאלבום התמונות</${Button}>`
@@ -549,15 +550,17 @@ function MoneyRow({ model }) {
 // ---------------------------------------------------------------------------
 
 function QuickActions({ isAdmin, proposes, summary, onItem, onExpense, onAnnounce }) {
-  return html`<nav class=${cx('home-qa', isAdmin && 'home-qa--4')} aria-label="פעולות מהירות">
+  return html`<nav class=${cx('home-qa', isAdmin && onExpense && 'home-qa--4')} aria-label="פעולות מהירות">
     <button type="button" class="qa-tile" onClick=${onItem}>
       <span class="qa-tile__emoji" aria-hidden="true">➕</span>
       <span class="qa-tile__label">${proposes ? 'הצע פריט' : 'הוסף פריט'}</span>
     </button>
-    <button type="button" class="qa-tile" onClick=${onExpense}>
-      <span class="qa-tile__emoji" aria-hidden="true">🧾</span>
-      <span class="qa-tile__label">הוצאה חדשה</span>
-    </button>
+    ${onExpense
+      ? html`<button type="button" class="qa-tile" onClick=${onExpense}>
+          <span class="qa-tile__emoji" aria-hidden="true">🧾</span>
+          <span class="qa-tile__label">הוצאה חדשה</span>
+        </button>`
+      : null}
     ${isAdmin
       ? html`<button type="button" class="qa-tile" onClick=${onAnnounce}>
           <span class="qa-tile__emoji" aria-hidden="true">📣</span>

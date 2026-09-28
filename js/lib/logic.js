@@ -1585,9 +1585,10 @@ export function myChecklist(snap, meId, extras = {}) {
   const myPledges = list(snap.pledges).filter((p) => p.member_id === meId).length;
   const votedPolls = new Set(list(snap.poll_votes).filter((v) => v.member_id === meId).map((v) => v.poll_id));
   const openPolls = list(snap.polls).filter((p) => !p.closed && !votedPolls.has(p.id)).length;
+  const on = (key) => snap.trip?.settings?.modules?.[key] !== false;
   const items = [
     { key: 'contact', done: Boolean(me.phone) || Boolean(extras.hasEmail), label: 'פרטי קשר (טלפון / מייל)', href: `${t}/welcome?step=contact` },
-    {
+    on('rides') && {
       key: 'arrive', done: Boolean(arrive), label: 'איך אני מגיע/ה? 🚗',
       detail: rides.myRide ? 'נוהג/ת' : rides.mySeat ? `עם ${displayName(rides.mySeat.driver)}` : rides.myAsk ? `⏳ מחכה ל${displayName(rides.myAsk.driver)}` : transport === 'need' ? 'מחפשים טרמפ' : null,
       href: `${t}/rides`,
@@ -1596,8 +1597,8 @@ export function myChecklist(snap, meId, extras = {}) {
       key: 'bring', done: myPledges > 0 && openPledges === 0, label: myPledges ? 'מה אני מביא/ה' : 'לקחת משהו מהרשימה',
       detail: openPledges ? `עוד ${openPledges} לסמן` : null, href: `${t}/lists?tab=mine`,
     },
-  ];
-  if (list(snap.polls).some((p) => !p.closed)) {
+  ].filter(Boolean);
+  if (on('polls') && list(snap.polls).some((p) => !p.closed)) {
     items.push({ key: 'polls', done: openPolls === 0, label: 'סקרים', detail: openPolls ? (openPolls === 1 ? 'אחד מחכה להצבעה' : `${openPolls} מחכים להצבעה`) : null, href: `${t}/messages` });
   }
   const done = items.filter((i) => i.done).length;

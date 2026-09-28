@@ -11,6 +11,7 @@ import { Icon } from './ui/icons.js';
 import { EmailGate } from './ui/email-gate.js';
 import { Tour, tourDue } from './ui/tour.js';
 import { PendingGate } from './ui/pending.js';
+import { hasModule } from './lib/templates.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -230,9 +231,10 @@ function BottomNav({ route }) {
     unread = 0;
   }
   const id = route.params.tripId || tripId;
+  const tabs = TABS.filter((t) => !['rides', 'money'].includes(t.key) || hasModule(snap?.trip, t.key));
   return html`<nav class="bottom-nav" aria-label="ניווט ראשי">
-    <div class="bottom-nav__inner">
-      ${TABS.map((t) => {
+    <div class="bottom-nav__inner" style=${`grid-template-columns: repeat(${tabs.length}, minmax(0, 1fr))`}>
+      ${tabs.map((t) => {
         const active = t.match.includes(route.name);
         const badge = t.key === 'messages' && unread > 0 ? unread : 0;
         return html`<a

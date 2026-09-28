@@ -44,6 +44,7 @@ const SHELL = [
   'js/screens/signin.js',
   'js/ui/icons.js',
   'js/lib/logic.js',
+  'js/lib/templates.js',
   'js/api/index.js',
   'js/api/errors.js',
   'js/api/supabase-api.js',

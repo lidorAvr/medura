@@ -128,6 +128,7 @@ function MessagesBody({ route, snap, me, admin, tripId }) {
   );
   const fresh = useFreshAndMarkRead(tripId, notices, myReads, me.id);
   const [tab, setTab] = useState(query.tab === 'polls' ? 'polls' : 'feed');
+  const pollsOn = snap?.trip?.settings?.modules?.polls !== false;
   const [pollSheet, setPollSheet] = useState(query.poll === 'new');
 
   const polls = snap.polls || [];
@@ -150,18 +151,20 @@ function MessagesBody({ route, snap, me, admin, tripId }) {
 
     ${admin ? html`<${Composer} snap=${snap} me=${me} tripId=${tripId} startOpen=${query.compose === '1'} />` : null}
 
-    <${Segmented}
-      label="מה להציג"
-      class="msg-tabs"
-      value=${tab}
-      onChange=${setTab}
-      options=${[
-        { value: 'feed', label: '📣 עדכונים' },
-        { value: 'polls', label: '📊 סקרים', badge: waiting.length || undefined },
-      ]}
-    />
+    ${pollsOn
+      ? html`<${Segmented}
+          label="מה להציג"
+          class="msg-tabs"
+          value=${tab}
+          onChange=${setTab}
+          options=${[
+            { value: 'feed', label: '📣 עדכונים' },
+            { value: 'polls', label: '📊 סקרים', badge: waiting.length || undefined },
+          ]}
+        />`
+      : null}
 
-    ${tab === 'feed'
+    ${tab === 'feed' || !pollsOn
       ? html`<${Feed}
           notices=${notices}
           fresh=${fresh}

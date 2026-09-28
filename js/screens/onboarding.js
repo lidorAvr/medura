@@ -13,10 +13,11 @@ import {
 } from '../ui/components.js';
 import { Icon } from '../ui/icons.js';
 import { EmailGate, linkThisDevice } from '../ui/email-gate.js';
+import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];
-const TRIP_EMOJIS = ['⛺', '🏕️', '🔥', '🌲', '🏖️', '🌊', '⛰️', '🏜️', '🚐', '🎒', '🌄', '🛶', '🎉', '🌙'];
+const TRIP_EMOJIS = ['✈️', '🥂', '🏡', '👨‍👩‍👧', '💼', '🥾', '⛺', '🏕️', '🔥', '🌲', '🏖️', '🌊', '⛰️', '🏜️', '🚐', '🎒', '🌄', '🛶', '🎉', '🌙'];
 const COLORS = ['#2F6B4F', '#F28C28', '#E4572E', '#3A86FF', '#8E44AD', '#16A085', '#D4A017', '#C0392B', '#2C3E50', '#FF6B9A'];
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const baseUrl = () => `${location.origin}${location.pathname}`;
@@ -495,7 +496,12 @@ function InviteStep({ tripId }) {
 
 function NewTrip() {
   const [step, setStep] = useState(1);
-  const [trip, setTrip] = useState({ name: '', emoji: '⛺', location: '', startDate: '', startTime: '09:00', endDate: '', endTime: '12:00' });
+  const [trip, setTrip] = useState({ type: '', name: '', emoji: '⛺', location: '', startDate: '', startTime: '09:00', endDate: '', endTime: '12:00' });
+  const type = TRIP_TYPES.find((x) => x.key === trip.type) || null;
+  const pickType = (x) => {
+    setTrip((t) => ({ ...t, type: x.key, emoji: x.emoji }));
+    if (errors.type) setErrors({ ...errors, type: undefined });
+  };
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [createdId, setCreatedId] = useState(null);
@@ -513,6 +519,7 @@ function NewTrip() {
     e.preventDefault();
     const errs = {};
     const name = trip.name.trim();
+    if (!trip.type) errs.type = 'איזה טיול? בחרו אחד — אפשר לשנות הכל אחר כך';
     if (!name) errs.name = 'איך נקרא לטיול? 🙂';
     else if (name.length > 60) errs.name = 'עד 60 תווים';
     if (trip.endDate && !trip.startDate) errs.startDate = 'מתי יוצאים?';
@@ -532,17 +539,26 @@ function NewTrip() {
 
   const create = async (profile) => {
     setBusy(true);
+    const seed = tripSeed(trip.type);
     const payload = {
       name: trip.name.trim(),
       emoji: trip.emoji,
       location: trip.location.trim() || null,
       starts_at: jerusalemIso(trip.startDate, trip.startTime),
       ends_at: jerusalemIso(trip.endDate, trip.endTime),
+      settings: seed.settings,
+      info: seed.info,
+      categories: seed.categories,
     };
     const res = await actions.run((api) => api.createTrip(payload, profile), { refresh: false });
     if (!res?.trip_id) {
       setBusy(false);
       return;
+    }
+    // the type's ready-made lists (a failure here isn't fatal — the trip exists, the lists can be filled later)
+    if (seed.items.length) {
+      await actions.run(async (api) => { await api.addItemsBulk(res.trip_id, seed.items); return true; }, { refresh: false })
+        .catch(() => null);
     }
     await actions.loadTrips();
     await actions.openTrip(res.trip_id, { force: true });
@@ -566,12 +582,31 @@ function NewTrip() {
             <h1>טיול חדש ⛺</h1>
             <p class="muted">כמה פרטים קטנים וממשיכים. אפשר לשנות הכל אחר כך.</p>
           </div>
+          <section class="trip-types" aria-labelledby="trip-type-h">
+            <h2 class="field__label" id="trip-type-h">איזה טיול?</h2>
+            <div class="trip-types__grid" role="radiogroup" aria-label="סוג הטיול">
+              ${TRIP_TYPES.map((x) => html`<button type="button" role="radio" key=${x.key} aria-checked=${trip.type === x.key ? 'true' : 'false'}
+                class=${cx('trip-type', trip.type === x.key && 'is-on')} onClick=${() => pickType(x)} data-type=${x.key}>
+                <span class="trip-type__emoji" aria-hidden="true">${x.emoji}</span>
+                <span class="trip-type__label">${x.label}</span>
+                <span class="trip-type__hint">${x.hint}</span>
+              </button>`)}
+            </div>
+            ${errors.type ? html`<p class="field__error" role="alert">${errors.type}</p>` : null}
+            ${type
+              ? html`<p class="trip-types__gets" data-testid="type-gets">
+                  מקבלים מוכן: ${hebrewCount(type.items.length, 'פריט ברשימות', 'פריטים ברשימות')} · רשימת אריזה אישית (${type.packing.length}) · לו״ז בלחיצה
+                  ${MODULES.filter((m) => type.modules[m.key] !== false).map((m) => ` · ${m.emoji} ${m.label}`).join('')}
+                  <span class="muted"> — הכל ניתן לשינוי.</span>
+                </p>`
+              : null}
+          </section>
           <${TripTicket} trip=${trip} />
           <${Field} label="איך קוראים לטיול?" error=${errors.name}>
             <${TextInput}
               value=${trip.name}
               maxlength="60"
-              placeholder="למשל: טיול לפארק החבשושיות"
+              placeholder=${type ? type.placeholder : 'למשל: טיול לפארק החבשושיות'}
               onInput=${(e) => set('name', e.target.value)}
             />
           </${Field}>

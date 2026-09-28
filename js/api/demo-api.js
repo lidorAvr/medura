@@ -266,6 +266,11 @@ function infoVal(v) {
     if (u !== null && (typeof u !== 'string' || u.length > 500 || !/^https?:\/\/\S+$/.test(u))) bad();
     out.album_url = u;
   }
+  if (given(v, 'packing')) {
+    if (!Array.isArray(v.packing) || v.packing.length > 60
+        || !v.packing.every((x) => typeof x === 'string' && cpLen(x) >= 1 && cpLen(x) <= 80)) bad();
+    out.packing = v.packing;
+  }
   return jsonSize(out, 40000);
 }
 
@@ -273,7 +278,15 @@ function settingsVal(v) {
   reqObj(v);
   const out = {};
   if (given(v, 'require_approval')) out.require_approval = toBool(v.require_approval);
-  return out;
+  if (given(v, 'type')) {
+    if (typeof v.type !== 'string' || !/^[a-z_]{1,20}$/.test(v.type)) bad();
+    out.type = v.type;
+  }
+  if (given(v, 'modules')) {
+    if (!isObj(v.modules) || !Object.values(v.modules).every((x) => typeof x === 'boolean')) bad();
+    out.modules = { ...v.modules };
+  }
+  return jsonSize(out, 4000);
 }
 
 function profileFields(p, creating) {
@@ -570,8 +583,17 @@ const RPC = {
 
   create_trip(ctx, pTrip, pProfile) {
     const { db } = ctx;
-    const t = tripFields(pTrip, true);
+    const { categories: cats, ...tripOnly } = pTrip && typeof pTrip === 'object' ? pTrip : {};
+    const t = tripFields(pTrip && typeof pTrip === 'object' ? tripOnly : pTrip, true);
     const prof = profileFields(pProfile, true);
+    // a trip type brings its own categories; otherwise the camping defaults
+    let startCats = DEFAULT_CATEGORIES;
+    if (Array.isArray(cats) && cats.length) {
+      if (cats.length > 20 || !cats.every((c) => isObj(c) && typeof c.name === 'string' && cpLen(c.name) >= 1
+          && cpLen(c.name) <= 40 && (c.emoji == null || (typeof c.emoji === 'string' && cpLen(c.emoji) <= 16)))) bad();
+      const seen = new Set();
+      startCats = cats.filter((c) => !seen.has(c.name) && seen.add(c.name)).map((c) => ({ name: c.name, emoji: c.emoji || null }));
+    }
     const now = ctx.now();
     const trip = {
       id: newId(),
@@ -595,7 +617,7 @@ const RPC = {
     const member = newMemberRow(ctx, trip.id, prof, 'owner', true);
     db.members.push(member);
     linkUser(ctx, trip.id, member.id);
-    DEFAULT_CATEGORIES.forEach((c, i) => {
+    startCats.forEach((c, i) => {
       db.categories.push({
         id: newId(), trip_id: trip.id, name: c.name, emoji: c.emoji, sort: i + 1,
         default_buyer_id: null, note: null, created_at: ctx.now(),
@@ -1563,7 +1585,9 @@ const RPC = {
     const me = requireMember(ctx, tripId);
     const mine = db.personal_items.filter((p) => p.member_id === me.id);
     const have = new Set(mine.map((p) => p.title.trim()));
-    const toAdd = PERSONAL_TEMPLATE.filter((t) => !have.has(t));
+    const trip = db.trips.find((x) => x.id === tripId);
+    const list = Array.isArray(trip?.info?.packing) && trip.info.packing.length ? trip.info.packing : PERSONAL_TEMPLATE;
+    const toAdd = list.filter((t) => !have.has(t));
     if (mine.length + toAdd.length > LIMITS.personal) fail('limit_reached');
     let sort = nextSort(mine);
     for (const title of toAdd) {

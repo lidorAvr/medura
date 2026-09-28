@@ -508,3 +508,20 @@
 .pending__person { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 999px; background: var(--surface-2); font-size: 14px; }
 .claim-tile--taken { opacity: 0.95; border-style: dashed; }
 .join-existing .welcome-opts { margin-top: 4px; }
+/* ---------- new trip: type picker ---------- */
+.trip-types { display: flex; flex-direction: column; gap: 10px; }
+.trip-types__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.trip-type {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 76px; padding: 10px 12px;
+  border: 2px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink);
+  font: inherit; text-align: start; cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease), transform 160ms var(--ease);
+}
+.trip-type:active { transform: scale(0.97); }
+.trip-type__emoji { font-size: 24px; line-height: 1.1; }
+.trip-type__label { font-weight: 800; font-size: 15px; }
+.trip-type__hint { font-size: 12.5px; color: var(--muted); line-height: 1.3; }
+.trip-type.is-on { border-color: var(--accent); background: var(--accent-soft); }
+.trip-type.is-on .trip-type__label { color: var(--accent-text); }
+.trip-types__gets { font-size: 13.5px; line-height: 1.5; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); animation: fade-in 200ms var(--ease); }
+@media (prefers-reduced-motion: reduce) { .trip-type:active { transform: none; } }

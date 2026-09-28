@@ -4,6 +4,7 @@ import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { actions, useTrip } from '../store.js';
 import { RidesCard } from './rides.js';
+import { MODULES, hasModule, schedulePresets, tripType } from '../lib/templates.js';
 import { href, navigate } from '../router.js';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
@@ -355,7 +356,7 @@ export default function TripScreen({ route }) {
           </${Card}>`
         : null}
 
-    ${me ? html`<${RidesCard} snap=${snap} me=${me} isAdmin=${isAdmin} />` : null}
+    ${me && hasModule(trip, 'rides') ? html`<${RidesCard} snap=${snap} me=${me} isAdmin=${isAdmin} />` : null}
 
     ${rules.length
       ? html`<${Card} emoji="📌" title="חשוב לדעת" class="trip-rules-card">
@@ -560,30 +561,9 @@ function draftFrom(trip) {
     notes: String(trip.info?.notes ?? ''),
     album_url: String(trip.info?.album_url ?? ''),
     require_approval: trip.settings?.require_approval !== false,
+    type: tripType(trip).key,
+    modules: Object.fromEntries(MODULES.map((m) => [m.key, hasModule(trip, m.key)])),
   };
-}
-
-const hmAdd = (hm, min) => {
-  const [h, m] = String(hm || '').split(':').map(Number);
-  if (!Number.isFinite(h)) return '';
-  const t = (((h * 60 + (m || 0) + min) % 1440) + 1440) % 1440;
-  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
-};
-
-/** One-tap schedule rows, in trip order; times come from the trip's start and end. */
-function schedulePresets(d) {
-  const start = d.startTime || '09:00';
-  const end = d.endTime || '14:00';
-  return [
-    { emoji: '🚗', label: 'יציאה', time: start },
-    { emoji: '⛺', label: 'הקמת המחנה', time: hmAdd(start, 120) },
-    { emoji: '🥪', label: 'ארוחת צהריים', time: '13:30' },
-    { emoji: '🔥', label: 'על האש', time: '19:30' },
-    { emoji: '🎶', label: 'מדורה ושירים', time: '21:30' },
-    { emoji: '☕', label: 'קפה וארוחת בוקר', time: '08:30' },
-    { emoji: '🧹', label: 'פירוק וניקיון', time: hmAdd(end, -120) },
-    { emoji: '🏠', label: 'חזרה הביתה', time: end },
-  ];
 }
 
 /** Comparable form of a draft (row keys don't count as changes). */
@@ -652,7 +632,7 @@ function validateDraft(d) {
     starts_at: starts,
     ends_at: ends,
     info: { schedule, rules, notes: d.notes.trim(), album_url: album || null },
-    settings: { require_approval: !!d.require_approval },
+    settings: { require_approval: !!d.require_approval, modules: { ...d.modules } },
   };
   return { errors, patch };
 }
@@ -809,7 +789,7 @@ function EditTripSheet({ open, onClose, trip, snap }) {
         <h3 class="trip-edit__h">⏰ לו״ז</h3>
         <p class="trip-edit__hint">לוחצים על מה שיש בטיול — ומשנים שעה רק אם צריך. שעה מוקדמת מהשורה שלפניה = למחרת.</p>
         <div class="sched-quick" role="group" aria-label="הוספה מהירה ללו״ז" data-testid="sched-quick">
-          ${schedulePresets(d).map((p) => {
+          ${schedulePresets(d.type, d.startTime, d.endTime).map((p) => {
             const has = d.schedule.some((r) => r.label.trim() === p.label);
             return html`<${Chip} key=${p.label} active=${has} onClick=${() => setD((x) => ({
               ...x,
@@ -822,8 +802,8 @@ function EditTripSheet({ open, onClose, trip, snap }) {
         ${d.schedule.length
           ? null
           : html`<${Button} variant="secondary" size="sm" class="sched-quick__all"
-              onClick=${() => setD((x) => ({ ...x, schedule: schedulePresets(x).map((p) => ({ key: rowKey(), ...p })) }))}>
-              ✨ לו״ז מוכן לקמפינג — רק לעדכן
+              onClick=${() => setD((x) => ({ ...x, schedule: schedulePresets(x.type, x.startTime, x.endTime).map((p) => ({ key: rowKey(), ...p })) }))}>
+              ✨ לו״ז מוכן — רק לעדכן שעות
             </${Button}>`}
         <div class="row-editor" role="group" aria-label="שורות הלו״ז">
           ${d.schedule.map((r, i) => html`<div class="row-editor__row row-editor__row--sched" key=${r.key} data-row=${r.key}>
@@ -867,6 +847,17 @@ function EditTripSheet({ open, onClose, trip, snap }) {
           <${TextInput} type="url" dir="ltr" value=${d.album_url} placeholder="https://photos.app.goo.gl/…" autocomplete="off"
             onInput=${(e) => { set({ album_url: e.target.value }); clearError('album_url'); }} />
         </${Field}>
+      </section>
+
+      <section class="trip-edit__group" data-testid="trip-modules">
+        <h3 class="trip-edit__h">🧩 מה יש בטיול</h3>
+        <p class="trip-edit__hint">מה שכבוי נעלם מהתפריט ומהמסכים — לכולם. אפשר להדליק שוב בכל רגע, שום דבר לא נמחק.</p>
+        ${MODULES.map((m) => html`<${Toggle} key=${m.key}
+          checked=${d.modules[m.key]}
+          onChange=${(v) => set({ modules: { ...d.modules, [m.key]: v } })}
+          label=${`${m.emoji} ${m.label}`}
+          hint=${m.hint}
+        />`)}
       </section>
 
       <section class="trip-edit__group">
