@@ -52,7 +52,7 @@ const K = {
   vote: ['voter_id', 'candidate_id'],
   pollVote: ['poll_id', 'member_id', 'option_id'],
   personal: ['id', 'title', 'done', 'sort', 'created_at'],
-  ride: ['id', 'driver_member', 'seats', 'from_text', 'depart_at', 'note', 'created_at'],
+  ride: ['id', 'driver_member', 'seats', 'from_text', 'depart_at', 'note', 'kind', 'to_text', 'created_at'],
   rideSeat: ['ride_id', 'member_id', 'seats', 'status', 'requested_by'],
   profileRequest: ['id', 'member_id', 'name', 'person', 'email', 'merging', 'created_at'],
 };
@@ -285,6 +285,13 @@ function settingsVal(v) {
   if (given(v, 'modules')) {
     if (!isObj(v.modules) || !Object.values(v.modules).every((x) => typeof x === 'boolean')) bad();
     out.modules = { ...v.modules };
+  }
+  if (given(v, 'arrival')) {
+    const a = v.arrival;
+    if (!isObj(a)) bad();
+    if (given(a, 'modes') && (!Array.isArray(a.modes) || !a.modes.every((m) => ['car', 'taxi', 'meet', 'own'].includes(m)))) bad();
+    if (given(a, 'flights') && typeof a.flights !== 'boolean') bad();
+    out.arrival = { ...a };
   }
   return jsonSize(out, 4000);
 }
@@ -893,10 +900,13 @@ const RPC = {
     const { db } = ctx;
     const me = requireMember(ctx, tripId);
     reqObj(ride);
+    let kind = ride.kind == null ? null : ride.kind;
+    if (kind !== null && !['car', 'taxi', 'meet'].includes(kind)) bad();
+    if (given(ride, 'id')) kind = kind ?? db.rides.find((r) => r.id === ride.id)?.kind ?? null;
     let seats;
     if (has(ride, 'seats')) {
       seats = Number(ride.seats);
-      if (!Number.isInteger(seats) || seats < 1 || seats > 8) bad();
+      if (!Number.isInteger(seats) || seats < 1 || seats > ((kind || 'car') === 'meet' ? 40 : 8)) bad();
     }
     let row;
     if (given(ride, 'id')) {
@@ -909,6 +919,8 @@ const RPC = {
       if (has(ride, 'from_text')) row.from_text = optText(ride.from_text, 80);
       if (has(ride, 'depart_at')) row.depart_at = ride.depart_at == null || ride.depart_at === '' ? null : timestampVal(ride.depart_at);
       if (has(ride, 'note')) row.note = optText(ride.note, 200);
+      if (kind) row.kind = kind;
+      if (has(ride, 'to_text')) row.to_text = optText(ride.to_text, 80);
     } else {
       if (db.rides.some((r) => r.trip_id === tripId && r.driver_member === me.id)) fail('not_allowed_state');
       remove(db.ride_seats, (s) => s.trip_id === tripId && s.member_id === me.id);
@@ -916,7 +928,7 @@ const RPC = {
         id: newId(), trip_id: tripId, driver_member: me.id, seats: seats ?? 3,
         from_text: optText(ride.from_text, 80),
         depart_at: ride.depart_at == null || ride.depart_at === '' ? null : timestampVal(ride.depart_at),
-        note: optText(ride.note, 200), created_at: ctx.now(),
+        note: optText(ride.note, 200), kind: kind || 'car', to_text: optText(ride.to_text, 80), created_at: ctx.now(),
       };
       db.rides.push(row);
     }
@@ -961,7 +973,13 @@ const RPC = {
       seat = { ride_id: ride.id, trip_id: ride.trip_id, member_id: me.id, seats: n, status: 'pending', requested_by: 'passenger', created_at: ctx.now() };
       db.ride_seats.push(seat);
     }
-    if (seat.status === 'pending') {
+    if (ride.kind === 'meet') {
+      // a meeting point needs no approval
+      seat.status = 'approved';
+      notify(ctx, ride.trip_id, {
+        title: `${me.display_name} מצטרף/ת לנקודת המפגש 🚆`, audience: [ride.driver_member], link: `#/t/${ride.trip_id}/rides`,
+      });
+    } else if (seat.status === 'pending') {
       notify(ctx, ride.trip_id, {
         title: `${me.display_name} מבקש/ת להצטרף לרכב שלך 🚗`,
         body: `${n > 1 ? `${n} מקומות · ` : ''}אפשר לאשר או לדחות במסך הבית`,

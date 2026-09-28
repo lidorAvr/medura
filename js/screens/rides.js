@@ -1,11 +1,13 @@
-// Rides & carpools: drivers offer seats; a passenger ASKS and the driver answers (or the driver
-// INVITES and the passenger answers) — the side that asked is always told. Used on the trip
-// screen and (compact) on the home screen on the day of the trip.
+// Getting there: cars (a driver offers seats), shared taxis (someone organises), meeting points (a train,
+// a bus, the airport — join without approval), flights. A passenger ASKS and the organiser answers (or
+// the organiser INVITES and the passenger answers) — the side that asked is always told. The admin
+// picks which ways a trip offers (settings.arrival). Used on the rides tab, the trip screen and the wizard.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { actions, useTrip } from '../store.js';
 import { navigate } from '../router.js';
-import { displayName, formatTime, hebrewCount, ilIso, ilWall, rideModel } from '../lib/logic.js';
+import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel } from '../lib/logic.js';
+import { ARRIVAL_MODES, arrivalOf } from '../lib/templates.js';
 import { Avatar, Button, Card, Field, IconButton, Sheet, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
@@ -13,53 +15,78 @@ const ok = (fn) => async (api) => {
   await fn(api);
   return true;
 };
+const kindOf = (r) => r?.kind || 'car';
+const model_kinds = (snap) => (snap?.rides || []).map(kindOf);
 
-/** The rides tab: how I get there (one tap to say so) + every car. */
+/** Words per kind of ride: who runs it, how to say "I'm in", what a place is called. */
+const KIND = {
+  car: { emoji: '🚗', mine: 'את/ה נוהג/ת', of: (n) => `הרכב של ${n}`, in: (n) => `ברכב של ${n}`, ask: 'מבקשים להצטרף', unit: ['מקום פנוי', 'מקומות פנויים'] },
+  taxi: { emoji: '🚕', mine: 'את/ה מארגן/ת מונית', of: (n) => `מונית משותפת · ${n}`, in: (n) => `במונית של ${n}`, ask: 'מבקשים להצטרף', unit: ['מקום פנוי', 'מקומות פנויים'] },
+  meet: { emoji: '🚆', mine: 'קבעת נקודת מפגש', of: (n) => `נקודת מפגש · ${n}`, in: (n) => `בנקודת המפגש של ${n}`, ask: 'מצטרפים', unit: ['מצטרף/ת', 'מצטרפים'] },
+};
+
+/** The rides tab: how I get there (one tap to say so), flights, and every car / taxi / meeting point. */
 export default function RidesScreen({ route }) {
   const { snap, me, isAdmin } = useTrip();
+  const [sheet, setSheet] = useState(null); // null | {kind} (new) | ride
   if (!snap || !me || snap.trip.id !== route?.params?.tripId) {
     return html`<div class="screen rides-screen" aria-busy="true"><${Skeleton} lines=${3} /><${Skeleton} lines=${5} /></div>`;
   }
+  const arrival = arrivalOf(snap.trip);
   return html`<div class="screen rides-screen">
-    <${MyArrival} snap=${snap} me=${me} />
-    <${RidesCard} snap=${snap} me=${me} isAdmin=${isAdmin} />
+    <${MyArrival} snap=${snap} me=${me} onOffer=${(kind) => setSheet({ kind })} />
+    ${arrival.flights ? html`<${FlightsCard} snap=${snap} me=${me} />` : null}
+    <${RidesCard} snap=${snap} me=${me} isAdmin=${isAdmin} sheet=${sheet} setSheet=${setSheet} />
   </div>`;
 }
 
-function MyArrival({ snap, me }) {
+function MyArrival({ snap, me, onOffer }) {
   const [busy, setBusy] = useState(null);
   const model = rideModel(snap, me.id);
+  const { modes } = arrivalOf(snap.trip);
+  const rideModes = modes.filter((m) => m !== 'own');
   const mode = me.prefs?.transport?.mode;
-  const tripId = snap.trip.id;
-  const change = () => navigate(`/t/${tripId}/welcome?step=arrive`);
   const setMode = async (value) => {
     setBusy(value);
     await actions.run(ok((api) => api.updateMember(me.id, { prefs: { transport: { mode: value } } })),
-      { success: value === 'need' ? 'סימנו שאתם מחפשים טרמפ 🙋 הנהגים יראו' : 'מעולה, סימנו ✅' });
+      { success: value === 'need' ? 'סימנו שאתם מחפשים מקום 🙋 המארגנים יראו' : 'מעולה, סימנו ✅' });
     setBusy(null);
   };
   let status;
-  if (model.myRide) status = `🚗 את/ה נוהג/ת · ${model.myRide.free ? hebrewCount(model.myRide.free, 'מקום פנוי', 'מקומות פנויים') : 'הרכב מלא'}`;
-  else if (model.mySeat) status = `✅ ברכב של ${displayName(model.mySeat.driver)}`;
+  if (model.myRide) {
+    const k = KIND[kindOf(model.myRide)];
+    status = `${k.emoji} ${k.mine}${kindOf(model.myRide) === 'meet' ? ` · ${hebrewCount(model.myRide.taken, 'מצטרף/ת', 'מצטרפים')}`
+      : ` · ${model.myRide.free ? hebrewCount(model.myRide.free, 'מקום פנוי', 'מקומות פנויים') : 'מלא'}`}`;
+  } else if (model.mySeat) status = `✅ ${KIND[kindOf(model.mySeat)].in(displayName(model.mySeat.driver))}`;
   else if (model.myAsk) status = `⏳ ביקשת מקום אצל ${displayName(model.myAsk.driver)}`;
-  else if (mode === 'need') status = '🙋 מחפשים טרמפ';
-  else if (mode === 'own') status = '🚌 מגיעים בדרך אחרת';
+  else if (mode === 'need') status = '🙋 מחפשים מקום';
+  else if (mode === 'own') status = '🧍 מגיעים בדרך שלנו';
   const seeking = !model.myRide && !model.mySeat && (mode === 'need' || model.myAsk);
+  const change = () => setMode(null);
   return html`<${Card} emoji="🧭" title="איך אני מגיע/ה?" class="my-arrival" data-testid="my-arrival">
     ${status
       ? html`<div class="my-arrival__row"><b class="my-arrival__status">${status}</b>
-          <${Button} variant="ghost" size="sm" onClick=${change}>שינוי</${Button}></div>`
+          ${model.myRide || model.mySeat || model.myAsk
+            ? null
+            : html`<${Button} variant="ghost" size="sm" onClick=${change}>שינוי</${Button}>`}</div>`
       : html`<p class="muted small">עוד לא סימנת — לחיצה אחת:</p>
         <div class="my-arrival__opts">
-          <${Button} variant="secondary" size="sm" onClick=${change}>🚗 אני נוהג/ת</${Button}>
-          <${Button} variant="secondary" size="sm" loading=${busy === 'need'} onClick=${() => setMode('need')}>🙋 צריך/ה טרמפ</${Button}>
-          <${Button} variant="secondary" size="sm" loading=${busy === 'own'} onClick=${() => setMode('own')}>🚌 מגיעים לבד</${Button}>
+          ${rideModes.map((k) => {
+            const m = ARRIVAL_MODES.find((x) => x.key === k);
+            return html`<${Button} key=${k} variant="secondary" size="sm" onClick=${() => onOffer(k)}>${m.emoji} ${m.offer}</${Button}>`;
+          })}
+          ${rideModes.length
+            ? html`<${Button} variant="secondary" size="sm" loading=${busy === 'need'} onClick=${() => setMode('need')}>🙋 מחפש/ת מקום</${Button}>`
+            : null}
+          ${modes.includes('own')
+            ? html`<${Button} variant="secondary" size="sm" loading=${busy === 'own'} onClick=${() => setMode('own')}>🧍 מגיעים לבד</${Button}>`
+            : null}
         </div>`}
     ${seeking ? html`<${RideOffers} snap=${snap} me=${me} />` : null}
   </${Card}>`;
 }
 
-/** Cars with room for someone who needs a ride — ask right here (rides tab, welcome wizard). */
+/** Rides with room for someone who needs one — ask (or join a meeting point) right here. */
 export function RideOffers({ snap, me }) {
   const [busy, setBusy] = useState(null);
   const model = rideModel(snap, me.id);
@@ -68,35 +95,101 @@ export function RideOffers({ snap, me }) {
   const open = model.rides.filter((r) => r.free > 0 || model.myAsk === r);
   const ask = async (r) => {
     setBusy(r.id);
+    const meet = kindOf(r) === 'meet';
     await actions.run(ok((api) => api.takeSeat(r.id, Math.min(myHeads, r.free))),
-      { success: `הבקשה נשלחה ל${displayName(r.driver)} ⏳ נעדכן כשיענה/תענה` });
+      { success: meet ? 'הצטרפת לנקודת המפגש ✅' : `הבקשה נשלחה ל${displayName(r.driver)} ⏳ נעדכן כשיענה/תענה` });
     setBusy(null);
   };
   if (!open.length) {
-    return html`<p class="ride-offers__none muted small" data-testid="ride-offers">עוד אין רכבים עם מקום. ברגע שמישהו יוסיף רכב — נראה לך כאן, והנהגים רואים שאתם מחפשים 🙂</p>`;
+    return html`<p class="ride-offers__none muted small" data-testid="ride-offers">עוד אין מקומות פנויים. ברגע שמישהו יציע — נראה לך כאן, והמארגנים רואים שאתם מחפשים 🙂</p>`;
   }
   return html`<div class="ride-offers" data-testid="ride-offers">
-    <p class="ride-offers__title">רכבים עם מקום — מבקשים בלחיצה:</p>
+    <p class="ride-offers__title">יש מקום — בלחיצה:</p>
     <ul class="ride-offers__list">
-      ${open.map((r) => html`<li class="ride-offer" key=${r.id}>
-        <${Avatar} member=${r.driver} size=${34} />
-        <div class="ride-offer__main">
-          <b>${displayName(r.driver)}</b>
-          <span class="muted small">${[r.from_text && `📍 ${r.from_text}`, r.depart_at && `🕗 ${formatTime(r.depart_at)}`,
-            hebrewCount(r.free, 'מקום פנוי', 'מקומות פנויים')].filter(Boolean).join(' · ')}</span>
-        </div>
-        ${model.myAsk === r
-          ? html`<span class="ride-offer__wait small">⏳ מחכה לאישור</span>`
-          : html`<${Button} size="sm" variant="secondary" loading=${busy === r.id} onClick=${() => ask(r)}>
-              ${model.myAsk ? 'כאן במקום' : 'בקשה'}
-            </${Button}>`}
-      </li>`)}
+      ${open.map((r) => {
+        const k = KIND[kindOf(r)];
+        return html`<li class="ride-offer" key=${r.id}>
+          <${Avatar} member=${r.driver} size=${34} />
+          <div class="ride-offer__main">
+            <b>${k.emoji} ${displayName(r.driver)}</b>
+            <span class="muted small">${[r.from_text && `📍 ${r.from_text}`, r.to_text && `← ${r.to_text}`, r.depart_at && `🕗 ${formatTime(r.depart_at)}`,
+              kindOf(r) === 'meet' ? null : hebrewCount(r.free, 'מקום פנוי', 'מקומות פנויים')].filter(Boolean).join(' · ')}</span>
+          </div>
+          ${model.myAsk === r
+            ? html`<span class="ride-offer__wait small">⏳ מחכה לאישור</span>`
+            : html`<${Button} size="sm" variant="secondary" loading=${busy === r.id} onClick=${() => ask(r)}>
+                ${kindOf(r) === 'meet' ? 'מצטרפים' : model.myAsk ? 'כאן במקום' : 'בקשה'}
+              </${Button}>`}
+        </li>`;
+      })}
     </ul>
   </div>`;
 }
 
-export function RidesCard({ snap, me, isAdmin, compact = false }) {
-  const [sheet, setSheet] = useState(null); // null | 'new' | ride
+/** Flights: mine (out / back) and who's on which flight. */
+function FlightsCard({ snap, me }) {
+  const travel = me.prefs?.travel || {};
+  const [editing, setEditing] = useState(false);
+  const [out, setOut] = useState({ flight: travel.out?.flight || '', at: travel.out?.at || '' });
+  const [back, setBack] = useState({ flight: travel.back?.flight || '', at: travel.back?.at || '' });
+  const [busy, setBusy] = useState(false);
+  const outs = flightModel(snap, 'out');
+  const backs = flightModel(snap, 'back');
+  const save = async (e) => {
+    e?.preventDefault();
+    setBusy(true);
+    const clean = (f) => (f.flight.trim() ? { flight: f.flight.trim().toUpperCase(), at: f.at || null } : null);
+    const done = await actions.run(ok((api) => api.updateMember(me.id, { prefs: { travel: { out: clean(out), back: clean(back) } } })),
+      { success: 'הטיסות נשמרו ✈️' });
+    setBusy(false);
+    if (done) setEditing(false);
+  };
+  const when = (at) => (at ? `${formatDate(at, { weekday: 'short' })} ${formatTime(at)}` : '');
+  const group = (m, title) => html`<div class="flights__leg">
+    <p class="flights__title">${title}</p>
+    ${m.flights.length
+      ? html`<ul class="flights__list">${m.flights.map((g) => html`<li key=${g.flight} class="flights__row">
+          <b dir="ltr">${g.flight}</b> ${g.at ? html`<span class="muted small">${when(g.at)}</span>` : null}
+          <span class="flights__who small">${g.members.map(displayName).join(' · ')}</span>
+        </li>`)}</ul>`
+      : html`<p class="muted small">עוד אף אחד לא סימן.</p>`}
+  </div>`;
+  const mine = travel.out?.flight || travel.back?.flight;
+  return html`<${Card} emoji="✈️" title="טיסות" class="flights" data-testid="flights">
+    ${editing
+      ? html`<form class="stack" onSubmit=${save} noValidate>
+          <div class="date-pair">
+            <${Field} label="טיסה הלוך"><${TextInput} dir="ltr" value=${out.flight} maxlength="12" placeholder="LY315" onInput=${(e) => setOut({ ...out, flight: e.target.value })} /></${Field}>
+            <${Field} label="מתי"><${TextInput} type="datetime-local" value=${out.at} onInput=${(e) => setOut({ ...out, at: e.target.value })} /></${Field}>
+          </div>
+          <div class="date-pair">
+            <${Field} label="טיסה חזור"><${TextInput} dir="ltr" value=${back.flight} maxlength="12" placeholder="LY316" onInput=${(e) => setBack({ ...back, flight: e.target.value })} /></${Field}>
+            <${Field} label="מתי"><${TextInput} type="datetime-local" value=${back.at} onInput=${(e) => setBack({ ...back, at: e.target.value })} /></${Field}>
+          </div>
+          <div class="row wrap">
+            <${Button} type="submit" size="sm" loading=${busy}>שמירה</${Button}>
+            <${Button} variant="ghost" size="sm" onClick=${() => setEditing(false)}>ביטול</${Button}>
+          </div>
+        </form>`
+      : html`<div class="my-arrival__row">
+          <span>${mine ? html`הטיסות שלך: <b dir="ltr">${[travel.out?.flight, travel.back?.flight].filter(Boolean).join(' / ')}</b>` : 'עוד לא סימנת טיסה'}</span>
+          <${Button} variant=${mine ? 'ghost' : 'secondary'} size="sm" onClick=${() => setEditing(true)}>${mine ? 'עריכה' : '✈️ הטיסה שלי'}</${Button}>
+        </div>`}
+    ${group(outs, '🛫 הלוך')}
+    ${group(backs, '🛬 חזור')}
+    ${outs.missing.length && outs.flights.length
+      ? html`<p class="muted small">עוד לא סימנו: ${outs.missing.map(displayName).join(' · ')}</p>`
+      : null}
+  </${Card}>`;
+}
+
+export function RidesCard({ snap, me, isAdmin, compact = false, sheet: outerSheet, setSheet: outerSet }) {
+  const [ownSheet, setOwnSheet] = useState(null); // null | {kind} (new) | ride
+  const sheet = outerSet ? outerSheet : ownSheet;
+  const setSheet = outerSet || setOwnSheet;
+  const { modes } = arrivalOf(snap.trip);
+  const offerModes = ARRIVAL_MODES.filter((m) => m.key !== 'own' && modes.includes(m.key));
+  const carsOnly = model_kinds(snap).every((k) => k === 'car') && offerModes.every((m) => m.key === 'car');
   const [busy, setBusy] = useState(null);
   const model = rideModel(snap, me.id);
   const myHeads = Math.max(1, Number(me.headcount) || 1);
@@ -108,7 +201,7 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
     setBusy(null);
   };
   const ask = (ride) => act(ride.id, (api) => api.takeSeat(ride.id, Math.min(myHeads, ride.free)),
-    `הבקשה נשלחה ל${displayName(ride.driver)} ⏳ נעדכן כשיענה/תענה`);
+    kindOf(ride) === 'meet' ? 'הצטרפת לנקודת המפגש ✅' : `הבקשה נשלחה ל${displayName(ride.driver)} ⏳ נעדכן כשיענה/תענה`);
   const leave = (msg) => act('leave', (api) => api.leaveSeat(tripId), msg);
   const answer = (ride, member, yes) => act(`${ride.id}:${member.id}`, (api) => api.respondSeat(ride.id, member.id, yes),
     yes ? `${displayName(member)} ברכב ✅` : 'עדכנו אותם 🙏');
@@ -129,12 +222,12 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
   if (compact && !rides.length) return null;
   const canInvite = model.myRide && model.myRide.free > 0;
 
-  return html`<${Card} emoji="🚗" title=${compact ? 'ההסעה שלך' : 'הסעות וטרמפים'} class=${cx('rides', compact && 'rides--compact')}>
+  return html`<${Card} emoji="🚗" title=${compact ? 'ההסעה שלך' : carsOnly ? 'הסעות וטרמפים' : 'כל האפשרויות להגיע'} class=${cx('rides', compact && 'rides--compact')}>
     ${!compact
       ? html`<p class="rides__sum muted small" data-testid="rides-summary">
           ${model.rides.length
-            ? `${hebrewCount(model.rides.length, 'רכב', 'רכבים')} · ${hebrewCount(model.freeSeats, 'מקום פנוי', 'מקומות פנויים')}`
-            : 'עוד אין רכבים — מי נוהג/ת?'}
+            ? `${carsOnly ? hebrewCount(model.rides.length, 'רכב', 'רכבים') : hebrewCount(model.rides.length, 'אפשרות', 'אפשרויות')} · ${hebrewCount(model.freeSeats, 'מקום פנוי', 'מקומות פנויים')}`
+            : carsOnly ? 'עוד אין רכבים — מי נוהג/ת?' : 'עוד אין הצעות — מי מארגן/ת?'}
         </p>`
       : null}
 
@@ -145,12 +238,14 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
         const asked = model.myAsk === r;
         const invited = model.invites.includes(r);
         const canManage = mine || isAdmin;
-        return html`<li class=${cx('ride', mine && 'is-mine', inside && 'is-in')} key=${r.id} data-testid="ride">
+        const k = KIND[kindOf(r)];
+        const meet = kindOf(r) === 'meet';
+        return html`<li class=${cx('ride', mine && 'is-mine', inside && 'is-in')} key=${r.id} data-testid="ride" data-kind=${kindOf(r)}>
           <div class="ride__head">
             <${Avatar} member=${r.driver} size=${40} />
             <div class="ride__main">
-              <span class="ride__driver">${mine ? 'את/ה נוהג/ת' : displayName(r.driver)}</span>
-              <span class=${cx('ride__seats', r.free === 0 && 'is-full')}>${r.free === 0 ? 'הרכב מלא' : `${hebrewCount(r.free, 'מקום פנוי', 'מקומות פנויים')}`}</span>
+              <span class="ride__driver">${mine ? (kindOf(r) === 'car' ? 'את/ה נוהג/ת' : `${k.emoji} ${k.mine}`) : kindOf(r) === 'car' ? displayName(r.driver) : `${k.emoji} ${k.of(displayName(r.driver))}`}</span>
+              <span class=${cx('ride__seats', !meet && r.free === 0 && 'is-full')}>${meet ? hebrewCount(r.taken, 'מצטרף/ת', 'מצטרפים') : r.free === 0 ? 'מלא' : `${hebrewCount(r.free, 'מקום פנוי', 'מקומות פנויים')}`}</span>
             </div>
             ${canManage
               ? html`<div class="ride__tools">
@@ -160,7 +255,7 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
               : null}
           </div>
           <p class="ride__meta">
-            ${[r.depart_at && `🕗 יציאה ${formatTime(r.depart_at)}`, r.from_text && `📍 ${r.from_text}`].filter(Boolean).join(' · ') || 'פרטי יציאה בקרוב'}
+            ${[r.depart_at && `🕗 ${meet ? 'מפגש' : 'יציאה'} ${formatTime(r.depart_at)}`, r.from_text && `📍 ${r.from_text}`, r.to_text && `← ${r.to_text}`].filter(Boolean).join(' · ') || 'פרטים בקרוב'}
           </p>
           ${r.passengers.length
             ? html`<div class="ride__pass">
@@ -201,7 +296,7 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
                     </div>`
                   : r.free > 0 && !model.mySeat
                     ? html`<${Button} variant="secondary" size="sm" loading=${busy === r.id} onClick=${() => ask(r)}>
-                        ${model.myAsk ? 'לבקש כאן במקום' : 'מבקשים להצטרף'}${Math.min(myHeads, r.free) > 1 ? ` (${Math.min(myHeads, r.free)} מקומות)` : ''}
+                        ${meet ? 'מצטרפים' : model.myAsk ? 'לבקש כאן במקום' : 'מבקשים להצטרף'}${!meet && Math.min(myHeads, r.free) > 1 ? ` (${Math.min(myHeads, r.free)} מקומות)` : ''}
                       </${Button}>`
                     : null
               : null}
@@ -230,16 +325,26 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
           ${model.without.filter((m) => !model.seeking.some((x) => x.member.id === m.id)).map(displayName).join(' · ')}</p>`
       : null}
     ${!compact && !model.myRide
-      ? html`<${Button} variant=${model.rides.length ? 'ghost' : 'secondary'} icon="plus" block onClick=${() => setSheet('new')}>
-          אני נוהג/ת — יש לי מקום
-        </${Button}>`
+      ? html`<div class="rides__offer">${offerModes.map((m) => html`<${Button} key=${m.key} variant=${model.rides.length ? 'ghost' : 'secondary'} icon="plus" block
+          onClick=${() => setSheet({ kind: m.key })}>${m.key === 'car' ? m.offer : `${m.emoji} ${m.offer}`}</${Button}>`)}</div>`
       : null}
-    <${RideSheet} open=${Boolean(sheet)} ride=${sheet && sheet !== 'new' ? sheet : null} trip=${snap.trip} onClose=${() => setSheet(null)} />
+    <${RideSheet} open=${Boolean(sheet)} ride=${sheet && sheet.id ? sheet : null} kind=${sheet ? kindOf(sheet) : 'car'} trip=${snap.trip} onClose=${() => setSheet(null)} />
   </${Card}>`;
 }
 
-function RideSheet({ open, ride, trip, onClose }) {
+const SHEET = {
+  car: { title: 'יש לי מקום ברכב 🚗', edit: 'עריכת ההסעה 🚗', seats: 'כמה מקומות פנויים (בלי הנהג/ת)?', max: 8, def: 3,
+    from: 'יוצאים מ… (לא חובה)', fromPh: 'למשל: תל אביב, רכבת השלום', time: 'שעת יציאה (לא חובה)', done: 'תודה! הרכב שלך ברשימה 🚗' },
+  taxi: { title: 'מונית משותפת 🚕', edit: 'עריכת המונית 🚕', seats: 'כמה מקומות במונית (בלי המארגן/ת)?', max: 7, def: 3,
+    from: 'איסוף מ…', fromPh: 'למשל: גבעתיים — ליד הקניון', time: 'שעת איסוף', done: 'המונית ברשימה 🚕 מי שצריך יבקש להצטרף' },
+  meet: { title: 'נקודת מפגש 🚆', edit: 'עריכת נקודת המפגש 🚆', seats: 'עד כמה אנשים?', max: 40, def: 20,
+    from: 'איפה נפגשים?', fromPh: 'למשל: רכבת ההגנה, רציף 1', time: 'שעת מפגש', done: 'נקודת המפגש ברשימה 🚆' },
+};
+
+function RideSheet({ open, ride, kind = 'car', trip, onClose }) {
+  const w = SHEET[kind] || SHEET.car;
   const [seats, setSeats] = useState(3);
+  const [to, setTo] = useState('');
   const [from, setFrom] = useState('');
   const [time, setTime] = useState('');
   const [note, setNote] = useState('');
@@ -247,7 +352,8 @@ function RideSheet({ open, ride, trip, onClose }) {
 
   useLayoutEffect(() => {
     if (!open) return;
-    setSeats(ride ? ride.seats : 3);
+    setSeats(ride ? ride.seats : w.def);
+    setTo(ride?.to_text || '');
     setFrom(ride?.from_text || '');
     setTime(ride?.depart_at ? ilWall(new Date(ride.depart_at)).hm : '');
     setNote(ride?.note || '');
@@ -263,26 +369,33 @@ function RideSheet({ open, ride, trip, onClose }) {
       from_text: from.trim() || null,
       depart_at: time ? ilIso(day, time) : null,
       note: note.trim() || null,
+      kind,
+      to_text: to.trim() || null,
       ...(ride ? { id: ride.id } : {}),
     };
     setSaving(true);
-    const done = await actions.run(ok((api) => api.upsertRide(trip.id, payload)), { success: ride ? 'ההסעה עודכנה 🚗' : 'תודה! הרכב שלך ברשימה 🚗' });
+    const done = await actions.run(ok((api) => api.upsertRide(trip.id, payload)), { success: ride ? 'עודכן ✅' : w.done });
     setSaving(false);
     if (done) onClose();
   };
 
-  return html`<${Sheet} open=${open} onClose=${onClose} title=${ride ? 'עריכת ההסעה 🚗' : 'יש לי מקום ברכב 🚗'}
+  return html`<${Sheet} open=${open} onClose=${onClose} title=${ride ? w.edit : w.title}
     footer=${html`<${Button} type="submit" form="ride-form" icon="check" loading=${saving}>${ride ? 'שמירה' : 'הוספה'}</${Button}>
       <${Button} variant="secondary" onClick=${onClose}>ביטול</${Button}>`}>
     <form id="ride-form" class="stack-lg" onSubmit=${save} noValidate>
       <div class="ride-form__seats">
-        <span class="field__label">כמה מקומות פנויים (בלי הנהג/ת)?</span>
-        <${Stepper} value=${seats} min=${minSeats} max=${8} label="מקומות פנויים" onChange=${setSeats} />
+        <span class="field__label">${w.seats}</span>
+        <${Stepper} value=${seats} min=${minSeats} max=${w.max} label="מקומות" onChange=${setSeats} />
       </div>
-      <${Field} label="יוצאים מ… (לא חובה)">
-        <${TextInput} value=${from} maxlength="80" placeholder="למשל: תל אביב, רכבת השלום" onInput=${(e) => setFrom(e.target.value)} />
+      <${Field} label=${w.from}>
+        <${TextInput} value=${from} maxlength="80" placeholder=${w.fromPh} onInput=${(e) => setFrom(e.target.value)} />
       </${Field}>
-      <${Field} label="שעת יציאה (לא חובה)">
+      ${kind === 'car'
+        ? null
+        : html`<${Field} label="לאן? (לא חובה)">
+            <${TextInput} value=${to} maxlength="80" placeholder="למשל: נתב״ג טרמינל 3" onInput=${(e) => setTo(e.target.value)} />
+          </${Field}>`}
+      <${Field} label=${w.time}>
         <${TextInput} type="time" value=${time} onInput=${(e) => setTime(e.target.value)} />
       </${Field}>
       <${Field} label="הערה (לא חובה)">

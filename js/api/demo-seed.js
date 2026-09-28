@@ -433,7 +433,7 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
   // ----- rides: מאיה ורון drive from Tel Aviv, יואב rides with them -----
   const rideId = newId();
   const rides = [{
-    id: rideId, trip_id: tripId, driver_member: M.maya.id, seats: 3, from_text: 'תל אביב — רכבת השלום',
+    id: rideId, trip_id: tripId, driver_member: M.maya.id, seats: 3, kind: 'car', to_text: null, from_text: 'תל אביב — רכבת השלום',
     depart_at: jerusalemIso(startYmd, 7, 30), note: 'יש מקום לצידנית אחת 🧊', created_at: past(40),
   }];
   const rideSeats = [{ ride_id: rideId, trip_id: tripId, member_id: M.yoav.id, seats: 1, status: 'approved', requested_by: 'passenger', created_at: past(38) }];

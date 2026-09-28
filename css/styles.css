@@ -1833,3 +1833,11 @@ html.no-nav .toasts { bottom: calc(var(--safe-bottom) + 18px); }
 .ride-offer__wait { flex: none; font-weight: 700; color: var(--muted); }
 .sched-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .sched-quick__all { margin-bottom: 10px; }
+.rides__offer { display: flex; flex-direction: column; gap: 8px; }
+.trip-edit__sub { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.flights__leg { margin-top: 12px; }
+.flights__title { font-weight: 800; font-size: 14.5px; margin-bottom: 6px; }
+.flights__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.flights__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 8px 10px; border-radius: 12px; background: var(--surface-2); }
+.flights__who { flex-basis: 100%; }
+.welcome-flights { display: flex; flex-direction: column; gap: 8px; }

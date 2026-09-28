@@ -9,6 +9,7 @@ import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/l
 import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js';
 import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js';
 import { RideOffers } from './rides.js';
+import { arrivalOf } from '../lib/templates.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
@@ -62,6 +63,12 @@ function Wizard({ snap, me, start }) {
   const [depart, setDepart] = useState(rides.myRide?.depart_at ? ilWall(new Date(rides.myRide.depart_at)).hm : '');
   const [late, setLate] = useState(Boolean(prefs.arrival));
   const [arrival, setArrival] = useState(prefs.arrival || '');
+  const ways = arrivalOf(trip);
+  const rideWays = ways.modes.filter((m) => m !== 'own');
+  const [flightOut, setFlightOut] = useState(prefs.travel?.out?.flight || '');
+  const [flightOutAt, setFlightOutAt] = useState(prefs.travel?.out?.at || '');
+  const [flightBack, setFlightBack] = useState(prefs.travel?.back?.flight || '');
+  const [flightBackAt, setFlightBackAt] = useState(prefs.travel?.back?.at || '');
 
   // ---- step 3: food & home ----
   const [diet, setDiet] = useState(() => new Set(String(prefs.diet || '').split(' · ').filter((x) => DIET_CHIPS.includes(x))));
@@ -96,7 +103,9 @@ function Wizard({ snap, me, start }) {
     setErrors(errs);
     if (Object.keys(errs).length) return false;
     const transport = mode === 'car' ? { mode: 'car' } : mode === 'need' ? { mode: 'need', from: from.trim() || null } : mode ? { mode } : null;
-    let ok = await run((api) => api.updateMember(me.id, { prefs: { transport, arrival: late ? arrival : null } }));
+    const leg = (flight, at) => (flight.trim() ? { flight: flight.trim().toUpperCase(), at: at || null } : null);
+    const travel = ways.flights ? { travel: { out: leg(flightOut, flightOutAt), back: leg(flightBack, flightBackAt) } } : {};
+    let ok = await run((api) => api.updateMember(me.id, { prefs: { transport, arrival: late ? arrival : null, ...travel } }));
     if (ok && mode === 'car') {
       ok = await run((api) => api.upsertRide(trip.id, {
         ...(rides.myRide ? { id: rides.myRide.id } : {}),
@@ -185,8 +194,10 @@ function Wizard({ snap, me, start }) {
 
       ${s.key === 'arrive'
         ? html`<div class="welcome-opts" role="radiogroup" aria-label="איך מגיעים">
-            ${modeCard('car', '🚗', 'נוסעים ברכב שלנו', 'ואולי יש מקום לעוד מישהו')}
-            ${modeCard('need', '🙋', 'צריכים טרמפ', 'נראה מי נוסע מהאזור שלכם')}
+            ${ways.modes.includes('car') ? modeCard('car', '🚗', 'נוסעים ברכב שלנו', 'ואולי יש מקום לעוד מישהו') : null}
+            ${rideWays.length
+              ? modeCard('need', '🙋', rideWays.includes('car') && rideWays.length === 1 ? 'צריכים טרמפ' : 'צריכים מקום', rideWays.includes('car') && rideWays.length === 1 ? 'נראה מי נוסע מהאזור שלכם' : 'טרמפ, מונית משותפת או נקודת מפגש')
+              : null}
             ${rides.mySeat ? modeCard('seat', '✅', `כבר ברכב של ${displayName(rides.mySeat.driver)}`, 'מסודרים') : null}
             ${modeCard('own', '🚌', 'מגיעים בדרך אחרת', 'אוטובוס, רכב מלא, מישהו מקפיץ')}
           </div>
@@ -204,6 +215,19 @@ function Wizard({ snap, me, start }) {
               <${Field} label="מתכננים לצאת ב… (לא חובה)">
                 <${TextInput} type="time" value=${depart} onInput=${(e) => setDepart(e.target.value)} />
               </${Field}>`
+            : null}
+          ${ways.flights
+            ? html`<div class="welcome-flights" data-testid="welcome-flights">
+                <p class="field__label">✈️ הטיסות שלכם (לא חובה — אפשר גם אחר כך)</p>
+                <div class="date-pair">
+                  <${Field} label="טיסה הלוך"><${TextInput} dir="ltr" value=${flightOut} maxlength="12" placeholder="LY315" onInput=${(e) => setFlightOut(e.target.value)} /></${Field}>
+                  <${Field} label="מתי"><${TextInput} type="datetime-local" value=${flightOutAt} onInput=${(e) => setFlightOutAt(e.target.value)} /></${Field}>
+                </div>
+                <div class="date-pair">
+                  <${Field} label="טיסה חזור"><${TextInput} dir="ltr" value=${flightBack} maxlength="12" placeholder="LY316" onInput=${(e) => setFlightBack(e.target.value)} /></${Field}>
+                  <${Field} label="מתי"><${TextInput} type="datetime-local" value=${flightBackAt} onInput=${(e) => setFlightBackAt(e.target.value)} /></${Field}>
+                </div>
+              </div>`
             : null}
           <div class="welcome-late">
             <button type="button" role="switch" aria-checked=${late ? 'true' : 'false'} class=${cx('welcome-chk', late && 'is-on')}

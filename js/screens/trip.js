@@ -4,7 +4,7 @@ import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { actions, useTrip } from '../store.js';
 import { RidesCard } from './rides.js';
-import { MODULES, hasModule, schedulePresets, tripType } from '../lib/templates.js';
+import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js';
 import { href, navigate } from '../router.js';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
@@ -563,6 +563,7 @@ function draftFrom(trip) {
     require_approval: trip.settings?.require_approval !== false,
     type: tripType(trip).key,
     modules: Object.fromEntries(MODULES.map((m) => [m.key, hasModule(trip, m.key)])),
+    arrival: arrivalOf(trip),
   };
 }
 
@@ -632,7 +633,7 @@ function validateDraft(d) {
     starts_at: starts,
     ends_at: ends,
     info: { schedule, rules, notes: d.notes.trim(), album_url: album || null },
-    settings: { require_approval: !!d.require_approval, modules: { ...d.modules } },
+    settings: { require_approval: !!d.require_approval, modules: { ...d.modules }, arrival: { modes: [...d.arrival.modes], flights: !!d.arrival.flights } },
   };
   return { errors, patch };
 }
@@ -858,6 +859,22 @@ function EditTripSheet({ open, onClose, trip, snap }) {
           label=${`${m.emoji} ${m.label}`}
           hint=${m.hint}
         />`)}
+        ${d.modules.rides
+          ? html`<div class="trip-edit__sub" data-testid="arrival-modes">
+              <p class="field__label">איך מגיעים? (אפשר כמה)</p>
+              <div class="sched-quick" role="group" aria-label="דרכי הגעה">
+                ${ARRIVAL_MODES.map((m) => {
+                  const on = d.arrival.modes.includes(m.key);
+                  return html`<${Chip} key=${m.key} active=${on} onClick=${() => {
+                    const modes = on ? d.arrival.modes.filter((x) => x !== m.key) : [...d.arrival.modes, m.key];
+                    if (modes.length) set({ arrival: { ...d.arrival, modes } });
+                  }}>${m.emoji} ${m.label}</${Chip}>`;
+                })}
+              </div>
+              <${Toggle} checked=${d.arrival.flights} onChange=${(v) => set({ arrival: { ...d.arrival, flights: v } })}
+                label="✈️ טיסות" hint="כל אחד מסמן את הטיסה שלו, ורואים מי טס עם מי" />
+            </div>`
+          : null}
       </section>
 
       <section class="trip-edit__group">

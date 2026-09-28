@@ -1480,8 +1480,29 @@ export function rideModel(snap, meId) {
     invites: rides.filter((r) => r.pending.some((p) => p.member.id === meId && p.requestedBy === 'driver')),
     without,
     seeking: without.filter((m) => modeOf(m) === 'need').map((m) => ({ member: m, from: m.prefs.transport.from || null })),
-    freeSeats: rides.reduce((n, r) => n + r.free, 0),
+    freeSeats: rides.filter((r) => (r.kind || 'car') !== 'meet').reduce((n, r) => n + r.free, 0),
   };
+}
+
+/** Flights (member prefs.travel = {out: {flight, at}, back: {flight, at}}): who's on which flight, who hasn't said. */
+export function flightModel(snap, leg = 'out') {
+  const members = list(snap?.members);
+  const groups = new Map();
+  const missing = [];
+  for (const m of members) {
+    const f = m?.prefs?.travel?.[leg];
+    const code = String(f?.flight || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (!code) {
+      missing.push(m);
+      continue;
+    }
+    if (!groups.has(code)) groups.set(code, { flight: code, at: f.at || null, members: [] });
+    const g = groups.get(code);
+    if (!g.at && f.at) g.at = f.at;
+    g.members.push(m);
+  }
+  const flights = [...groups.values()].sort((a, b) => String(a.at || '~').localeCompare(String(b.at || '~')) || a.flight.localeCompare(b.flight));
+  return { flights, missing };
 }
 // ───────────────────────── trip day ─────────────────────────
 

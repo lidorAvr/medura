@@ -10,6 +10,16 @@ export const MODULES = [
   { key: 'polls', emoji: '📊', label: 'סקרים', hint: 'מתי יוצאים, מה אוכלים — כולם מצביעים' },
 ];
 
+/** Ways to get there an admin can offer. car/taxi/meet are "rides" (someone organises, others ask/join). */
+export const ARRIVAL_MODES = [
+  { key: 'car', emoji: '🚗', label: 'טרמפים ברכבים', offer: 'אני נוהג/ת — יש לי מקום' },
+  { key: 'taxi', emoji: '🚕', label: 'מונית משותפת', offer: 'מארגן/ת מונית משותפת' },
+  { key: 'meet', emoji: '🚆', label: 'נקודת מפגש (רכבת / אוטובוס / בשדה)', offer: 'קובע/ת נקודת מפגש' },
+  { key: 'own', emoji: '🧍', label: 'כל אחד בדרך שלו' },
+];
+const CAR_ONLY = { modes: ['car', 'own'], flights: false };
+const FLYING = { modes: ['taxi', 'car', 'meet', 'own'], flights: true };
+
 const cat = (emoji, name) => ({ emoji, name });
 
 // Shared items: t = title, c = category name, k = kind ('buy' | 'bring' | 'each' | 'task'), n = how many.
@@ -32,6 +42,7 @@ export const TRIP_TYPES = [
     key: 'camping', emoji: '⛺', label: 'קמפינג', hint: 'אוהלים, מנגל ומדורה',
     placeholder: 'למשל: קמפינג סוכות בכנרת',
     modules: { rides: true, money: true, polls: true },
+    arrival: CAR_ONLY,
     categories: CAMP_CATS,
     items: [
       it('ציוד קבוצתי', 'גזיבו / צל'), it('ציוד קבוצתי', 'שולחן מתקפל'), it('ציוד קבוצתי', 'כיסאות', 'each'),
@@ -54,6 +65,7 @@ export const TRIP_TYPES = [
     key: 'abroad', emoji: '✈️', label: 'חו״ל', hint: 'טיסות, מטבע, דרכונים',
     placeholder: 'למשל: סופ״ש בברצלונה',
     modules: { rides: true, money: true, polls: true },
+    arrival: FLYING,
     categories: [cat('🧳', 'ציוד משותף'), cat('💊', 'עזרה ראשונה'), cat('🎲', 'כיף ומשחקים'), cat('📋', 'משימות')],
     items: [
       it('משימות', 'להזמין לינה', 'task'), it('משימות', 'ביטוח נסיעות לכולם', 'task'), it('משימות', 'השכרת רכב / העברות בשדה', 'task'),
@@ -70,6 +82,7 @@ export const TRIP_TYPES = [
     key: 'bachelor', emoji: '🥂', label: 'מסיבת רווקים/ות', hint: 'הפתעות, תלבושות, בילויים',
     placeholder: 'למשל: הרווקים של דניאל 🥂',
     modules: { rides: true, money: true, polls: true },
+    arrival: FLYING,
     categories: [cat('🎁', 'הפתעות'), cat('👕', 'תלבושות ומיתוג'), cat('🍾', 'שתייה ומסיבה'), cat('🎵', 'מוזיקה וציוד'), cat('📋', 'משימות')],
     items: [
       it('משימות', 'להזמין לינה', 'task'), it('משימות', 'להזמין פעילות (שייט / קארטינג / מסעדה)', 'task'),
@@ -89,6 +102,7 @@ export const TRIP_TYPES = [
     key: 'villa', emoji: '🏡', label: 'צימר / וילה', hint: 'בישולים, בריכה, חדרים',
     placeholder: 'למשל: סופ״ש בווילה בגליל',
     modules: { rides: true, money: true, polls: true },
+    arrival: CAR_ONLY,
     categories: [
       cat('🥩', 'בשר ועוף'), cat('🥗', 'ירקות ופירות'), cat('🥐', 'ארוחות בוקר'), cat('🍿', 'נשנושים ומתוקים'),
       cat('🥤', 'שתייה ואלכוהול'), cat('🧻', 'כללי לבית'), cat('🎲', 'כיף ומשחקים'), cat('📋', 'משימות'),
@@ -109,6 +123,7 @@ export const TRIP_TYPES = [
     key: 'family', emoji: '👨‍👩‍👧', label: 'משפחות', hint: 'ילדים, ארוחות, תורנויות',
     placeholder: 'למשל: טיול משפחות לגולן',
     modules: { rides: true, money: true, polls: true },
+    arrival: CAR_ONLY,
     categories: [...CAMP_CATS.slice(0, 9), cat('🧸', 'לילדים'), cat('📋', 'משימות')],
     items: [
       it('לילדים', 'משחקים וצעצועים לחוץ'), it('לילדים', 'חטיפים לילדים', 'buy'), it('לילדים', 'ערכת יצירה'),
@@ -128,6 +143,7 @@ export const TRIP_TYPES = [
     key: 'work', emoji: '💼', label: 'עבודה / גיבוש', hint: 'לו״ז, אישורי הגעה, בלי התחשבנות',
     placeholder: 'למשל: יום גיבוש צוות',
     modules: { rides: true, money: false, polls: true },
+    arrival: { modes: ['car', 'meet', 'own'], flights: false },
     categories: [cat('📋', 'משימות'), cat('🎤', 'ציוד והצגה'), cat('☕', 'כיבוד')],
     items: [
       it('משימות', 'לאשר תקציב', 'task'), it('משימות', 'להזמין מקום / הסעה', 'task'), it('משימות', 'לאסוף העדפות אוכל', 'task'),
@@ -143,6 +159,7 @@ export const TRIP_TYPES = [
     key: 'event', emoji: '🎉', label: 'אירוע / מסיבה', hint: 'יום הולדת, ארוחה, מתנה',
     placeholder: 'למשל: יום הולדת 30 לנועה',
     modules: { rides: false, money: true, polls: true },
+    arrival: CAR_ONLY,
     categories: [cat('🍰', 'אוכל'), cat('🥤', 'שתייה'), cat('🎈', 'קישוטים'), cat('🎁', 'מתנה'), cat('📋', 'משימות')],
     items: [
       it('משימות', 'להזמין מקום', 'task'), it('משימות', 'לאסוף כסף למתנה', 'task'), it('מתנה', 'מתנה', 'buy'),
@@ -155,6 +172,7 @@ export const TRIP_TYPES = [
     key: 'trek', emoji: '🥾', label: 'טרק / שטח', hint: 'מסלול, מים, ציוד בטיחות',
     placeholder: 'למשל: שביל ישראל — קטע 3',
     modules: { rides: true, money: true, polls: true },
+    arrival: { modes: ['car', 'meet', 'own'], flights: false },
     categories: [cat('🥾', 'ציוד שטח'), cat('🍫', 'אוכל לדרך'), cat('💊', 'עזרה ראשונה'), cat('📋', 'משימות')],
     items: [
       it('משימות', 'לתאם מסלול ורכב איסוף', 'task'), it('משימות', 'לבדוק מזג אוויר וסגירות', 'task'),
@@ -195,11 +213,18 @@ export function tripSeed(typeKey) {
   const type = TRIP_TYPES.find((t) => t.key === typeKey) || TRIP_TYPES[0];
   const emojiOf = new Map(type.categories.map((c) => [c.name, c.emoji]));
   return {
-    settings: { type: type.key, modules: { ...type.modules } },
+    settings: { type: type.key, modules: { ...type.modules }, arrival: { ...type.arrival, modes: [...type.arrival.modes] } },
     info: { packing: [...type.packing] },
     categories: type.categories.map((c) => ({ ...c })),
     items: type.items.map((x) => ({
       title: x.t, type: x.k, needed: x.n, category_name: x.c, category_emoji: emojiOf.get(x.c) || null,
     })),
   };
+}
+
+/** How people get to this trip: {modes, flights}. Older trips: cars + "own way", no flights. */
+export function arrivalOf(trip) {
+  const a = trip?.settings?.arrival;
+  const modes = Array.isArray(a?.modes) && a.modes.length ? a.modes.filter((m) => ARRIVAL_MODES.some((x) => x.key === m)) : CAR_ONLY.modes;
+  return { modes, flights: a?.flights === true };
 }

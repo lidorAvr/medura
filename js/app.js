@@ -11,7 +11,7 @@ import { Icon } from './ui/icons.js';
 import { EmailGate } from './ui/email-gate.js';
 import { Tour, tourDue } from './ui/tour.js';
 import { PendingGate } from './ui/pending.js';
-import { hasModule } from './lib/templates.js';
+import { arrivalOf, hasModule } from './lib/templates.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -231,7 +231,9 @@ function BottomNav({ route }) {
     unread = 0;
   }
   const id = route.params.tripId || tripId;
-  const tabs = TABS.filter((t) => !['rides', 'money'].includes(t.key) || hasModule(snap?.trip, t.key));
+  const flying = arrivalOf(snap?.trip).flights;
+  const tabs = TABS.filter((t) => !['rides', 'money'].includes(t.key) || hasModule(snap?.trip, t.key))
+    .map((t) => (t.key === 'rides' && flying ? { ...t, emoji: '✈️', label: 'הגעה' } : t));
   return html`<nav class="bottom-nav" aria-label="ניווט ראשי">
     <div class="bottom-nav__inner" style=${`grid-template-columns: repeat(${tabs.length}, minmax(0, 1fr))`}>
       ${tabs.map((t) => {
