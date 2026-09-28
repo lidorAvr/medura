@@ -5,5 +5,6 @@ window.MEDURA_CONFIG = {
   supabaseUrl: "https://ocyxyqovculndfefjwlx.supabase.co",
   supabaseAnonKey: "sb_publishable_8Tge5E1VlWqldY_VoDE4Lw_JsCUJphF",
   vapidPublicKey: "BM3bAaurdtluf8CoAORpeE4ff3hJ5RyJyPIhuDbi7bPF7BgWo3-LuQ5v49NQUWKVszt1wLOTIQnqscMsX9Ja3rA",
-  turnstileSiteKey: ""
+  turnstileSiteKey: "",
+  requireEmailVerification: true
 };

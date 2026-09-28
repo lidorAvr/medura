@@ -3,7 +3,7 @@
 // Every step can be skipped; finishing (or skipping to the end) sets prefs.onboarded.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js';
+import { actions, useStore, useTrip } from '../store.js';
 import { navigate } from '../router.js';
 import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js';
 import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js';
@@ -36,8 +36,10 @@ function Wizard({ snap, me, start }) {
   const rides = rideModel(snap, me.id);
 
   // ---- step 1: contact ----
+  const verified = useStore((s) => (s.contact?.verified ? s.contact.email : null));
   const [phone, setPhone] = useState(me.phone || '');
-  const [emails, setEmails] = useState(() => people.map(() => ''));
+  // the e-mail verified at the door fills the first person's field
+  const [emails, setEmails] = useState(() => people.map((_, i) => (i === 0 && verified) || ''));
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
