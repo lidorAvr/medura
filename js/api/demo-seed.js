@@ -1,7 +1,7 @@
 // Demo data for the in-browser fake backend (SPEC §6, §7.2).
 // Pure data + a builder: no storage, no randomness of its own (ids/codes are injected).
 
-export const DEMO_VERSION = 1;
+export const DEMO_VERSION = 2;
 
 /** SPEC §6 default categories, sort 1..10. */
 export const DEFAULT_CATEGORIES = Object.freeze([
@@ -430,6 +430,14 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
   addPersonal('noa', 'פנס ראש / פנס', false);
   addPersonal('maya', 'משקפת לציפורים', false);
 
+  // ----- rides: מאיה ורון drive from Tel Aviv, יואב rides with them -----
+  const rideId = newId();
+  const rides = [{
+    id: rideId, trip_id: tripId, driver_member: M.maya.id, seats: 3, from_text: 'תל אביב — רכבת השלום',
+    depart_at: jerusalemIso(startYmd, 7, 30), note: 'יש מקום לצידנית אחת 🧊', created_at: past(40),
+  }];
+  const rideSeats = [{ ride_id: rideId, trip_id: tripId, member_id: M.yoav.id, seats: 1, created_at: past(38) }];
+
   return {
     version: DEMO_VERSION,
     trips: [trip],
@@ -449,5 +457,7 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
     poll_votes: pollVotes,
     personal_items: personal,
     push_subscriptions: [],
+    rides,
+    ride_seats: rideSeats,
   };
 }

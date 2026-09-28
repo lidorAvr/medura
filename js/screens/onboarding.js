@@ -5,7 +5,7 @@ import { actions, useStore } from '../store.js';
 import { navigate, href } from '../router.js';
 import { hebrewError, toApiError } from '../api/errors.js';
 import {
-  buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin, whatsappChatUrl,
+  buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
 } from '../lib/logic.js';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
@@ -283,55 +283,73 @@ function Landing({ openCode }) {
 // Profile form (join + new trip)
 // ---------------------------------------------------------------------------
 
-function autoName(couple, a, b) {
-  const x = a.trim();
-  const y = b.trim();
-  if (!couple) return x;
-  return [x, y].filter(Boolean).join(' ו');
+/** "נועה", "נועה ואיתי", "נועה, איתי ויעל". */
+function autoName(names) {
+  const list = names.map((n) => String(n || '').trim()).filter(Boolean);
+  if (list.length <= 1) return list[0] || '';
+  return `${list.slice(0, -1).join(', ')} ו${list[list.length - 1]}`;
 }
 
+const MAX_PEOPLE = 8;
+
+/**
+ * Profile: single or couple by default, "➕ עוד משתתף/ת" for 3+ (up to 8). For everyone but the
+ * phone and e-mails are asked right after joining (the welcome wizard). onSubmit receives
+ * {display_name, headcount, people, emoji, color}.
+ */
 function ProfileForm({ initial, submitLabel, busy, onSubmit, children }) {
   const init = initial || {};
   const initPeople = (init.people || []).map((p) => String(p || '').trim()).filter(Boolean);
-  const [headcount, setHeadcount] = useState(() => {
-    const h = Number(init.headcount) || 1;
-    return h >= 2 || initPeople.length >= 2 ? Math.max(2, h) : 1;
+  const [names, setNames] = useState(() => {
+    const h = Math.min(MAX_PEOPLE, Math.max(1, Number(init.headcount) || 1, initPeople.length));
+    const list = Array.from({ length: h }, (_, i) => initPeople[i] || '');
+    if (!initPeople.length && init.display_name) list[0] = String(init.display_name);
+    return list;
   });
+  const headcount = names.length;
   const couple = headcount >= 2;
-  const [name1, setName1] = useState(initPeople[0] || (!initPeople.length && init.display_name) || '');
-  const [name2, setName2] = useState(initPeople[1] || '');
-  const auto = autoName(couple, name1, name2);
+  const auto = autoName(names);
   const [custom, setCustom] = useState(() => {
     const d = String(init.display_name || '').trim();
-    return d && d !== autoName(initPeople.length >= 2, initPeople[0] || d, initPeople[1] || '') ? d : '';
+    return d && d !== autoName(initPeople.length ? initPeople : [d]) ? d : '';
   });
   const [editName, setEditName] = useState(Boolean(custom));
   const display = ((editName && custom.trim()) || auto).trim();
   const [emoji, setEmoji] = useState(init.emoji || pick(PROFILE_EMOJIS));
   const [color, setColor] = useState(init.color || pick(COLORS));
-  const [phone, setPhone] = useState(init.phone || '');
   const [errors, setErrors] = useState({});
 
   const clear = (key) => errors[key] && setErrors({ ...errors, [key]: undefined });
+  const resize = (n) => {
+    setNames((list) => Array.from({ length: n }, (_, i) => list[i] || ''));
+  };
+  const setAt = (setter, i, v) => setter((list) => list.map((x, j) => (j === i ? v : x)));
+  const removeAt = (i) => {
+    setNames((list) => list.filter((_, j) => j !== i));
+  };
 
   const submit = (e) => {
     e.preventDefault();
     const errs = {};
-    if (!name1.trim()) errs.name1 = couple ? 'מה השם הראשון? 🙂' : 'רגע, איך קוראים לך? 🙂';
-    if (couple && !name2.trim()) errs.name2 = 'ומה השם של בן/בת הזוג?';
+    if (!names[0].trim()) errs.name0 = couple ? 'מה השם הראשון? 🙂' : 'רגע, איך קוראים לך? 🙂';
+    if (headcount === 2 && !names[1].trim()) errs.name1 = 'ומה השם של בן/בת הזוג?';
     if (display.length > 40) errs.display = 'עד 40 תווים, בבקשה';
-    const ph = phone.trim();
-    if (ph && !whatsappChatUrl(ph)) errs.phone = 'המספר לא נראה תקין — למשל 050-1234567';
     setErrors(errs);
     if (Object.values(errs).some(Boolean)) {
       focusFirstInvalid();
       return;
     }
-    const people = couple ? [name1.trim(), name2.trim()] : [name1.trim()];
-    onSubmit({ display_name: display, headcount, people, emoji, color, phone: ph || null });
+    onSubmit({
+      display_name: display,
+      headcount,
+      people: names.map((n) => n.trim()).filter(Boolean),
+      emoji,
+      color,
+    });
   };
 
   const preview = { display_name: display || (couple ? 'השמות שלכם' : 'השם שלך'), headcount, emoji, color, people: [] };
+  const personLabel = (i) => (i === 0 ? (couple ? 'השם שלך' : 'איך קוראים לך?') : headcount === 2 ? 'ושל בן/בת הזוג' : `משתתף/ת ${i + 1}`);
 
   return html`<form class="profile-form stack-lg" onSubmit=${submit} noValidate>
     ${children}
@@ -346,42 +364,40 @@ function ProfileForm({ initial, submitLabel, busy, onSubmit, children }) {
     </div>
 
     <div class="kind-toggle" role="radiogroup" aria-label="מגיעים לבד או בזוג?">
-      <button type="button" role="radio" aria-checked=${couple ? 'false' : 'true'} class="kind-opt" onClick=${() => setHeadcount(1)}>
+      <button type="button" role="radio" aria-checked=${couple ? 'false' : 'true'} class="kind-opt" onClick=${() => resize(1)}>
         <span class="kind-opt__emoji" aria-hidden="true">🧍</span>
         <span class="kind-opt__label">יחיד/ה</span>
       </button>
-      <button type="button" role="radio" aria-checked=${couple ? 'true' : 'false'} class="kind-opt" onClick=${() => setHeadcount((h) => (h >= 2 ? h : 2))}>
-        <span class="kind-opt__emoji" aria-hidden="true">👫</span>
-        <span class="kind-opt__label">זוג</span>
+      <button type="button" role="radio" aria-checked=${couple ? 'true' : 'false'} class="kind-opt" onClick=${() => resize(Math.max(2, headcount))}>
+        <span class="kind-opt__emoji" aria-hidden="true">${headcount > 2 ? '👨‍👩‍👧' : '👫'}</span>
+        <span class="kind-opt__label">${headcount > 2 ? `${headcount} ביחד` : 'זוג'}</span>
       </button>
     </div>
 
-    <div class=${cx('profile-names', couple && 'profile-names--two')}>
-      <${Field} label=${couple ? 'השם שלך' : 'איך קוראים לך?'} error=${errors.name1}>
-        <${TextInput}
-          value=${name1}
-          maxlength="30"
-          autocomplete="given-name"
-          placeholder=${couple ? 'למשל: נועה' : 'השם שלך'}
-          onInput=${(e) => {
-            setName1(e.target.value);
-            clear('name1');
-          }}
-        />
-      </${Field}>
-      ${couple
-        ? html`<${Field} label="ושל בן/בת הזוג" error=${errors.name2}>
+    <div class="profile-people" role="group" aria-label="מי מגיע">
+      ${names.map((n, i) => html`<div class="profile-person" key=${i}>
+        <div class="profile-person__row">
+          <${Field} label=${personLabel(i)} error=${errors[`name${i}`]}>
             <${TextInput}
-              value=${name2}
+              value=${n}
               maxlength="30"
-              autocomplete="off"
-              placeholder="למשל: איתי"
+              autocomplete=${i === 0 ? 'given-name' : 'off'}
+              placeholder=${i === 0 ? (couple ? 'למשל: נועה' : 'השם שלך') : i === 1 ? 'למשל: איתי' : 'שם (לא חובה)'}
               onInput=${(e) => {
-                setName2(e.target.value);
-                clear('name2');
+                setAt(setNames, i, e.target.value);
+                clear(`name${i}`);
               }}
             />
-          </${Field}>`
+          </${Field}>
+          ${i >= 2
+            ? html`<button type="button" class="icon-btn profile-person__remove" aria-label=${`הסרת משתתף/ת ${i + 1}`} onClick=${() => removeAt(i)}>
+                <${Icon} name="x" size=${18} />
+              </button>`
+            : null}
+        </div>
+      </div>`)}
+      ${couple && headcount < MAX_PEOPLE
+        ? html`<button type="button" class="link profile-people__add" onClick=${() => resize(headcount + 1)}>➕ עוד משתתף/ת (ילד/ה, חבר/ה…)</button>`
         : null}
     </div>
 
@@ -409,24 +425,9 @@ function ProfileForm({ initial, submitLabel, busy, onSubmit, children }) {
       <${ColorPicker} value=${color} onChange=${setColor} label="הצבע שלכם" />
     </${Field}>
 
-    <${Field} label="טלפון (לא חובה)" hint="בשביל Bit — יוצג רק לחברי הטיול" error=${errors.phone}>
-      <${TextInput}
-        type="tel"
-        inputmode="tel"
-        autocomplete="tel"
-        value=${phone}
-        placeholder="050-1234567"
-        onInput=${(e) => {
-          setPhone(e.target.value);
-          clear('phone');
-        }}
-      />
-    </${Field}>
-
     <${Button} type="submit" variant="accent" size="lg" block loading=${busy}>${submitLabel}</${Button}>
   </form>`;
 }
-
 // ---------------------------------------------------------------------------
 // New trip
 // ---------------------------------------------------------------------------

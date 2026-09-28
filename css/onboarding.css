@@ -350,6 +350,13 @@
 .kind-opt:focus-visible { border-radius: 20px; }
 
 .profile-names { display: grid; gap: 12px; }
+.profile-people { display: flex; flex-direction: column; gap: 14px; }
+.profile-person { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.profile-person + .profile-person { padding-top: 14px; border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent); }
+.profile-person__row { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+.profile-person__row > .field { flex: 1; min-width: 0; }
+.profile-person__remove { flex: none; margin-bottom: 2px; color: var(--muted); }
+.profile-people__add { align-self: flex-start; min-height: 44px; font-size: 15px; }
 .profile-names--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* ---------- invite step ---------- */

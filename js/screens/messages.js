@@ -420,6 +420,7 @@ function Composer({ snap, me, tripId, startOpen }) {
   const [mode, setMode] = useState('all');
   const [picked, setPicked] = useState([]);
   const [urgent, setUrgent] = useState(false);
+  const [when, setWhen] = useState('now');
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState({});
   const [sent, setSent] = useState(null);
@@ -432,6 +433,7 @@ function Composer({ snap, me, tripId, startOpen }) {
     setMode('all');
     setPicked([]);
     setUrgent(false);
+    setWhen('now');
     setErrors({});
   };
 
@@ -447,8 +449,8 @@ function Composer({ snap, me, tripId, startOpen }) {
     setBusy(true);
     const audience = mode === 'some' ? picked : null;
     const id = await actions.run(
-      (api) => api.sendAnnouncement(tripId, { title: t, body: b || null, audience, urgent }),
-      { success: urgent ? 'ההודעה הדחופה נשלחה 🔴' : 'ההודעה נשלחה 📣' },
+      (api) => api.sendAnnouncement(tripId, { title: t, body: b || null, audience, urgent, digest: !urgent && when === 'digest' }),
+      { success: urgent ? 'ההודעה הדחופה נשלחה 🔴' : when === 'digest' ? 'ההודעה באפליקציה עכשיו, ובמייל ובהתראה — בסיכום של 09:30 ☀️' : 'ההודעה נשלחה 📣' },
     );
     setBusy(false);
     if (id === undefined) return;
@@ -555,6 +557,12 @@ function Composer({ snap, me, tripId, startOpen }) {
           hint="תופיע באדום בראש הפיד ותקפיץ רטט"
         />
       </div>
+      ${!urgent
+        ? html`<${Field} label="מתי להתריע?" hint=${when === 'digest' ? 'באפליקציה זה מופיע מיד; התראה ומייל — פעם ביום ב-09:30, מרוכז, בלי להציף' : 'התראה ומייל עכשיו'}>
+            <${Segmented} label="מתי להתריע" value=${when} onChange=${setWhen}
+              options=${[{ value: 'now', label: '⚡ עכשיו' }, { value: 'digest', label: '☀️ בסיכום היומי' }]} />
+          </${Field}>`
+        : null}
       <${Button} type="submit" variant=${urgent ? 'danger' : 'accent'} size="lg" block icon="send" loading=${busy}>
         ${urgent ? 'שליחה דחופה' : 'שליחה'}
       </${Button}>

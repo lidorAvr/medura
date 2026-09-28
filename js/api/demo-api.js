@@ -32,6 +32,7 @@ const TABLES = [
   'trips', 'members', 'member_secrets', 'member_users', 'categories', 'items', 'pledges',
   'expenses', 'expense_shares', 'payments', 'notifications', 'notification_reads',
   'admin_votes', 'polls', 'poll_votes', 'personal_items', 'push_subscriptions',
+  'user_contacts', 'email_codes', 'member_emails', 'rides', 'ride_seats',
 ];
 
 // Snapshot projections (SPEC §5) — the exact key sets.
@@ -51,11 +52,15 @@ const K = {
   vote: ['voter_id', 'candidate_id'],
   pollVote: ['poll_id', 'member_id', 'option_id'],
   personal: ['id', 'title', 'done', 'sort', 'created_at'],
+  ride: ['id', 'driver_member', 'seats', 'from_text', 'depart_at', 'note', 'created_at'],
+  rideSeat: ['ride_id', 'member_id', 'seats'],
 };
 
 // ---------------------------------------------------------------------------
 // Small utilities
 // ---------------------------------------------------------------------------
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
 
 const fail = (code) => {
   throw new ApiError(code);
@@ -729,6 +734,11 @@ const RPC = {
         .filter((p) => inTrip(p) && p.member_id === me.id)
         .sort(bySort)
         .map((p) => pick(p, K.personal)),
+      rides: db.rides
+        .filter(inTrip)
+        .sort((a, b) => cmp(a.depart_at ?? '￿', b.depart_at ?? '￿') || byCreated(a, b))
+        .map((r) => pick(r, K.ride)),
+      ride_seats: db.ride_seats.filter(inTrip).sort(byCreated).map((s) => pick(s, K.rideSeat)),
     };
   },
 
@@ -760,6 +770,160 @@ const RPC = {
     const memberIds = new Set(membersOf(db, tripId).map((m) => m.id));
     remove(db.member_secrets, (s) => memberIds.has(s.member_id));
     for (const t of TABLES) if (t !== 'member_secrets') remove(db[t], (r) => (t === 'trips' ? r.id : r.trip_id) === tripId);
+    return null;
+  },
+
+  // ---- e-mail (demo: the "sent" code comes back so the UI can show it) ----
+
+  my_email(ctx) {
+    const row = ctx.db.user_contacts.find((c) => c.user_id === ctx.uid);
+    return { email: row ? row.email : null, verified: Boolean(row) };
+  },
+
+  request_email_code(ctx, email) {
+    const { db } = ctx;
+    const e = String(email ?? '').trim().toLowerCase();
+    if (e.length > 254 || !EMAIL_RE.test(e)) bad();
+    const prev = db.email_codes.find((c) => c.user_id === ctx.uid);
+    const hourAgo = Date.parse(ctx.now()) - 3600000;
+    const recent = (prev?.sent_at || []).filter((s) => Date.parse(s) > hourAgo);
+    if (recent.length >= 5) fail('rate_limited');
+    const code = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+    remove(db.email_codes, (c) => c.user_id === ctx.uid);
+    db.email_codes.push({
+      user_id: ctx.uid, email: e, code, attempts: 0, sent_at: [...recent, ctx.now()],
+      expires_at: new Date(Date.parse(ctx.now()) + 15 * 60000).toISOString(),
+    });
+    ctx.dirty = true;
+    return { demo_code: code };
+  },
+
+  verify_email_code(ctx, code) {
+    const { db } = ctx;
+    const row = db.email_codes.find((c) => c.user_id === ctx.uid);
+    if (!row || Date.parse(row.expires_at) < Date.parse(ctx.now()) || row.attempts >= 5) fail('code_expired');
+    ctx.dirty = true;
+    if (String(code ?? '').replace(/\D/g, '') !== row.code) {
+      row.attempts += 1;
+      return { email: null, verified: false };
+    }
+    remove(db.user_contacts, (c) => c.user_id === ctx.uid);
+    db.user_contacts.push({ user_id: ctx.uid, email: row.email, verified_at: ctx.now() });
+    remove(db.email_codes, (c) => c === row);
+    return { email: row.email, verified: true };
+  },
+
+  get_member_emails(ctx, memberId) {
+    const member = need(ctx.db.members, memberId);
+    const me = requireMember(ctx, member.trip_id);
+    if (me.id !== member.id && !isAdmin(me)) fail('forbidden');
+    return ctx.db.member_emails.filter((e) => e.member_id === member.id).map((e) => e.email);
+  },
+
+  set_member_emails(ctx, memberId, emails) {
+    const { db } = ctx;
+    const member = need(db.members, memberId);
+    const me = requireMember(ctx, member.trip_id);
+    if (me.id !== member.id && !isAdmin(me)) fail('forbidden');
+    if (emails != null && !Array.isArray(emails)) bad();
+    const list = [...new Set((emails || []).map((e) => String(e ?? '').trim().toLowerCase()).filter(Boolean))];
+    if (list.length > 6 || list.some((e) => e.length > 254 || !EMAIL_RE.test(e))) bad();
+    remove(db.member_emails, (e) => e.member_id === member.id && !list.includes(e.email));
+    for (const email of list) {
+      if (!db.member_emails.some((e) => e.member_id === member.id && e.email === email)) {
+        db.member_emails.push({ member_id: member.id, trip_id: member.trip_id, email, token: newId(), created_at: ctx.now() });
+      }
+    }
+    bump(ctx, member.trip_id);
+    return null;
+  },
+
+  // ---- rides ----
+
+  upsert_ride(ctx, tripId, ride) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    reqObj(ride);
+    let seats;
+    if (has(ride, 'seats')) {
+      seats = Number(ride.seats);
+      if (!Number.isInteger(seats) || seats < 1 || seats > 8) bad();
+    }
+    let row;
+    if (given(ride, 'id')) {
+      row = db.rides.find((r) => r.id === ride.id && r.trip_id === tripId);
+      if (!row) fail('not_found');
+      if (row.driver_member !== me.id && !isAdmin(me)) fail('forbidden');
+      const taken = db.ride_seats.filter((s) => s.ride_id === row.id).reduce((n, s) => n + s.seats, 0);
+      if (seats != null && seats < taken) fail('ride_full');
+      if (seats != null) row.seats = seats;
+      if (has(ride, 'from_text')) row.from_text = optText(ride.from_text, 80);
+      if (has(ride, 'depart_at')) row.depart_at = ride.depart_at == null || ride.depart_at === '' ? null : timestampVal(ride.depart_at);
+      if (has(ride, 'note')) row.note = optText(ride.note, 200);
+    } else {
+      if (db.rides.some((r) => r.trip_id === tripId && r.driver_member === me.id)) fail('not_allowed_state');
+      remove(db.ride_seats, (s) => s.trip_id === tripId && s.member_id === me.id);
+      row = {
+        id: newId(), trip_id: tripId, driver_member: me.id, seats: seats ?? 3,
+        from_text: optText(ride.from_text, 80),
+        depart_at: ride.depart_at == null || ride.depart_at === '' ? null : timestampVal(ride.depart_at),
+        note: optText(ride.note, 200), created_at: ctx.now(),
+      };
+      db.rides.push(row);
+    }
+    bump(ctx, tripId);
+    return row.id;
+  },
+
+  delete_ride(ctx, rideId) {
+    const { db } = ctx;
+    const ride = need(db.rides, rideId);
+    const me = requireMember(ctx, ride.trip_id);
+    if (ride.driver_member !== me.id && !isAdmin(me)) fail('forbidden');
+    const passengers = db.ride_seats.filter((s) => s.ride_id === ride.id).map((s) => s.member_id);
+    remove(db.ride_seats, (s) => s.ride_id === ride.id);
+    remove(db.rides, (r) => r === ride);
+    if (passengers.length) {
+      notify(ctx, ride.trip_id, {
+        title: `ההסעה עם ${byId(db.members, ride.driver_member)?.display_name ?? ''} בוטלה 🚗`,
+        body: 'צריך למצוא הסעה אחרת — אפשר להצטרף לרכב אחר במסך הטיול.',
+        audience: passengers, link: `#/t/${ride.trip_id}/trip`,
+      });
+    }
+    bump(ctx, ride.trip_id);
+    return null;
+  },
+
+  take_seat(ctx, rideId, seats = 1) {
+    const { db } = ctx;
+    const ride = need(db.rides, rideId);
+    const me = requireMember(ctx, ride.trip_id);
+    const n = Number(seats ?? 1);
+    if (!Number.isInteger(n) || n < 1 || n > 8) bad();
+    if (db.rides.some((r) => r.trip_id === ride.trip_id && r.driver_member === me.id)) fail('not_allowed_state');
+    const taken = db.ride_seats.filter((s) => s.ride_id === ride.id && s.member_id !== me.id).reduce((t, s) => t + s.seats, 0);
+    if (taken + n > ride.seats) fail('ride_full');
+    remove(db.ride_seats, (s) => s.trip_id === ride.trip_id && s.member_id === me.id);
+    db.ride_seats.push({ ride_id: ride.id, trip_id: ride.trip_id, member_id: me.id, seats: n, created_at: ctx.now() });
+    notify(ctx, ride.trip_id, {
+      title: `${me.display_name} מצטרפ/ת להסעה שלך 🚗`, body: n > 1 ? `${n} מקומות` : null,
+      audience: [ride.driver_member], link: `#/t/${ride.trip_id}/trip`,
+    });
+    bump(ctx, ride.trip_id);
+    return null;
+  },
+
+  leave_seat(ctx, tripId) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const seat = db.ride_seats.find((s) => s.trip_id === tripId && s.member_id === me.id);
+    if (!seat) return null;
+    const ride = byId(db.rides, seat.ride_id);
+    remove(db.ride_seats, (s) => s === seat);
+    if (ride) {
+      notify(ctx, tripId, { title: `${me.display_name} כבר לא נוסע/ת איתך`, audience: [ride.driver_member], link: `#/t/${tripId}/trip` });
+    }
+    bump(ctx, tripId);
     return null;
   },
 
@@ -1288,7 +1452,7 @@ const RPC = {
     return null;
   },
 
-  send_announcement(ctx, tripId, title, body, audience, urgent) {
+  send_announcement(ctx, tripId, title, body, audience, urgent, digest) {
     const { db } = ctx;
     const me = requireAdmin(ctx, tripId);
     const t = reqText(title, 1, 80);
@@ -1302,6 +1466,7 @@ const RPC = {
     const row = {
       id: newId(), trip_id: tripId, kind: 'announcement', title: t, body: b, audience: aud,
       author_member: me.id, urgent: urgent == null ? false : toBool(urgent), link: null, created_at: ctx.now(),
+      delivery: toBool(digest ?? false) && !toBool(urgent ?? false) ? 'digest' : 'now',
     };
     db.notifications.push(row);
     bump(ctx, tripId);
@@ -1668,8 +1833,8 @@ export function createDemoApi(options = {}) {
     confirmPayment: (id) => call('confirm_payment', id),
     deletePayment: (id) => call('delete_payment', id),
 
-    sendAnnouncement: (tripId, { title, body, audience, urgent } = {}) =>
-      call('send_announcement', tripId, title, body ?? null, Array.isArray(audience) && audience.length ? audience : null, Boolean(urgent)),
+    sendAnnouncement: (tripId, { title, body, audience, urgent, digest } = {}) =>
+      call('send_announcement', tripId, title, body ?? null, Array.isArray(audience) && audience.length ? audience : null, Boolean(urgent), Boolean(digest)),
     deleteNotification: (id) => call('delete_notification', id),
     markRead: (tripId, ids) => call('mark_read', tripId, ids || []),
 
@@ -1681,6 +1846,17 @@ export function createDemoApi(options = {}) {
     savePushSubscription: (tripId, sub) =>
       call('save_push_subscription', tripId, sub && typeof sub.toJSON === 'function' ? sub.toJSON() : sub),
     deletePushSubscription: (endpoint) => call('delete_push_subscription', endpoint),
+
+    myEmail: () => read('my_email'),
+    requestEmailCode: (email) => call('request_email_code', email).then((r) => ({ sent: true, ...r })),
+    verifyEmailCode: (code) => call('verify_email_code', code),
+    getMemberEmails: (memberId) => read('get_member_emails', memberId),
+    setMemberEmails: (memberId, emails) => call('set_member_emails', memberId, emails || []),
+
+    upsertRide: (tripId, ride) => call('upsert_ride', tripId, ride),
+    deleteRide: (rideId) => call('delete_ride', rideId),
+    takeSeat: (rideId, seats = 1) => call('take_seat', rideId, seats),
+    leaveSeat: (tripId) => call('leave_seat', tripId),
 
     /** Demo-only tools (the "🎭 החלף משתמש" control and E2E tests). */
     demo: {

@@ -351,3 +351,28 @@
   .row-editor__row--sched { grid-template-columns: 86px 42px minmax(0, 1fr) 36px; }
   .row-editor__row--rule { grid-template-columns: 42px minmax(0, 1fr) 36px; }
 }
+
+/* ---------- rides ---------- */
+.rides__sum { margin-top: -4px; margin-bottom: 10px; }
+.rides__list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.ride {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  border-radius: 16px; background: var(--surface-2); min-width: 0;
+}
+.ride.is-mine, .ride.is-in { background: color-mix(in srgb, var(--success-soft) 70%, var(--surface-2)); }
+.ride > .btn { align-self: flex-start; }
+.ride__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ride__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ride__driver { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ride__meta { font-size: 13px; color: var(--muted); }
+.ride__seats { flex: none; font-size: 13px; font-weight: 700; color: var(--success-text, var(--accent-text)); }
+.ride__seats.is-full { color: var(--muted); }
+.ride__tools { flex: none; display: flex; }
+.ride__pass { display: flex; flex-wrap: wrap; gap: 6px; }
+.ride__chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px;
+  border-radius: 999px; background: var(--surface); font-size: 13.5px;
+}
+.ride__note { font-size: 13.5px; color: var(--muted); }
+.rides__without { margin-bottom: 10px; color: var(--muted); }
+.ride-form__seats { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

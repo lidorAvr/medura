@@ -1677,6 +1677,13 @@ html.no-nav .toasts { bottom: calc(var(--safe-bottom) + 18px); }
 /* ---------- access gate ---------- */
 .gate { padding-top: calc(var(--safe-top) + 28px); }
 .gate__brand { text-align: center; font-weight: 800; font-size: 20px; color: var(--muted); }
+.email-gate__head { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; margin-bottom: 18px; }
+.email-gate__emoji { font-size: 44px; line-height: 1; }
+.email-gate__title { font-size: 21px; font-weight: 800; line-height: 1.3; }
+.email-gate__text { color: var(--muted); font-size: 15px; line-height: 1.55; max-width: 34ch; }
+.email-gate__code input, input.email-gate__code { font-size: 26px; letter-spacing: 0.35em; text-align: center; font-variant-numeric: tabular-nums; }
+.email-gate__demo { padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; }
+.email-gate__more { gap: 4px; }
 
 /* ---------- keyframes ---------- */
 @keyframes page-in {
@@ -1773,3 +1780,17 @@ html.no-nav .toasts { bottom: calc(var(--safe-bottom) + 18px); }
   .nav-tab__icon { width: 50px; }
   .btn--lg { font-size: 16.5px; padding: 0 18px; }
 }
+
+/* ---------- first-run tour ---------- */
+.tour { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; padding: 6px 4px 2px; }
+.tour__art { font-size: 72px; line-height: 1; animation: pop 360ms var(--spring); }
+.tour__text { font-size: 17px; line-height: 1.6; max-width: 32ch; }
+.tour__dots { display: flex; gap: 8px; }
+.tour__dot { width: 9px; height: 9px; padding: 0; border: 0; border-radius: 999px; background: var(--line); transition: width var(--dur) var(--ease), background-color var(--dur) var(--ease); }
+.tour__dot.is-on { width: 24px; background: var(--btn-accent); }
+.tour__dot::before { content: ''; position: absolute; inset: -12px; }
+.tour__dot { position: relative; }
+/* ---------- Turnstile (first sign-in on a device) ---------- */
+.captcha-box { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 70%, transparent); }
+.captcha-box__card { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px; border-radius: 20px; background: var(--surface); box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.15)); }
+.captcha-box__text { font-weight: 700; }

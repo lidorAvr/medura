@@ -3,11 +3,13 @@ import { html } from 'htm/preact';
 import { Component } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { useRoute, href, navigate } from './router.js';
-import { useStore, useTrip, actions } from './store.js';
+import { useStore, useTrip, actions, emailRequired } from './store.js';
 import { unreadCount } from './lib/logic.js';
 import { hebrewError } from './api/errors.js';
 import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js';
 import { Icon } from './ui/icons.js';
+import { EmailGate } from './ui/email-gate.js';
+import { Tour, tourDue } from './ui/tour.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -29,6 +31,7 @@ const SCREENS = {
   messages: './screens/messages.js',
   people: './screens/people.js',
   me: './screens/me.js',
+  welcome: './screens/welcome.js',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
@@ -330,17 +333,49 @@ function NotFound() {
 // ---------------------------------------------------------------------------
 
 const BARE_ROUTES = new Set(['landing', 'new', 'join', 'link', 'notfound']);
-const FOCUS_ROUTES = new Set(['shop']); // full-screen, no chrome
+const FOCUS_ROUTES = new Set(['shop', 'welcome']); // full-screen, no chrome
+
+/** First visit to a trip: the welcome wizard (skipped by automated browsers unless ?welcome=1). */
+function welcomeDue() {
+  try {
+    if (new URLSearchParams(location.search).get('welcome') === '1') return true;
+  } catch {
+    /* no location */
+  }
+  return !(typeof navigator !== 'undefined' && navigator.webdriver);
+}
 
 export function App() {
   const route = useRoute();
-  const { ready, error, tripId, snap } = useStore((s) => ({ ready: s.ready, error: s.error, tripId: s.tripId, snap: s.snap }));
+  const { ready, error, tripId, snap, needEmail } = useStore((s) => ({
+    ready: s.ready, error: s.error, tripId: s.tripId, snap: s.snap,
+    needEmail: s.ready && emailRequired(s) && !s.contact?.verified,
+  }));
   const routeTrip = route.params.tripId || null;
   const inTrip = !!routeTrip;
   const gated = inTrip && error?.scope === 'trip' && error.tripId === routeTrip && !snap;
-  const bare = BARE_ROUTES.has(route.name) || gated;
+  const emailGate = inTrip && !gated && needEmail;
+  const bare = BARE_ROUTES.has(route.name) || gated || emailGate;
   const focus = FOCUS_ROUTES.has(route.name);
-  const showNav = inTrip && !focus && !gated;
+  const showNav = inTrip && !focus && !gated && !emailGate;
+  const myId = snap?.me?.member_id;
+  const meRow = myId ? snap.members?.find((m) => m.id === myId) : null;
+  const needsWelcome = Boolean(meRow && snap.trip?.id === routeTrip && !meRow.prefs?.onboarded);
+  useEffect(() => {
+    if (needsWelcome && route.name !== 'welcome' && !emailGate && welcomeDue()) {
+      navigate(`/t/${routeTrip}/welcome`, { replace: true });
+    }
+  }, [needsWelcome, route.name, emailGate]);
+  const [tourOpen, setTourOpen] = useState(false);
+  const tourReady = showNav && Boolean(snap);
+  useEffect(() => {
+    if (tourReady && tourDue()) setTourOpen(true);
+  }, [tourReady]);
+  useEffect(() => {
+    const open = () => setTourOpen(true);
+    window.addEventListener('medura:tour', open);
+    return () => window.removeEventListener('medura:tour', open);
+  }, []);
 
   // Keep the store's open trip in sync with the URL.
   useEffect(() => {
@@ -367,6 +402,7 @@ export function App() {
   let body;
   if (route.name === 'notfound') body = html`<${NotFound} />`;
   else if (gated) body = html`<${AccessGate} code=${error.code} />`;
+  else if (emailGate) body = html`<${EmailGate} />`;
   else body = html`<${ScreenHost} route=${route} />`;
 
   return html`<div class=${cx('app', bare && 'app--bare', focus && 'app--focus', showNav && 'app--nav')}>
@@ -379,6 +415,7 @@ export function App() {
       <div class="page" key=${route.path}>${body}</div>
     </main>
     ${showNav ? html`<${BottomNav} route=${route} />` : null}
+    ${showNav ? html`<${Tour} open=${tourOpen} onClose=${() => setTourOpen(false)} />` : null}
     <${Toasts} />
   </div>`;
 }

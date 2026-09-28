@@ -15,6 +15,9 @@ export const ERROR_CODES = Object.freeze([
   'has_money_records',
   'limit_reached',
   'not_allowed_state',
+  'rate_limited',
+  'code_expired',
+  'ride_full',
   'network',
   'unknown',
 ]);
@@ -32,6 +35,9 @@ const HEBREW = Object.freeze({
   has_money_records: 'יש כאן הוצאות או העברות על השם הזה — קודם מוחקים אותן 💸',
   limit_reached: 'הגעתם למגבלה — אי אפשר להוסיף עוד 📦',
   not_allowed_state: 'אי אפשר לעשות את זה כרגע — אולי זה כבר עודכן? רעננו ונסו שוב 🔄',
+  rate_limited: 'יותר מדי ניסיונות — נסו שוב בעוד כמה דקות ⏳',
+  code_expired: 'הקוד פג או נוצל — שלחו קוד חדש 🔁',
+  ride_full: 'אין מספיק מקומות ברכב הזה 🚗',
   network: 'אין חיבור לאינטרנט — נסו שוב כשהרשת תחזור 📶',
   unknown: 'אופס, משהו השתבש. נסו שוב 🙏',
 });

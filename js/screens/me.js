@@ -5,7 +5,7 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions } from '../store.js';
+import { useTrip, useStore, actions, emailRequired } from '../store.js';
 import { navigate } from '../router.js';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
@@ -26,14 +26,14 @@ const COLORS = ['#2F6B4F', '#F28C28', '#E4572E', '#3A86FF', '#8E44AD', '#16A085'
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 /** Stored inventory values stay plain (the lists screen matches them to item titles). */
-const INVENTORY_SUGGESTIONS = [
+export const INVENTORY_SUGGESTIONS = [
   ['מנגל', '🔥'], ['נפנף', '💨'], ['גזיבו', '⛱️'], ['רמקול', '🔊'], ['מחצלת', '🧺'], ['כסאות ים', '🪑'],
   ['צידנית', '🧊'], ['פקל קפה', '☕'], ['גזייה', '🍳'], ['פנס/תאורה', '🔦'], ['מטקות', '🏓'], ['כדור', '⚽'],
   ['שש בש', '🎲'], ['קלפים', '🃏'], ['אוהל גדול', '⛺'], ['שולחן מתקפל', '🍽️'],
 ];
 const SUGGESTED = new Set(INVENTORY_SUGGESTIONS.map(([name]) => name));
 
-const DIET_CHIPS = ['🥦 צמחוני/ת', '🌱 טבעוני/ת', '🌾 בלי גלוטן', '🥛 בלי לקטוז', '✡️ כשר', '🌶️ אוהב/ת חריף', '🚱 בלי אלכוהול'];
+export const DIET_CHIPS = ['🥦 צמחוני/ת', '🌱 טבעוני/ת', '🌾 בלי גלוטן', '🥛 בלי לקטוז', '✡️ כשר', '🌶️ אוהב/ת חריף', '🚱 בלי אלכוהול'];
 
 const NOTIFY_KEYS = [
   ['announcements', '📣 הודעות מהמנהלים', 'עדכונים חשובים לכל הקבוצה'],
@@ -247,6 +247,7 @@ function MeBody({ snap, me, admin, tripId }) {
     <${InventoryCard} me=${me} />
     <${DietCard} me=${me} />
     <${NotifyCard} me=${me} tripId=${tripId} />
+    <${EmailCard} me=${me} />
     <${DeviceLinkCard} me=${me} trip=${snap.trip} />
     <${ThemeCard} />
     <${TripsCard} tripId=${tripId} />
@@ -308,7 +309,7 @@ function ProfileCard({ me, admin }) {
       title="✏️ עריכת פרופיל"
       footer=${html`<${Button} type="submit" form=${formId} variant="accent" size="lg" block loading=${busy}>שמירה</${Button}>`}
     >
-      <${ProfileForm} key=${`${me.id}-${round}`} id=${formId} initial=${me} allowFamily=${admin} onSubmit=${save} />
+      <${ProfileForm} key=${`${me.id}-${round}`} id=${formId} initial=${me} allowFamily onSubmit=${save} />
     </${Sheet}>
   </section>`;
 }
@@ -697,6 +698,61 @@ function ThemeCard() {
   </${Card}>`;
 }
 
+// ---------------------------------------------------------------------------
+// e-mail updates: my verified address + the other people of my profile
+// ---------------------------------------------------------------------------
+
+const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
+
+function EmailCard({ me }) {
+  const contact = useStore((s) => s.contact);
+  const required = useStore((s) => emailRequired(s));
+  const people = me.people && me.people.length ? me.people : [displayName(me)];
+  const [list, setList] = useState(null);
+  const [draft, setDraft] = useState([]);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    actions.run((api) => api.getMemberEmails(me.id), { refresh: false, error: () => 'לא הצלחנו לטעון את המיילים' })
+      .then((r) => {
+        if (!alive || !r) return;
+        setList(r);
+        setDraft(Array.from({ length: Math.max(people.length, r.length) }, (_, i) => r[i] || ''));
+      });
+    return () => { alive = false; };
+  }, [me.id, people.length]);
+
+  const clean = (d) => [...new Set(d.map((x) => x.trim().toLowerCase()).filter(Boolean))];
+  const dirty = list && clean(draft).join('|') !== list.join('|');
+  const save = async () => {
+    const errs = {};
+    draft.forEach((m, i) => { if (m.trim() && !MAIL_RE.test(m.trim())) errs[i] = 'המייל לא נראה תקין'; });
+    setErrors(errs);
+    if (Object.keys(errs).length) return;
+    setSaving(true);
+    const emails = clean(draft);
+    const done = await actions.run(ok((api) => api.setMemberEmails(me.id, emails)), { success: 'נשמר ✉️' });
+    setSaving(false);
+    if (done) setList(emails);
+  };
+
+  return html`<${Card} emoji="📬" title="עדכונים במייל" class="me-email">
+    <p class="muted small me-card__lead">עדכונים ותזכורות מהטיול יגיעו גם לכאן. בכל מייל יש קישור להסרה.</p>
+    ${contact?.verified
+      ? html`<p class="me-email__mine">מאומת במכשיר הזה: <bdi dir="ltr">${contact.email}</bdi> <${Pill} tone="success">✓</${Pill}>
+          ${required ? html`<${Button} variant="ghost" size="sm" onClick=${() => actions.setContact({ ...contact, verified: false })}>שינוי</${Button}>` : null}</p>`
+      : null}
+    <div class="me-email__others">
+      ${draft.map((m, i) => html`<${Field} key=${i} label=${people.length === 1 && i === 0 ? 'המייל שלך' : `המייל של ${people[i] || `משתתף/ת ${i + 1}`}`} error=${errors[i]}>
+        <${TextInput} type="email" inputmode="email" dir="ltr" autocomplete="off" value=${m} placeholder="name@example.com"
+          onInput=${(e) => { const v = e.target.value; setDraft((d) => d.map((x, j) => (j === i ? v : x))); }} />
+      </${Field}>`)}
+      ${dirty ? html`<${Button} size="sm" icon="check" loading=${saving} onClick=${save}>שמירה</${Button}>` : null}
+    </div>
+  </${Card}>`;
+}
 function TripsCard({ tripId }) {
   const trips = useStore((s) => s.trips) || [];
   useEffect(() => {
@@ -729,6 +785,8 @@ function TripsCard({ tripId }) {
     <div class="me-trips__actions">
       <${Button} variant="secondary" size="sm" icon="plus" href="#/new">טיול חדש</${Button}>
       <${Button} variant="ghost" size="sm" icon="link" href="#/?link=1">יש לי קישור</${Button}>
+      <${Button} variant="ghost" size="sm" onClick=${() => window.dispatchEvent(new Event('medura:tour'))}>🎓 מדריך קצר</${Button}>
+      ${tripId ? html`<${Button} variant="ghost" size="sm" href=${`#/t/${tripId}/welcome`}>📝 פרטי קשר והגעה</${Button}>` : null}
     </div>
   </${Card}>`;
 }

@@ -33,7 +33,20 @@ let state = {
   online: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
   toasts: [],
   theme: readTheme(),
+  contact: null, // {email, verified} of this user (device), or null until loaded / on error
 };
+
+/** Must this user verify an e-mail before using a trip? Always on the real server; in demo only
+ *  when forced with ?emailgate=1 (tests / trying it out). */
+export function emailRequired(s = state) {
+  // Real server: only once e-mail delivery is live (config.requireEmailVerification).
+  if (s.mode === 'supabase') return globalThis.MEDURA_CONFIG?.requireEmailVerification === true;
+  try {
+    return new URLSearchParams(location.search).get('emailgate') === '1';
+  } catch {
+    return false;
+  }
+}
 
 const listeners = new Set();
 
@@ -221,6 +234,7 @@ export const actions = {
       await api.init();
       const { userId } = await api.ensureSession();
       store.set({ api, mode: api.mode, userId });
+      await actions.loadContact();
       const trips = await actions.loadTrips({ quiet: false });
       const route = parseHash(location.hash);
       if (route.name === 'landing' && trips.length === 1) {
@@ -234,6 +248,25 @@ export const actions = {
       console.error('[medura] boot failed', e);
       store.set({ ready: true, error: { code: err.code, scope: 'boot' } });
     }
+  },
+
+  /** This user's verified e-mail (null on failure — the gate then offers to retry). */
+  async loadContact() {
+    const { api } = state;
+    if (!api) return null;
+    try {
+      const contact = await api.myEmail();
+      store.set({ contact });
+      return contact;
+    } catch (e) {
+      if (toApiError(e).code === 'network') store.set({ online: false });
+      store.set({ contact: null });
+      return null;
+    }
+  },
+
+  setContact(contact) {
+    store.set({ contact });
   },
 
   async loadTrips({ quiet = true } = {}) {

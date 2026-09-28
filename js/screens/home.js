@@ -8,7 +8,7 @@ import { href, navigate } from '../router.js';
 import {
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
   hebrewCount, itemEffectiveQty, itemProgress, membersById, missingItems, myAgenda, similarItems, timeAgo, tripReadiness,
-  visibleNotifications,
+  visibleNotifications, rideModel, tripDayPhase, wazeUrl,
 } from '../lib/logic.js';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
@@ -162,6 +162,7 @@ export default function HomeScreen({ route }) {
 
   return html`<div class="screen home">
     <${Hero} model=${model} me=${me} now=${now} isAdmin=${isAdmin} />
+    <${TripDayCard} snap=${snap} me=${me} now=${now} />
 
     <div class="stack-sm">
       <${Readiness} model=${model} />
@@ -332,6 +333,49 @@ function Hero({ model, me, now, isAdmin }) {
 // ---------------------------------------------------------------------------
 // readiness + money
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// the day before / the day of the trip
+// ---------------------------------------------------------------------------
+
+function TripDayCard({ snap, me, now }) {
+  const trip = snap.trip;
+  const phase = tripDayPhase(trip, now);
+  if (!phase) return null;
+  const rides = rideModel(snap, me.id);
+  const ride = rides.myRide || rides.mySeat;
+  const depart = rides.mySeat?.depart_at || rides.myRide?.depart_at || trip.starts_at;
+  const open = snap.pledges.filter((p) => p.member_id === me.id && !p.done).length
+    + (snap.personal_items || []).filter((p) => !p.done).length;
+  const waze = wazeUrl(trip);
+  const rideText = rides.myRide
+    ? `את/ה נוהג/ת${rides.myRide.taken ? ` · ${hebrewCount(rides.myRide.taken, 'נוסע/ת', 'נוסעים')} איתך` : ''}`
+    : rides.mySeat ? `נוסע/ת עם ${displayName(rides.mySeat.driver)}` : null;
+
+  return html`<section class=${`tripday tripday--${phase}`} aria-labelledby="tripday-title" data-testid="trip-day">
+    <div class="tripday__top">
+      <span class="tripday__emoji" aria-hidden="true">${phase === 'day' ? '🚗' : '🎒'}</span>
+      <div class="tripday__text">
+        <h2 class="tripday__title" id="tripday-title">${phase === 'day' ? 'יוצאים היום!' : 'מחר יוצאים!'}</h2>
+        <p class="tripday__sub">
+          ${[depart && `יציאה ב-${formatTime(depart)}`, trip.location].filter(Boolean).join(' · ')}
+        </p>
+      </div>
+    </div>
+    <ul class="tripday__facts">
+      ${rideText ? html`<li>🚙 ${rideText}</li>` : html`<li>🚙 עוד אין לך הסעה — <a href=${href(`/t/${trip.id}/trip`)}>למצוא טרמפ</a></li>`}
+      ${open
+        ? html`<li>🎒 עוד ${hebrewCount(open, 'דבר אחד', 'דברים')} לסמן — <a href=${href(`/t/${trip.id}/lists?tab=mine`)}>לרשימה שלי</a></li>`
+        : html`<li>✅ הכול מסומן אצלך — אלופים</li>`}
+    </ul>
+    <div class="tripday__actions">
+      ${waze && phase === 'day'
+        ? html`<${Button} variant="accent" icon="map-pin" href=${waze} target="_blank" rel="noopener">ניווט ב-Waze</${Button}>`
+        : null}
+      <${Button} variant=${phase === 'day' && waze ? 'secondary' : 'accent'} href=${href(`/t/${trip.id}/trip`)}>לו״ז, מזג אוויר והסעות</${Button}>
+    </div>
+  </section>`;
+}
 
 function Readiness({ model }) {
   const { ready, missing, tripId } = model;
@@ -947,6 +991,7 @@ function AnnounceSheet({ open, onClose, snap, me, tripId }) {
   const [mode, setMode] = useState('all');
   const [audience, setAudience] = useState([]);
   const [urgent, setUrgent] = useState(false);
+  const [when, setWhen] = useState('now');
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   useLayoutEffect(() => {
@@ -956,6 +1001,7 @@ function AnnounceSheet({ open, onClose, snap, me, tripId }) {
       setMode('all');
       setAudience([]);
       setUrgent(false);
+      setWhen('now');
       setErrors({});
       setSaving(false);
     }
@@ -976,8 +1022,8 @@ function AnnounceSheet({ open, onClose, snap, me, tripId }) {
     }
     setSaving(true);
     const res = await actions.run(
-      (api) => api.sendAnnouncement(tripId, { title: t, body: body.trim() || null, audience: mode === 'some' ? audience : null, urgent }),
-      { success: 'ההודעה נשלחה 📣' },
+      (api) => api.sendAnnouncement(tripId, { title: t, body: body.trim() || null, audience: mode === 'some' ? audience : null, urgent, digest: !urgent && when === 'digest' }),
+      { success: !urgent && when === 'digest' ? 'ההודעה באפליקציה עכשיו, ובמייל ובהתראה — בסיכום של 09:30 ☀️' : 'ההודעה נשלחה 📣' },
     );
     setSaving(false);
     if (res !== undefined) onClose();
@@ -1011,6 +1057,12 @@ function AnnounceSheet({ open, onClose, snap, me, tripId }) {
         ? html`<${MemberPicker} members=${others} value=${audience} onChange=${setAudience} multi label="למי לשלוח" />`
         : null}
       <${Toggle} checked=${urgent} onChange=${setUrgent} label="🔴 דחוף" hint="מודגש אצל כולם, עם רטט בטלפון" />
+      ${!urgent
+        ? html`<${Field} label="מתי להתריע?" hint=${when === 'digest' ? 'באפליקציה זה מופיע מיד; התראה ומייל — פעם ביום ב-09:30, מרוכז, בלי להציף' : 'התראה ומייל עכשיו'}>
+            <${Segmented} label="מתי להתריע" value=${when} onChange=${setWhen}
+              options=${[{ value: 'now', label: '⚡ עכשיו' }, { value: 'digest', label: '☀️ בסיכום היומי' }]} />
+          </${Field}>`
+        : null}
     </form>
   </${Sheet}>`;
 }

@@ -446,3 +446,20 @@
   .qa-share > .btn { font-size: 12px; }
   .qa-share > .btn > svg { width: 38px; height: 38px; padding: 9px; }
 }
+
+/* ---------- the day before / day of the trip ---------- */
+.tripday {
+  display: flex; flex-direction: column; gap: 12px; padding: 16px;
+  border-radius: 22px; color: #fff; background: var(--sunset);
+  box-shadow: var(--shadow-accent);
+}
+.tripday--eve { background: linear-gradient(135deg, #3A4F7A, #6B4E9B); box-shadow: none; }
+.tripday__top { display: flex; align-items: center; gap: 12px; }
+.tripday__emoji { font-size: 38px; line-height: 1; }
+.tripday__title { font-size: 22px; font-weight: 900; line-height: 1.2; }
+.tripday__sub { font-size: 15px; opacity: 0.92; }
+.tripday__facts { display: flex; flex-direction: column; gap: 4px; font-size: 14.5px; list-style: none; padding: 0; margin: 0; }
+.tripday__facts a { color: inherit; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.tripday__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tripday__actions .btn--accent { background: #fff; color: #B4471B; box-shadow: none; }
+.tripday__actions .btn--secondary { background: rgba(255, 255, 255, 0.18); color: #fff; border-color: transparent; }

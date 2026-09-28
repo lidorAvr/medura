@@ -1415,3 +1415,91 @@ export function similarItems(title, items, { excludeId = null, limit = 3 } = {})
   out.sort((x, y) => (x.match === y.match ? 0 : x.match === 'same' ? -1 : 1));
   return out.slice(0, limit);
 }
+
+// ───────────────────────── Israel wall clock (shared by rides / trip day) ─────────────────────────
+
+let ilFmt = null;
+/** {ymd:'YYYY-MM-DD', hm:'HH:MM'} of an instant as a wall clock in Israel. */
+export function ilWall(date) {
+  ilFmt ||= new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  const p = {};
+  for (const part of ilFmt.formatToParts(date)) p[part.type] = part.value;
+  return { ymd: `${p.year}-${p.month}-${p.day}`, hm: `${p.hour === '24' ? '00' : p.hour}:${p.minute}` };
+}
+
+/** Israel wall-clock date + time → ISO instant (DST aware). */
+export function ilIso(ymd, hm = '00:00') {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const [hh, mm] = hm.split(':').map(Number);
+  const target = Date.UTC(y, m - 1, d, hh || 0, mm || 0);
+  let guess = target;
+  for (let i = 0; i < 3; i++) {
+    const w = ilWall(new Date(guess));
+    const [wy, wmo, wd] = w.ymd.split('-').map(Number);
+    const [wh, wmin] = w.hm.split(':').map(Number);
+    const next = target - (Date.UTC(wy, wmo - 1, wd, wh, wmin) - guess);
+    if (next === guess) break;
+    guess = next;
+  }
+  return new Date(guess).toISOString();
+}
+
+// ───────────────────────── rides ─────────────────────────
+
+/**
+ * Rides view model: each ride with its passengers and free seats, my role, and who still has
+ * no ride (members neither driving nor seated).
+ */
+export function rideModel(snap, meId) {
+  const members = list(snap?.members);
+  const byId = membersById(members);
+  const seats = list(snap?.ride_seats);
+  const rides = list(snap?.rides).map((r) => {
+    const passengers = seats.filter((s) => s.ride_id === r.id)
+      .map((s) => ({ member: byId.get(s.member_id), seats: Number(s.seats) || 1 }))
+      .filter((p) => p.member);
+    const taken = passengers.reduce((n, p) => n + p.seats, 0);
+    return { ...r, driver: byId.get(r.driver_member) || null, passengers, taken, free: Math.max(0, (Number(r.seats) || 0) - taken) };
+  });
+  const driving = new Set(rides.map((r) => r.driver_member));
+  const seated = new Set(seats.map((s) => s.member_id));
+  const modeOf = (m) => m?.prefs?.transport?.mode || null;
+  // Not driving, not seated, and not coming some other way.
+  const without = members.filter((m) => !driving.has(m.id) && !seated.has(m.id) && modeOf(m) !== 'own');
+  return {
+    rides,
+    myRide: rides.find((r) => r.driver_member === meId) || null,
+    mySeat: rides.find((r) => r.passengers.some((p) => p.member.id === meId)) || null,
+    without,
+    seeking: without.filter((m) => modeOf(m) === 'need').map((m) => ({ member: m, from: m.prefs.transport.from || null })),
+    freeSeats: rides.reduce((n, r) => n + r.free, 0),
+  };
+}
+// ───────────────────────── trip day ─────────────────────────
+
+/** Waze navigation link: the trip's own Waze link, its coordinates, or a search for its place. */
+export function wazeUrl(trip) {
+  const own = String(trip?.location_url || '');
+  if (/^https?:\/\/([a-z0-9-]+\.)*waze\.com\//i.test(own)) return own;
+  if (Number.isFinite(Number(trip?.lat)) && Number.isFinite(Number(trip?.lon)) && trip?.lat != null && trip?.lon != null) {
+    return `https://waze.com/ul?ll=${Number(trip.lat)},${Number(trip.lon)}&navigate=yes`;
+  }
+  const q = String(trip?.location || '').trim();
+  return q ? `https://waze.com/ul?q=${encodeURIComponent(q)}&navigate=yes` : null;
+}
+
+/** 'eve' on the day before the trip, 'day' from the morning it starts until it ends, else null. */
+export function tripDayPhase(trip, now = new Date()) {
+  const start = trip?.starts_at ? new Date(trip.starts_at) : null;
+  if (!start || Number.isNaN(start.getTime())) return null;
+  const end = trip.ends_at ? new Date(trip.ends_at) : new Date(start.getTime() + 86400000);
+  if (now > end) return null;
+  const today = ilWall(now).ymd;
+  const startDay = ilWall(start).ymd;
+  if (today === startDay || (now >= start && now <= end)) return 'day';
+  const [y, m, d] = startDay.split('-').map(Number);
+  const eve = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+  return today === eve ? 'eve' : null;
+}

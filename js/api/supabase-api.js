@@ -13,7 +13,7 @@ const POLL_MS = 45000;
  * @param {string} [opts.anonKey]
  * @param {number} [opts.pollMs]  fallback poll interval for subscribe (default 45 s)
  */
-export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS } = {}) {
+export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getCaptchaToken = null } = {}) {
   let sb = client || null;
   let userId = null;
   let authListening = false;
@@ -73,7 +73,9 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS } = {
           let session = res.data && res.data.session;
           if (!session) {
             try {
-              res = await auth.signInAnonymously();
+              // First visit on this device: prove we're human (Turnstile) when the project asks for it.
+              const captchaToken = getCaptchaToken ? await getCaptchaToken() : null;
+              res = await auth.signInAnonymously(captchaToken ? { options: { captchaToken } } : undefined);
             } catch (err) {
               throw toApiError(err);
             }
@@ -212,13 +214,14 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS } = {
     confirmPayment: (id) => rpc('confirm_payment', { p_payment: id }),
     deletePayment: (id) => rpc('delete_payment', { p_payment: id }),
 
-    sendAnnouncement: (tripId, { title, body, audience, urgent } = {}) =>
+    sendAnnouncement: (tripId, { title, body, audience, urgent, digest } = {}) =>
       rpc('send_announcement', {
         p_trip: tripId,
         p_title: title,
         p_body: orNull(body),
         p_audience: audienceOrNull(audience),
         p_urgent: Boolean(urgent),
+        p_digest: Boolean(digest),
       }),
     deleteNotification: (id) => rpc('delete_notification', { p_notification: id }),
     markRead: (tripId, ids) => rpc('mark_read', { p_trip: tripId, p_ids: ids || [] }),
@@ -232,6 +235,17 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS } = {
     savePushSubscription: (tripId, sub) =>
       rpc('save_push_subscription', { p_trip: tripId, p_sub: plainSub(sub) }),
     deletePushSubscription: (endpoint) => rpc('delete_push_subscription', { p_endpoint: endpoint }),
+
+    myEmail: () => rpc('my_email', {}),
+    requestEmailCode: (email) => rpc('request_email_code', { p_email: email }).then(() => ({ sent: true })),
+    verifyEmailCode: (code) => rpc('verify_email_code', { p_code: code }),
+    getMemberEmails: (memberId) => rpc('get_member_emails', { p_member: memberId }).then((r) => r || []),
+    setMemberEmails: (memberId, emails) => rpc('set_member_emails', { p_member: memberId, p_emails: emails || [] }),
+
+    upsertRide: (tripId, ride) => rpc('upsert_ride', { p_trip: tripId, p_ride: ride }),
+    deleteRide: (rideId) => rpc('delete_ride', { p_ride: rideId }),
+    takeSeat: (rideId, seats = 1) => rpc('take_seat', { p_ride: rideId, p_seats: seats }),
+    leaveSeat: (tripId) => rpc('leave_seat', { p_trip: tripId }),
   };
 
   return api;

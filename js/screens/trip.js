@@ -3,6 +3,7 @@
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { actions, useTrip } from '../store.js';
+import { RidesCard } from './rides.js';
 import { href, navigate } from '../router.js';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
@@ -308,7 +309,7 @@ function scheduleModel(trip, now) {
 // ---------------------------------------------------------------------------
 
 export default function TripScreen({ route }) {
-  const { snap, isAdmin } = useTrip();
+  const { snap, me, isAdmin } = useTrip();
   const now = useNow();
   const routeTrip = route?.params?.tripId;
   const trip = snap?.trip && (!routeTrip || snap.trip.id === routeTrip) ? snap.trip : null;
@@ -353,6 +354,8 @@ export default function TripScreen({ route }) {
               action=${html`<${Button} size="sm" icon="plus" onClick=${openEdit}>הוספת לו״ז</${Button}>`} />
           </${Card}>`
         : null}
+
+    ${me ? html`<${RidesCard} snap=${snap} me=${me} isAdmin=${isAdmin} />` : null}
 
     ${rules.length
       ? html`<${Card} emoji="📌" title="חשוב לדעת" class="trip-rules-card">

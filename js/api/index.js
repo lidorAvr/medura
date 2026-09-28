@@ -30,5 +30,9 @@ export async function createApi(opts = {}) {
     return createDemoApi();
   }
   const { createSupabaseApi } = await import('./supabase-api.js');
-  return createSupabaseApi({ url: config.supabaseUrl.trim(), anonKey: config.supabaseAnonKey });
+  const siteKey = String(config.turnstileSiteKey || '').trim();
+  const getCaptchaToken = siteKey
+    ? () => import('../lib/turnstile.js').then((m) => m.turnstileToken(siteKey))
+    : null;
+  return createSupabaseApi({ url: config.supabaseUrl.trim(), anonKey: config.supabaseAnonKey, getCaptchaToken });
 }
