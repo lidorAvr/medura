@@ -37,6 +37,7 @@ const SHELL = [
   'js/ui/tour.js',
   'js/ui/inbox.js',
   'js/lib/turnstile.js',
+  'js/lib/device.js',
   'js/screens/rides.js',
   'js/screens/welcome.js',
   'js/ui/icons.js',

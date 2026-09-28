@@ -1003,6 +1003,19 @@ const RPC = {
     return null;
   },
 
+  send_test_notification(ctx, tripId) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const title = 'בדיקה 🔔 ההתראות עובדות!';
+    const hourAgo = Date.parse(ctx.now()) - 3600000;
+    const recent = db.notifications.filter((n) => n.trip_id === tripId && n.title === title && Date.parse(n.created_at) > hourAgo
+      && Array.isArray(n.audience) && n.audience.length === 1 && n.audience[0] === me.id).length;
+    if (recent >= 3) fail('rate_limited');
+    notify(ctx, tripId, { title, body: 'ככה ייראו העדכונים מהטיול — גם בטלפון וגם במייל.', audience: [me.id], link: `#/t/${tripId}/me` });
+    bump(ctx, tripId);
+    return null;
+  },
+
   respond_assignment(ctx, itemId, accept, reason = null) {
     const { db } = ctx;
     const item = need(db.items, itemId);
@@ -1957,6 +1970,7 @@ export function createDemoApi(options = {}) {
     deleteRide: (rideId) => call('delete_ride', rideId),
     takeSeat: (rideId, seats = 1) => call('take_seat', rideId, seats),
     leaveSeat: (tripId) => call('leave_seat', tripId),
+    sendTestNotification: (tripId) => call('send_test_notification', tripId),
     inviteToRide: (rideId, memberId, seats = null) => call('invite_to_ride', rideId, memberId, seats),
     respondSeat: (rideId, memberId, approve) => call('respond_seat', rideId, memberId, Boolean(approve)),
     respondAssignment: (itemId, accept, reason = null) => call('respond_assignment', itemId, Boolean(accept), reason ?? null),

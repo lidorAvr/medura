@@ -12,6 +12,7 @@ import {
   ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog,
 } from '../ui/components.js';
 import { Icon } from '../ui/icons.js';
+import { disablePush, enablePush, pushState } from '../lib/device.js';
 import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
@@ -518,74 +519,25 @@ function NotifyCard({ me, tripId }) {
   </${Card}>`;
 }
 
-function permissionState() {
-  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
-  const p = Notification.permission;
-  return p === 'granted' ? 'granted' : p === 'denied' ? 'denied' : 'default';
-}
-
-function swReady(ms) {
-  if (!('serviceWorker' in navigator)) return Promise.resolve(null);
-  return Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), ms))]).catch(() => null);
-}
-
-function urlBase64ToBytes(s) {
-  const pad = '='.repeat((4 - (s.length % 4)) % 4);
-  const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
-  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
-}
-
-const vapidKey = () => String((window.MEDURA_CONFIG && window.MEDURA_CONFIG.vapidPublicKey) || '').trim();
-const pushCapable = () => Boolean(vapidKey()) && 'serviceWorker' in navigator && 'PushManager' in window;
-const isIosBrowser = () => /iphone|ipad|ipod/i.test(navigator.userAgent || '') && !navigator.standalone;
-
-/** "הפעל התראות למכשיר הזה": permission → push subscription (when a VAPID key is set) → saved. */
+/** "הפעל התראות למכשיר הזה" — see js/lib/device.js. */
 function PushBlock({ tripId }) {
-  const [state, setState] = useState(permissionState);
+  const [state, setState] = useState('loading');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (state !== 'granted' || !pushCapable()) return undefined;
     let alive = true;
-    swReady(2500)
-      .then((reg) => (reg && reg.pushManager ? reg.pushManager.getSubscription() : null))
-      .then((sub) => {
-        if (alive && sub) setState('on');
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
+    pushState().then((s) => alive && setState(s)).catch(() => alive && setState('unsupported'));
+    return () => { alive = false; };
   }, []);
 
   const enable = async () => {
     setBusy(true);
     try {
-      let perm = Notification.permission;
-      if (perm === 'default') perm = await Notification.requestPermission();
-      if (perm !== 'granted') {
-        setState(perm === 'denied' ? 'denied' : 'default');
-        actions.toast('בלי הרשאה לא נוכל לשלוח התראות 🙈', 'info');
-        return;
-      }
-      if (!pushCapable()) {
-        setState('granted');
-        actions.toast('ההרשאה התקבלה ✅ התראות לטלפון יגיעו בקרוב', 'success');
-        return;
-      }
-      const reg = await swReady(6000);
-      if (!reg || !reg.pushManager) {
-        setState('granted');
-        actions.toast('לא הצלחנו להפעיל התראות כרגע — נסו שוב אחר כך', 'error');
-        return;
-      }
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(vapidKey()) });
-      const done = await actions.run(ok((api) => api.savePushSubscription(tripId, sub.toJSON())), {
-        success: 'ההתראות הופעלו במכשיר הזה 🔔',
-        refresh: false,
-      });
-      setState(done ? 'on' : 'granted');
+      const s = await enablePush((json) => actions.run(ok((api) => api.savePushSubscription(tripId, json)), {
+        success: 'ההתראות הופעלו במכשיר הזה 🔔', refresh: false,
+      }));
+      setState(s);
+      if (s === 'denied') actions.toast('ההתראות נחסמו — אפשר לשחרר בהגדרות האתר 🔒', 'info');
     } catch (err) {
       console.warn('[medura] enabling push failed', err);
       actions.toast('לא הצלחנו להפעיל התראות במכשיר הזה 😕', 'error');
@@ -597,14 +549,9 @@ function PushBlock({ tripId }) {
   const disable = async () => {
     setBusy(true);
     try {
-      const reg = await swReady(3000);
-      const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
-      if (sub) {
-        const endpoint = sub.endpoint;
-        await sub.unsubscribe();
-        await actions.run((api) => api.deletePushSubscription(endpoint), { success: 'ההתראות כובו במכשיר הזה 🔕', refresh: false });
-      }
-      setState('granted');
+      setState(await disablePush((endpoint) => actions.run((api) => api.deletePushSubscription(endpoint), {
+        success: 'ההתראות כובו במכשיר הזה 🔕', refresh: false,
+      })));
     } catch (err) {
       console.warn('[medura] disabling push failed', err);
     } finally {
@@ -613,20 +560,24 @@ function PushBlock({ tripId }) {
   };
 
   let body;
-  if (state === 'unsupported') {
-    body = html`<p class="me-push__text">
-      הדפדפן הזה לא תומך בהתראות.
-      ${isIosBrowser() ? ' באייפון: פתחו בספארי ← שיתוף ← ״הוסף למסך הבית״, ונסו שוב מהאייקון.' : ''}
-    </p>`;
+  if (state === 'loading') {
+    body = null;
+  } else if (state === 'ios-install') {
+    body = html`<p class="me-push__text">באייפון התראות עובדות רק מהאפליקציה שעל מסך הבית: בספארי ← <b>שיתוף ⬆️</b> ← <b>״הוספה למסך הבית״</b>, ואז פותחים מהאייקון ומפעילים כאן.</p>`;
+  } else if (state === 'unsupported') {
+    body = html`<p class="me-push__text">הדפדפן הזה לא תומך בהתראות — העדכונים יגיעו אליך במייל ובמסך ההודעות.</p>`;
   } else if (state === 'denied') {
     body = html`<p class="me-push__text">ההתראות חסומות בדפדפן 🔒 אפשר לשחרר אותן בהגדרות האתר ולנסות שוב.</p>`;
   } else if (state === 'on') {
-    body = html`<div class="me-push__row">
-      <p class="me-push__text"><strong>✅ המכשיר הזה מקבל התראות</strong></p>
-      <${Button} variant="ghost" size="sm" loading=${busy} onClick=${disable}>כיבוי</${Button}>
+    body = html`<div class="stack-sm">
+      <div class="me-push__row">
+        <p class="me-push__text"><strong>✅ המכשיר הזה מקבל התראות</strong></p>
+        <${Button} variant="ghost" size="sm" loading=${busy} onClick=${disable}>כיבוי</${Button}>
+      </div>
+      <${Button} variant="secondary" size="sm" onClick=${() => actions.run(ok((api) => api.sendTestNotification(tripId)), { success: 'נשלחה — היא תקפוץ תוך כמה שניות 📨' })}>
+        📨 שליחת התראת בדיקה לעצמי
+      </${Button}>
     </div>`;
-  } else if (state === 'granted' && !pushCapable()) {
-    body = html`<p class="me-push__text"><strong>✅ ההרשאה ניתנה.</strong> התראות לטלפון יגיעו בקרוב 🚀 — בינתיים כל העדכונים מחכים לכם במסך ההודעות.</p>`;
   } else {
     body = html`<div class="stack-sm">
       <p class="me-push__text">כדי לקבל עדכונים גם כשהאפליקציה סגורה.</p>

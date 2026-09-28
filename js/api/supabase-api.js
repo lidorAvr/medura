@@ -246,6 +246,7 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     deleteRide: (rideId) => rpc('delete_ride', { p_ride: rideId }),
     takeSeat: (rideId, seats = 1) => rpc('take_seat', { p_ride: rideId, p_seats: seats }),
     leaveSeat: (tripId) => rpc('leave_seat', { p_trip: tripId }),
+    sendTestNotification: (tripId) => rpc('send_test_notification', { p_trip: tripId }),
     inviteToRide: (rideId, memberId, seats = null) => rpc('invite_to_ride', { p_ride: rideId, p_member: memberId, p_seats: seats }),
     respondSeat: (rideId, memberId, approve) => rpc('respond_seat', { p_ride: rideId, p_member: memberId, p_approve: Boolean(approve) }),
     respondAssignment: (itemId, accept, reason = null) =>

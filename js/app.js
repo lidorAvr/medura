@@ -415,7 +415,7 @@ export function App() {
       <div class="page" key=${route.path}>${body}</div>
     </main>
     ${showNav ? html`<${BottomNav} route=${route} />` : null}
-    ${showNav ? html`<${Tour} open=${tourOpen} onClose=${() => setTourOpen(false)} />` : null}
+    ${showNav ? html`<${Tour} open=${tourOpen} tripId=${routeTrip} onClose=${() => setTourOpen(false)} />` : null}
     <${Toasts} />
   </div>`;
 }

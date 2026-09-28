@@ -3,6 +3,9 @@ import { html } from 'htm/preact';
 import { render } from 'preact';
 import { App, preloadScreens } from './app.js';
 import { actions } from './store.js';
+import { captureInstallPrompt } from './lib/device.js';
+
+captureInstallPrompt();
 
 render(html`<${App} />`, document.getElementById('app'));
 
