@@ -463,3 +463,14 @@
 .tripday__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .tripday__actions .btn--accent { background: #fff; color: #B4471B; box-shadow: none; }
 .tripday__actions .btn--secondary { background: rgba(255, 255, 255, 0.18); color: #fff; border-color: transparent; }
+/* ---------- 📥 waiting for you ---------- */
+.inbox { border: 2px solid color-mix(in srgb, var(--btn-accent) 45%, transparent); }
+.inbox__count { min-width: 26px; height: 26px; padding: 0 8px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--btn-accent); color: #fff; font-weight: 800; font-size: 14px; }
+.inbox__list { display: flex; flex-direction: column; gap: 10px; list-style: none; padding: 0; margin: 0; }
+.inbox__row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.inbox__row:last-child { border-bottom: 0; padding-bottom: 0; }
+.inbox__emoji { font-size: 26px; width: 34px; text-align: center; }
+.inbox__text { flex: 1; min-width: 12em; font-size: 15px; line-height: 1.45; }
+.inbox__acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.inbox__why { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
+.inbox__why .input, .inbox__why input { flex: 1; min-width: 10em; }

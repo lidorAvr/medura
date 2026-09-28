@@ -43,7 +43,7 @@ const K = {
   unclaimed: ['id', 'display_name', 'headcount', 'people', 'emoji', 'color'],
   category: ['id', 'name', 'emoji', 'sort', 'default_buyer_id', 'note'],
   item: ['id', 'category_id', 'title', 'note', 'type', 'qty', 'unit', 'per_person', 'needed', 'status', 'done', 'done_at', 'reject_reason', 'created_by', 'approved_by', 'sort', 'created_at', 'updated_at'],
-  pledge: ['id', 'item_id', 'member_id', 'qty', 'done', 'assigned_by', 'created_at'],
+  pledge: ['id', 'item_id', 'member_id', 'qty', 'done', 'assigned_by', 'accepted_at', 'created_at'],
   expense: ['id', 'title', 'amount', 'paid_by', 'category_id', 'note', 'split_mode', 'created_by', 'spent_on', 'created_at'],
   share: ['expense_id', 'member_id', 'weight'],
   payment: ['id', 'from_member', 'to_member', 'amount', 'method', 'note', 'status', 'created_by', 'created_at', 'confirmed_at'],
@@ -53,7 +53,7 @@ const K = {
   pollVote: ['poll_id', 'member_id', 'option_id'],
   personal: ['id', 'title', 'done', 'sort', 'created_at'],
   ride: ['id', 'driver_member', 'seats', 'from_text', 'depart_at', 'note', 'created_at'],
-  rideSeat: ['ride_id', 'member_id', 'seats'],
+  rideSeat: ['ride_id', 'member_id', 'seats', 'status', 'requested_by'],
 };
 
 // ---------------------------------------------------------------------------
@@ -308,6 +308,13 @@ function need(rows, id) {
   const row = byId(rows, id);
   if (!row) fail('not_found');
   return row;
+}
+
+/** Approved seats taken in a ride (optionally not counting one member). */
+function approvedSeats(db, rideId, exceptMember = null) {
+  return db.ride_seats
+    .filter((s) => s.ride_id === rideId && s.status === 'approved' && s.member_id !== exceptMember)
+    .reduce((n, s) => n + s.seats, 0);
 }
 
 function membersOf(db, tripId) {
@@ -854,7 +861,7 @@ const RPC = {
       row = db.rides.find((r) => r.id === ride.id && r.trip_id === tripId);
       if (!row) fail('not_found');
       if (row.driver_member !== me.id && !isAdmin(me)) fail('forbidden');
-      const taken = db.ride_seats.filter((s) => s.ride_id === row.id).reduce((n, s) => n + s.seats, 0);
+      const taken = approvedSeats(db, row.id);
       if (seats != null && seats < taken) fail('ride_full');
       if (seats != null) row.seats = seats;
       if (has(ride, 'from_text')) row.from_text = optText(ride.from_text, 80);
@@ -901,14 +908,78 @@ const RPC = {
     const n = Number(seats ?? 1);
     if (!Number.isInteger(n) || n < 1 || n > 8) bad();
     if (db.rides.some((r) => r.trip_id === ride.trip_id && r.driver_member === me.id)) fail('not_allowed_state');
-    const taken = db.ride_seats.filter((s) => s.ride_id === ride.id && s.member_id !== me.id).reduce((t, s) => t + s.seats, 0);
-    if (taken + n > ride.seats) fail('ride_full');
-    remove(db.ride_seats, (s) => s.trip_id === ride.trip_id && s.member_id === me.id);
-    db.ride_seats.push({ ride_id: ride.id, trip_id: ride.trip_id, member_id: me.id, seats: n, created_at: ctx.now() });
+    if (db.ride_seats.some((s) => s.trip_id === ride.trip_id && s.member_id === me.id && s.status === 'approved' && s.ride_id !== ride.id)) {
+      fail('not_allowed_state');
+    }
+    if (approvedSeats(db, ride.id, me.id) + n > ride.seats) fail('ride_full');
+    remove(db.ride_seats, (s) => s.trip_id === ride.trip_id && s.member_id === me.id && s.ride_id !== ride.id);
+    let seat = db.ride_seats.find((s) => s.ride_id === ride.id && s.member_id === me.id);
+    if (seat) seat.seats = n;
+    else {
+      seat = { ride_id: ride.id, trip_id: ride.trip_id, member_id: me.id, seats: n, status: 'pending', requested_by: 'passenger', created_at: ctx.now() };
+      db.ride_seats.push(seat);
+    }
+    if (seat.status === 'pending') {
+      notify(ctx, ride.trip_id, {
+        title: `${me.display_name} מבקש/ת להצטרף לרכב שלך 🚗`,
+        body: `${n > 1 ? `${n} מקומות · ` : ''}אפשר לאשר או לדחות במסך הבית`,
+        audience: [ride.driver_member], link: `#/t/${ride.trip_id}`,
+      });
+    }
+    bump(ctx, ride.trip_id);
+    return null;
+  },
+
+  invite_to_ride(ctx, rideId, memberId, seats = null) {
+    const { db } = ctx;
+    const ride = need(db.rides, rideId);
+    const me = requireMember(ctx, ride.trip_id);
+    if (ride.driver_member !== me.id && !isAdmin(me)) fail('forbidden');
+    const target = byId(db.members, memberId);
+    if (!target || target.trip_id !== ride.trip_id || target.id === ride.driver_member) bad();
+    if (db.rides.some((r) => r.trip_id === ride.trip_id && r.driver_member === target.id)
+        || db.ride_seats.some((s) => s.trip_id === ride.trip_id && s.member_id === target.id && s.status === 'approved')) {
+      fail('not_allowed_state');
+    }
+    const n = Number(seats ?? Math.max(1, Number(target.headcount) || 1));
+    if (!Number.isInteger(n) || n < 1 || n > 8) bad();
+    if (approvedSeats(db, ride.id) + n > ride.seats) fail('ride_full');
+    remove(db.ride_seats, (s) => s.trip_id === ride.trip_id && s.member_id === target.id && s.status === 'pending');
+    db.ride_seats.push({ ride_id: ride.id, trip_id: ride.trip_id, member_id: target.id, seats: n, status: 'pending', requested_by: 'driver', created_at: ctx.now() });
+    const driver = byId(db.members, ride.driver_member);
     notify(ctx, ride.trip_id, {
-      title: `${me.display_name} מצטרפ/ת להסעה שלך 🚗`, body: n > 1 ? `${n} מקומות` : null,
-      audience: [ride.driver_member], link: `#/t/${ride.trip_id}/trip`,
+      title: `${driver?.display_name ?? ''} מזמין/ה אותך לרכב 🚗`,
+      body: [ride.from_text && `יוצאים מ${ride.from_text}`, 'אפשר לאשר במסך הבית'].filter(Boolean).join(' · '),
+      audience: [target.id], link: `#/t/${ride.trip_id}`,
     });
+    bump(ctx, ride.trip_id);
+    return null;
+  },
+
+  respond_seat(ctx, rideId, memberId, approve) {
+    const { db } = ctx;
+    const ride = need(db.rides, rideId);
+    const seat = db.ride_seats.find((s) => s.ride_id === ride.id && s.member_id === memberId);
+    if (!seat) fail('not_found');
+    if (seat.status !== 'pending') fail('not_allowed_state');
+    const me = requireMember(ctx, ride.trip_id);
+    if ((seat.requested_by === 'passenger' && me.id !== ride.driver_member && !isAdmin(me))
+        || (seat.requested_by === 'driver' && me.id !== memberId)) fail('forbidden');
+    const driver = byId(db.members, ride.driver_member)?.display_name ?? '';
+    const pass = byId(db.members, memberId)?.display_name ?? '';
+    const link = `#/t/${ride.trip_id}/trip`;
+    if (toBool(approve)) {
+      if (approvedSeats(db, ride.id) + seat.seats > ride.seats) fail('ride_full');
+      remove(db.ride_seats, (s) => s.trip_id === ride.trip_id && s.member_id === memberId && s.ride_id !== ride.id);
+      seat.status = 'approved';
+      if (seat.requested_by === 'passenger') notify(ctx, ride.trip_id, { title: `${driver} אישר/ה — את/ה ברכב! 🚗`, audience: [memberId], link });
+      else notify(ctx, ride.trip_id, { title: `${pass} מצטרפ/ת לרכב שלך ✅`, audience: [ride.driver_member], link });
+    } else {
+      remove(db.ride_seats, (s) => s === seat);
+      if (seat.requested_by === 'passenger') {
+        notify(ctx, ride.trip_id, { title: `${driver} לא יכול/ה לקחת אותך הפעם`, body: 'אפשר לבקש מקום ברכב אחר במסך הטיול 🙏', audience: [memberId], link });
+      } else notify(ctx, ride.trip_id, { title: `${pass} לא מצטרפ/ת לרכב שלך`, audience: [ride.driver_member], link });
+    }
     bump(ctx, ride.trip_id);
     return null;
   },
@@ -920,10 +991,29 @@ const RPC = {
     if (!seat) return null;
     const ride = byId(db.rides, seat.ride_id);
     remove(db.ride_seats, (s) => s === seat);
-    if (ride) {
+    if (ride && seat.status === 'approved') {
       notify(ctx, tripId, { title: `${me.display_name} כבר לא נוסע/ת איתך`, audience: [ride.driver_member], link: `#/t/${tripId}/trip` });
     }
     bump(ctx, tripId);
+    return null;
+  },
+
+  respond_assignment(ctx, itemId, accept, reason = null) {
+    const { db } = ctx;
+    const item = need(db.items, itemId);
+    const me = requireMember(ctx, item.trip_id);
+    const why = optText(reason, 200);
+    const p = db.pledges.find((x) => x.item_id === item.id && x.member_id === me.id);
+    if (!p || !p.assigned_by || p.assigned_by === me.id) fail('not_allowed_state');
+    const link = itemLink(item.trip_id, item.id);
+    if (toBool(accept)) {
+      p.accepted_at = ctx.now();
+      notify(ctx, item.trip_id, { title: `${me.display_name} אישר/ה: ${item.title} ✅`, audience: [p.assigned_by], link });
+    } else {
+      remove(db.pledges, (x) => x === p);
+      notify(ctx, item.trip_id, { title: `${me.display_name} לא יכול/ה: ${item.title}`, body: why || 'אפשר לשבץ מישהו אחר', audience: [p.assigned_by], link });
+    }
+    bump(ctx, item.trip_id);
     return null;
   },
 
@@ -1221,17 +1311,22 @@ const RPC = {
     if (q <= 0) {
       if (existing) remove(db.pledges, (p) => p === existing);
     } else {
+      const acceptedAt = target.id === me.id ? ctx.now() : null; // someone else's assignment waits for an answer
       if (existing) {
         existing.qty = q;
         existing.assigned_by = me.id;
+        existing.accepted_at = acceptedAt;
       } else {
         db.pledges.push({
           id: newId(), trip_id: item.trip_id, item_id: item.id, member_id: target.id,
-          qty: q, done: false, assigned_by: me.id, created_at: ctx.now(),
+          qty: q, done: false, assigned_by: me.id, accepted_at: acceptedAt, created_at: ctx.now(),
         });
       }
       if (target.id !== me.id) {
-        notify(ctx, item.trip_id, { title: `שובצת: ${item.title}`, audience: [target.id], link: itemLink(item.trip_id, item.id) });
+        notify(ctx, item.trip_id, {
+          title: `שובצת: ${item.title}`, body: 'אפשר לאשר או להגיד שלא מסתדר — במסך הבית',
+          audience: [target.id], link: itemLink(item.trip_id, item.id),
+        });
       }
     }
     bump(ctx, item.trip_id);
@@ -1857,6 +1952,9 @@ export function createDemoApi(options = {}) {
     deleteRide: (rideId) => call('delete_ride', rideId),
     takeSeat: (rideId, seats = 1) => call('take_seat', rideId, seats),
     leaveSeat: (tripId) => call('leave_seat', tripId),
+    inviteToRide: (rideId, memberId, seats = null) => call('invite_to_ride', rideId, memberId, seats),
+    respondSeat: (rideId, memberId, approve) => call('respond_seat', rideId, memberId, Boolean(approve)),
+    respondAssignment: (itemId, accept, reason = null) => call('respond_assignment', itemId, Boolean(accept), reason ?? null),
 
     /** Demo-only tools (the "🎭 החלף משתמש" control and E2E tests). */
     demo: {

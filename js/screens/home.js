@@ -16,6 +16,7 @@ import {
 } from '../ui/components.js';
 import { Icon } from '../ui/icons.js';
 import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js';
+import { InboxCard } from '../ui/inbox.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 6;
@@ -163,6 +164,7 @@ export default function HomeScreen({ route }) {
   return html`<div class="screen home">
     <${Hero} model=${model} me=${me} now=${now} isAdmin=${isAdmin} />
     <${TripDayCard} snap=${snap} me=${me} now=${now} />
+    <${InboxCard} snap=${snap} me=${me} skip=${['proposals']} />
 
     <div class="stack-sm">
       <${Readiness} model=${model} />

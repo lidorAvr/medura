@@ -1,5 +1,6 @@
-// Rides & carpools (phase 2): drivers offer seats, everyone else hops in. Used on the trip screen
-// and (compact) on the home screen on the day of the trip.
+// Rides & carpools: drivers offer seats; a passenger ASKS and the driver answers (or the driver
+// INVITES and the passenger answers) — the side that asked is always told. Used on the trip
+// screen and (compact) on the home screen on the day of the trip.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { actions } from '../store.js';
@@ -19,21 +20,23 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
   const myHeads = Math.max(1, Number(me.headcount) || 1);
   const tripId = snap.trip.id;
 
-  const take = async (ride) => {
-    const n = Math.min(myHeads, ride.free);
-    setBusy(ride.id);
-    await actions.run(ok((api) => api.takeSeat(ride.id, n)), { success: `את/ה ברכב של ${displayName(ride.driver)} 🚗` });
+  const act = async (key, fn, success) => {
+    setBusy(key);
+    await actions.run(ok(fn), { success });
     setBusy(null);
   };
-  const leave = async () => {
-    setBusy('leave');
-    await actions.run(ok((api) => api.leaveSeat(tripId)), { success: 'ירדת מהרכב' });
-    setBusy(null);
-  };
+  const ask = (ride) => act(ride.id, (api) => api.takeSeat(ride.id, Math.min(myHeads, ride.free)),
+    `הבקשה נשלחה ל${displayName(ride.driver)} ⏳ נעדכן כשיענה/תענה`);
+  const leave = (msg) => act('leave', (api) => api.leaveSeat(tripId), msg);
+  const answer = (ride, member, yes) => act(`${ride.id}:${member.id}`, (api) => api.respondSeat(ride.id, member.id, yes),
+    yes ? `${displayName(member)} ברכב ✅` : 'עדכנו אותם 🙏');
+  const invite = (ride, member) => act(`inv:${member.id}`, (api) => api.inviteToRide(ride.id, member.id),
+    `ההזמנה נשלחה ל${displayName(member)} ⏳`);
   const cancel = async (ride) => {
+    const names = [...ride.passengers, ...ride.pending].map((p) => displayName(p.member));
     const yes = await confirmDialog({
       title: 'לבטל את ההסעה?',
-      text: ride.passengers.length ? `${ride.passengers.map((p) => displayName(p.member)).join(', ')} יקבלו הודעה שצריך למצוא הסעה אחרת.` : 'הרכב יוסר מהרשימה.',
+      text: names.length ? `${names.join(', ')} יקבלו הודעה שצריך למצוא הסעה אחרת.` : 'הרכב יוסר מהרשימה.',
       confirmText: 'ביטול ההסעה', cancelText: 'השארה', danger: true,
     });
     if (!yes) return;
@@ -42,6 +45,7 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
 
   const rides = compact ? model.rides.filter((r) => r === model.myRide || r === model.mySeat) : model.rides;
   if (compact && !rides.length) return null;
+  const canInvite = model.myRide && model.myRide.free > 0;
 
   return html`<${Card} emoji="🚗" title=${compact ? 'ההסעה שלך' : 'הסעות וטרמפים'} class=${cx('rides', compact && 'rides--compact')}>
     ${!compact
@@ -56,7 +60,9 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
       ${rides.map((r) => {
         const mine = r.driver_member === me.id;
         const inside = r.passengers.some((p) => p.member.id === me.id);
-        const canEdit = mine || isAdmin;
+        const asked = model.myAsk === r;
+        const invited = model.invites.includes(r);
+        const canManage = mine || isAdmin;
         return html`<li class=${cx('ride', mine && 'is-mine', inside && 'is-in')} key=${r.id} data-testid="ride">
           <div class="ride__head">
             <${Avatar} member=${r.driver} size=${40} />
@@ -64,7 +70,7 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
               <span class="ride__driver">${mine ? 'את/ה נוהג/ת' : displayName(r.driver)}</span>
               <span class=${cx('ride__seats', r.free === 0 && 'is-full')}>${r.free === 0 ? 'הרכב מלא' : `${hebrewCount(r.free, 'מקום פנוי', 'מקומות פנויים')}`}</span>
             </div>
-            ${canEdit
+            ${canManage
               ? html`<div class="ride__tools">
                   <${IconButton} icon="edit" label=${`עריכת ההסעה של ${displayName(r.driver)}`} onClick=${() => setSheet(r)} />
                   <${IconButton} icon="trash" label=${`ביטול ההסעה של ${displayName(r.driver)}`} onClick=${() => cancel(r)} />
@@ -82,22 +88,60 @@ export function RidesCard({ snap, me, isAdmin, compact = false }) {
               </div>`
             : null}
           ${r.note ? html`<p class="ride__note">📝 ${r.note}</p>` : null}
-          ${!mine && !model.myRide
-            ? inside
-              ? html`<${Button} variant="ghost" size="sm" loading=${busy === 'leave'} onClick=${leave}>יורד/ת מהרכב</${Button}>`
-              : r.free > 0
-                ? html`<${Button} variant="secondary" size="sm" loading=${busy === r.id} onClick=${() => take(r)}>
-                    ${model.mySeat ? 'עוברים לרכב הזה' : 'מצטרפים'}${Math.min(myHeads, r.free) > 1 ? ` (${Math.min(myHeads, r.free)} מקומות)` : ''}
-                  </${Button}>`
-                : null
+
+          ${canManage && r.pending.length
+            ? html`<ul class="ride__asks" aria-label="בקשות שמחכות">
+                ${r.pending.map((p) => html`<li class="ride__ask" key=${p.member.id} data-testid="ride-ask">
+                  <${Avatar} member=${p.member} size=${26} />
+                  ${p.requestedBy === 'passenger'
+                    ? html`<span class="ride__ask-text"><b>${displayName(p.member)}</b> מבקש/ת להצטרף${p.seats > 1 ? ` (${p.seats})` : ''}</span>
+                      <${Button} size="sm" loading=${busy === `${r.id}:${p.member.id}`} disabled=${p.seats > r.free}
+                        onClick=${() => answer(r, p.member, true)}>אישור</${Button}>
+                      <${Button} size="sm" variant="ghost" onClick=${() => answer(r, p.member, false)}>לא הפעם</${Button}>`
+                    : html`<span class="ride__ask-text">⏳ הוזמנו: <b>${displayName(p.member)}</b></span>`}
+                </li>`)}
+              </ul>`
             : null}
+
+          ${invited
+            ? html`<div class="ride__invite" data-testid="ride-invite">
+                <span><b>${displayName(r.driver)}</b> מזמין/ה אותך לרכב 🚗</span>
+                <${Button} size="sm" loading=${busy === `${r.id}:${me.id}`} onClick=${() => answer(r, me, true)}>מצטרפים</${Button}>
+                <${Button} size="sm" variant="ghost" onClick=${() => answer(r, me, false)}>לא, תודה</${Button}>
+              </div>`
+            : !mine && !model.myRide
+              ? inside
+                ? html`<${Button} variant="ghost" size="sm" loading=${busy === 'leave'} onClick=${() => leave('ירדת מהרכב')}>יורד/ת מהרכב</${Button}>`
+                : asked
+                  ? html`<div class="ride__waiting" data-testid="ride-waiting">
+                      <span>⏳ מחכה לאישור של ${displayName(r.driver)}</span>
+                      <${Button} variant="ghost" size="sm" loading=${busy === 'leave'} onClick=${() => leave('הבקשה בוטלה')}>ביטול הבקשה</${Button}>
+                    </div>`
+                  : r.free > 0 && !model.mySeat
+                    ? html`<${Button} variant="secondary" size="sm" loading=${busy === r.id} onClick=${() => ask(r)}>
+                        ${model.myAsk ? 'לבקש כאן במקום' : 'מבקשים להצטרף'}${Math.min(myHeads, r.free) > 1 ? ` (${Math.min(myHeads, r.free)} מקומות)` : ''}
+                      </${Button}>`
+                    : null
+              : null}
         </li>`;
       })}
     </ul>
 
     ${!compact && model.seeking.length
-      ? html`<p class="rides__seeking small" data-testid="rides-seeking"><b>🙋 מחפשים טרמפ:</b>
-          ${model.seeking.map((x) => `${displayName(x.member)}${x.from ? ` (מ${x.from})` : ''}`).join(' · ')}</p>`
+      ? html`<div class="rides__seeking small" data-testid="rides-seeking"><b>🙋 מחפשים טרמפ:</b>
+          <ul class="rides__seekers">
+            ${model.seeking.map((x) => {
+              const invitedAlready = model.myRide?.pending.some((p) => p.member.id === x.member.id);
+              return html`<li key=${x.member.id}>
+                ${displayName(x.member)}${x.from ? ` (מ${x.from})` : ''}
+                ${canInvite && !invitedAlready
+                  ? html` <${Button} size="sm" variant="ghost" loading=${busy === `inv:${x.member.id}`}
+                      onClick=${() => invite(model.myRide, x.member)}>הזמנה לרכב שלי</${Button}>`
+                  : invitedAlready ? html` <span class="muted">· הוזמנו ⏳</span>` : null}
+              </li>`;
+            })}
+          </ul>
+        </div>`
       : null}
     ${!compact && model.rides.length && model.without.length > model.seeking.length
       ? html`<p class="rides__without small"><b>עוד לא ידוע איך מגיעים:</b>

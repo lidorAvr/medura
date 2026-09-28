@@ -375,4 +375,10 @@
 }
 .ride__note { font-size: 13.5px; color: var(--muted); }
 .rides__without { margin-bottom: 10px; color: var(--muted); }
-.ride-form__seats { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ride-form__seats { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }.ride__asks { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 8px 0 0; margin: 0; border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent); }
+.ride__ask { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.ride__ask-text { flex: 1; min-width: 8em; font-size: 14px; }
+.ride__invite, .ride__waiting { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 8px 10px; border-radius: 12px; background: var(--surface); font-size: 14px; }
+.ride__invite > span, .ride__waiting > span { flex: 1; min-width: 10em; }
+.rides__seekers { list-style: none; padding: 0; margin: 4px 0 0; display: flex; flex-direction: column; gap: 2px; }
+.rides__seekers li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }

@@ -35,6 +35,7 @@ const SHELL = [
   'js/ui/components.js',
   'js/ui/email-gate.js',
   'js/ui/tour.js',
+  'js/ui/inbox.js',
   'js/lib/turnstile.js',
   'js/screens/rides.js',
   'js/screens/welcome.js',

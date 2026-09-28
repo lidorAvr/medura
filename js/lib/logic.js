@@ -1456,15 +1456,17 @@ export function rideModel(snap, meId) {
   const members = list(snap?.members);
   const byId = membersById(members);
   const seats = list(snap?.ride_seats);
+  const isApproved = (s) => (s.status || 'approved') === 'approved';
+  const rowOf = (s) => ({ member: byId.get(s.member_id), seats: Number(s.seats) || 1, requestedBy: s.requested_by || 'passenger' });
   const rides = list(snap?.rides).map((r) => {
-    const passengers = seats.filter((s) => s.ride_id === r.id)
-      .map((s) => ({ member: byId.get(s.member_id), seats: Number(s.seats) || 1 }))
-      .filter((p) => p.member);
+    const mine = seats.filter((s) => s.ride_id === r.id);
+    const passengers = mine.filter(isApproved).map(rowOf).filter((p) => p.member);
+    const pending = mine.filter((s) => !isApproved(s)).map(rowOf).filter((p) => p.member);
     const taken = passengers.reduce((n, p) => n + p.seats, 0);
-    return { ...r, driver: byId.get(r.driver_member) || null, passengers, taken, free: Math.max(0, (Number(r.seats) || 0) - taken) };
+    return { ...r, driver: byId.get(r.driver_member) || null, passengers, pending, taken, free: Math.max(0, (Number(r.seats) || 0) - taken) };
   });
   const driving = new Set(rides.map((r) => r.driver_member));
-  const seated = new Set(seats.map((s) => s.member_id));
+  const seated = new Set(seats.filter(isApproved).map((s) => s.member_id));
   const modeOf = (m) => m?.prefs?.transport?.mode || null;
   // Not driving, not seated, and not coming some other way.
   const without = members.filter((m) => !driving.has(m.id) && !seated.has(m.id) && modeOf(m) !== 'own');
@@ -1472,6 +1474,10 @@ export function rideModel(snap, meId) {
     rides,
     myRide: rides.find((r) => r.driver_member === meId) || null,
     mySeat: rides.find((r) => r.passengers.some((p) => p.member.id === meId)) || null,
+    /** My own pending ask (waiting for that driver). */
+    myAsk: rides.find((r) => r.pending.some((p) => p.member.id === meId && p.requestedBy === 'passenger')) || null,
+    /** Drivers inviting me (waiting for my answer). */
+    invites: rides.filter((r) => r.pending.some((p) => p.member.id === meId && p.requestedBy === 'driver')),
     without,
     seeking: without.filter((m) => modeOf(m) === 'need').map((m) => ({ member: m, from: m.prefs.transport.from || null })),
     freeSeats: rides.reduce((n, r) => n + r.free, 0),
@@ -1502,4 +1508,41 @@ export function tripDayPhase(trip, now = new Date()) {
   const [y, m, d] = startDay.split('-').map(Number);
   const eve = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
   return today === eve ? 'eve' : null;
+}
+// ───────────────────────── "📥 waiting for you" ─────────────────────────
+
+/**
+ * Everything that waits for MY answer, oldest first: asks to join my car, invites to a car,
+ * assignments by someone else, payments sent to me, and (admins) proposals to review.
+ * Each entry: {kind, key, ...}.
+ */
+export function myInbox(snap, meId) {
+  if (!snap || !meId) return [];
+  const members = membersById(list(snap.members));
+  const out = [];
+  const model = rideModel(snap, meId);
+  if (model.myRide) {
+    for (const p of model.myRide.pending) {
+      if (p.requestedBy === 'passenger') out.push({ kind: 'ride_ask', key: `ask-${p.member.id}`, ride: model.myRide, member: p.member, seats: p.seats });
+    }
+  }
+  for (const ride of model.invites) {
+    const p = ride.pending.find((x) => x.member.id === meId);
+    out.push({ kind: 'ride_invite', key: `inv-${ride.id}`, ride, seats: p?.seats ?? 1 });
+  }
+  const items = new Map(list(snap.items).map((i) => [i.id, i]));
+  for (const pl of list(snap.pledges)) {
+    if (pl.member_id !== meId || !pl.assigned_by || pl.assigned_by === meId || pl.accepted_at) continue;
+    const item = items.get(pl.item_id);
+    if (item && item.status === 'active') out.push({ kind: 'assignment', key: `as-${pl.id}`, item, pledge: pl, by: members.get(pl.assigned_by) || null });
+  }
+  for (const pay of list(snap.payments)) {
+    if (pay.to_member === meId && pay.status === 'sent') out.push({ kind: 'payment', key: `pay-${pay.id}`, payment: pay, from: members.get(pay.from_member) || null });
+  }
+  const me = members.get(meId);
+  if (me && isAdmin(me)) {
+    const proposed = list(snap.items).filter((i) => i.status === 'proposed').length;
+    if (proposed) out.push({ kind: 'proposals', key: 'proposals', count: proposed });
+  }
+  return out;
 }
