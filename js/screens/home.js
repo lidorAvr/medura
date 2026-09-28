@@ -17,7 +17,7 @@ import {
 import { Icon } from '../ui/icons.js';
 import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js';
 import { InboxCard } from '../ui/inbox.js';
-import { hasModule } from '../lib/templates.js';
+import { hasModule, tripSetupGaps } from '../lib/templates.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 6;
@@ -174,6 +174,7 @@ export default function HomeScreen({ route }) {
       : html`
         ${after ? html`<${AfterCard} snap=${snap} me=${me} isAdmin=${isAdmin} />` : html`<${TripDayCard} snap=${snap} me=${me} now=${now} />`}
         <${InboxCard} snap=${snap} me=${me} skip=${['proposals']} />
+        ${isAdmin && (phase === 'before' || phase === 'eve') ? html`<${SetupCard} snap=${snap} />` : null}
         ${phase === 'before' || phase === 'eve' ? html`<${ChecklistCard} snap=${snap} me=${me} />` : null}
 
         ${after
@@ -406,6 +407,26 @@ function PhaseStrip({ phase }) {
     ${PHASES.map(([k, label], i) => html`<li key=${k} class=${i === at ? 'is-now' : i < at ? 'is-past' : ''}
       aria-current=${i === at ? 'step' : undefined}>${label}</li>`)}
   </ol>`;
+}
+
+/** Admins: what the trip itself still misses (by its type) — one tap to where it's filled. */
+function SetupCard({ snap }) {
+  const gaps = tripSetupGaps(snap);
+  if (!gaps.length) return null;
+  return html`<${Card} emoji="🧭" title="מה חסר בטיול" class="checklist setup"
+    action=${html`<span class="checklist__count">${gaps.length}</span>`}>
+    <p class="muted small">רק מנהלים רואים את זה. ממלאים פעם אחת — וכולם יודעים.</p>
+    <ul class="checklist__list" data-testid="setup-gaps">
+      ${gaps.map((g) => html`<li key=${g.key}>
+        <a href=${g.href}>
+          <span class="checklist__mark" aria-hidden="true"></span>
+          <span class="checklist__label">${g.label}</span>
+          ${g.detail ? html`<span class="checklist__detail">${g.detail}</span>` : null}
+          <${Icon} name="chevron-left" size=${16} />
+        </a>
+      </li>`)}
+    </ul>
+  </${Card}>`;
 }
 
 function ChecklistCard({ snap, me }) {

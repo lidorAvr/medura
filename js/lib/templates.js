@@ -43,6 +43,7 @@ export const TRIP_TYPES = [
     placeholder: 'למשל: קמפינג סוכות בכנרת',
     modules: { rides: true, money: true, polls: true },
     arrival: CAR_ONLY,
+    ask: { home: true }, // welcome: "what do you have at home?"
     categories: CAMP_CATS,
     items: [
       it('ציוד קבוצתי', 'גזיבו / צל'), it('ציוד קבוצתי', 'שולחן מתקפל'), it('ציוד קבוצתי', 'כיסאות', 'each'),
@@ -66,6 +67,7 @@ export const TRIP_TYPES = [
     placeholder: 'למשל: סופ״ש בברצלונה',
     modules: { rides: true, money: true, polls: true },
     arrival: FLYING,
+    ask: { home: false }, // welcome: "what do you have at home?"
     categories: [cat('📄', 'מסמכים'), cat('🧳', 'ציוד משותף'), cat('💊', 'עזרה ראשונה'), cat('🎲', 'כיף ומשחקים'), cat('📋', 'משימות')],
     items: [
       it('מסמכים', 'דרכון בתוקף (6 חודשים לפחות)', 'each'), it('מסמכים', 'ביטוח נסיעות', 'each'),
@@ -84,6 +86,7 @@ export const TRIP_TYPES = [
     placeholder: 'למשל: הרווקים של דניאל 🥂',
     modules: { rides: true, money: true, polls: true },
     arrival: FLYING,
+    ask: { home: false }, // welcome: "what do you have at home?"
     categories: [cat('📄', 'מסמכים'), cat('🎁', 'הפתעות'), cat('👕', 'תלבושות ומיתוג'), cat('🍾', 'שתייה ומסיבה'), cat('🎵', 'מוזיקה וציוד'), cat('📋', 'משימות')],
     items: [
       it('מסמכים', 'דרכון בתוקף (6 חודשים לפחות)', 'each'), it('מסמכים', 'ביטוח נסיעות', 'each'),
@@ -105,6 +108,7 @@ export const TRIP_TYPES = [
     placeholder: 'למשל: סופ״ש בווילה בגליל',
     modules: { rides: true, money: true, polls: true },
     arrival: CAR_ONLY,
+    ask: { home: true }, // welcome: "what do you have at home?"
     categories: [
       cat('🥩', 'בשר ועוף'), cat('🥗', 'ירקות ופירות'), cat('🥐', 'ארוחות בוקר'), cat('🍿', 'נשנושים ומתוקים'),
       cat('🥤', 'שתייה ואלכוהול'), cat('🧻', 'כללי לבית'), cat('🎲', 'כיף ומשחקים'), cat('📋', 'משימות'),
@@ -126,6 +130,7 @@ export const TRIP_TYPES = [
     placeholder: 'למשל: טיול משפחות לגולן',
     modules: { rides: true, money: true, polls: true },
     arrival: CAR_ONLY,
+    ask: { home: true }, // welcome: "what do you have at home?"
     categories: [...CAMP_CATS.slice(0, 9), cat('🧸', 'לילדים'), cat('📋', 'משימות')],
     items: [
       it('לילדים', 'משחקים וצעצועים לחוץ'), it('לילדים', 'חטיפים לילדים', 'buy'), it('לילדים', 'ערכת יצירה'),
@@ -146,6 +151,7 @@ export const TRIP_TYPES = [
     placeholder: 'למשל: יום גיבוש צוות',
     modules: { rides: true, money: false, polls: true },
     arrival: { modes: ['car', 'meet', 'own'], flights: false },
+    ask: { home: false }, // welcome: "what do you have at home?"
     categories: [cat('📋', 'משימות'), cat('🎤', 'ציוד והצגה'), cat('☕', 'כיבוד')],
     items: [
       it('משימות', 'לאשר תקציב', 'task'), it('משימות', 'להזמין מקום / הסעה', 'task'), it('משימות', 'לאסוף העדפות אוכל', 'task'),
@@ -162,6 +168,7 @@ export const TRIP_TYPES = [
     placeholder: 'למשל: יום הולדת 30 לנועה',
     modules: { rides: false, money: true, polls: true },
     arrival: CAR_ONLY,
+    ask: { home: false }, // welcome: "what do you have at home?"
     categories: [cat('🍰', 'אוכל'), cat('🥤', 'שתייה'), cat('🎈', 'קישוטים'), cat('🎁', 'מתנה'), cat('📋', 'משימות')],
     items: [
       it('משימות', 'להזמין מקום', 'task'), it('משימות', 'לאסוף כסף למתנה', 'task'), it('מתנה', 'מתנה', 'buy'),
@@ -175,6 +182,7 @@ export const TRIP_TYPES = [
     placeholder: 'למשל: שביל ישראל — קטע 3',
     modules: { rides: true, money: true, polls: true },
     arrival: { modes: ['car', 'meet', 'own'], flights: false },
+    ask: { home: true }, // welcome: "what do you have at home?"
     categories: [cat('🥾', 'ציוד שטח'), cat('🍫', 'אוכל לדרך'), cat('💊', 'עזרה ראשונה'), cat('📋', 'משימות')],
     items: [
       it('משימות', 'לתאם מסלול ורכב איסוף', 'task'), it('משימות', 'לבדוק מזג אוויר וסגירות', 'task'),
@@ -229,4 +237,43 @@ export function arrivalOf(trip) {
   const a = trip?.settings?.arrival;
   const modes = Array.isArray(a?.modes) && a.modes.length ? a.modes.filter((m) => ARRIVAL_MODES.some((x) => x.key === m)) : CAR_ONLY.modes;
   return { modes, flights: a?.flights === true };
+}
+
+/** For admins: what this trip is still missing, by its type — [{key, label, detail?, href}]. */
+export function tripSetupGaps(snap) {
+  const trip = snap?.trip;
+  if (!trip) return [];
+  const t = `#/t/${trip.id}`;
+  const type = tripType(trip).key;
+  const info = trip.info || {};
+  const members = Array.isArray(snap.members) ? snap.members : [];
+  const bookings = Array.isArray(info.bookings) ? info.bookings : [];
+  const out = [];
+  if (!trip.starts_at) out.push({ key: 'dates', label: '📅 מתי יוצאים?', href: `${t}/trip?edit=1` });
+  if (!trip.location) out.push({ key: 'place', label: '📍 לאן?', href: `${t}/trip?edit=1` });
+  if (arrivalOf(trip).flights) {
+    for (const [leg, word] of [['out', 'הלוך'], ['back', 'חזור']]) {
+      if (!bookings.some((b) => b.kind === 'flight' && (b.leg || 'out') === leg && b.flight)) {
+        out.push({ key: `flight-${leg}`, label: `✈️ מספר טיסה ${word}`, detail: 'שכולם יראו', href: `${t}/trip` });
+      }
+    }
+  }
+  if (['abroad', 'bachelor', 'villa'].includes(type)) {
+    const hotel = bookings.find((b) => b.kind === 'hotel');
+    if (!hotel) out.push({ key: 'hotel', label: '🏨 איפה ישנים?', href: `${t}/trip` });
+    else if (!hotel.address || !hotel.check_in) out.push({ key: 'hotel', label: '🏨 פרטי הלינה', detail: [!hotel.address && 'כתובת', !hotel.check_in && 'צ׳ק־אין'].filter(Boolean).join(' + '), href: `${t}/trip` });
+    if (!(Array.isArray(info.costs) && info.costs.length)) out.push({ key: 'costs', label: '🧮 כמה זה עולה לאדם', href: `${t}/trip` });
+  }
+  if (!(Array.isArray(info.schedule) && info.schedule.length > 1)) out.push({ key: 'schedule', label: '⏰ לו״ז', detail: 'בלחיצה, מהצ׳יפים', href: `${t}/trip?edit=1` });
+  if (Array.isArray(info.rooms) && info.rooms.length) {
+    const placed = new Set(info.rooms.flatMap((r) => (Array.isArray(r.members) ? r.members : [])));
+    const left = members.filter((m) => !placed.has(m.id)).length;
+    if (left) out.push({ key: 'rooms', label: '🛏️ חלוקת חדרים', detail: `${left} עוד בלי חדר`, href: `${t}/trip` });
+  }
+  const unclaimed = members.filter((m) => !m.claimed).length;
+  if (unclaimed) out.push({ key: 'invite', label: '👋 עוד לא נכנסו', detail: `${unclaimed} — לשלוח קישור`, href: `${t}/people` });
+  if (members.length > 2 && members.filter((m) => m.role === 'owner' || m.role === 'admin').length < 2) {
+    out.push({ key: 'admins', label: '👑 עוד מנהל/ת לעזרה', href: `${t}/people` });
+  }
+  return out;
 }

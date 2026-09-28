@@ -9,7 +9,7 @@ import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/l
 import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js';
 import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js';
 import { RideOffers } from './rides.js';
-import { arrivalOf } from '../lib/templates.js';
+import { arrivalOf, hasModule, tripType } from '../lib/templates.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
@@ -30,7 +30,11 @@ export default function WelcomeScreen({ route }) {
 
 function Wizard({ snap, me, start }) {
   const trip = snap.trip;
-  const first = Math.max(0, STEPS.findIndex((s) => s.key === start));
+  // only the questions that fit this trip: no "how do you get there" without rides/flights
+  const ways0 = arrivalOf(trip);
+  const steps = STEPS.filter((x) => x.key !== 'arrive' || hasModule(trip, 'rides') || ways0.flights);
+  const askHome = tripType(trip).ask?.home !== false;
+  const first = Math.max(0, steps.findIndex((x) => x.key === start));
   const [step, setStep] = useState(first);
   const [busy, setBusy] = useState(false);
   const people = (me.people && me.people.length ? me.people : [displayName(me)]);
@@ -65,6 +69,9 @@ function Wizard({ snap, me, start }) {
   const [arrival, setArrival] = useState(prefs.arrival || '');
   const ways = arrivalOf(trip);
   const rideWays = ways.modes.filter((m) => m !== 'own');
+  const groupFlight = (Array.isArray(trip.info?.bookings) ? trip.info.bookings : [])
+    .find((b) => b.kind === 'flight' && (b.leg || 'out') === 'out' && b.flight) || null;
+  const [ownFlight, setOwnFlight] = useState(Boolean(prefs.travel?.out?.flight && prefs.travel.out.flight !== groupFlight?.flight));
   const [flightOut, setFlightOut] = useState(prefs.travel?.out?.flight || '');
   const [flightOutAt, setFlightOutAt] = useState(prefs.travel?.out?.at || '');
   const [flightBack, setFlightBack] = useState(prefs.travel?.back?.flight || '');
@@ -76,7 +83,7 @@ function Wizard({ snap, me, start }) {
   const [inv, setInv] = useState(me.inventory || []);
 
   const [errors, setErrors] = useState({});
-  const s = STEPS[step];
+  const s = steps[step];
   const startHm = trip.starts_at ? ilWall(new Date(trip.starts_at)).hm : null;
   const tripDay = trip.starts_at ? ilWall(new Date(trip.starts_at)).ymd : ilWall(new Date()).ymd;
 
@@ -104,7 +111,9 @@ function Wizard({ snap, me, start }) {
     if (Object.keys(errs).length) return false;
     const transport = mode === 'car' ? { mode: 'car' } : mode === 'need' ? { mode: 'need', from: from.trim() || null } : mode ? { mode } : null;
     const leg = (flight, at) => (flight.trim() ? { flight: flight.trim().toUpperCase(), at: at || null } : null);
-    const travel = ways.flights ? { travel: { out: leg(flightOut, flightOutAt), back: leg(flightBack, flightBackAt) } } : {};
+    const travel = !ways.flights ? {}
+      : groupFlight && !ownFlight ? { travel: { out: null, back: null } }          // on the group's flight
+        : { travel: { out: leg(flightOut, flightOutAt), back: leg(flightBack, flightBackAt) } };
     let ok = await run((api) => api.updateMember(me.id, { prefs: { transport, arrival: late ? arrival : null, ...travel } }));
     if (ok && mode === 'car') {
       ok = await run((api) => api.upsertRide(trip.id, {
@@ -131,12 +140,12 @@ function Wizard({ snap, me, start }) {
 
   const next = async (save = true) => {
     setBusy(true);
-    const savers = [saveContact, saveArrive, saveMore];
-    const ok = save ? await savers[step]() : true;
+    const savers = { contact: saveContact, arrive: saveArrive, more: saveMore };
+    const ok = save ? await savers[steps[step].key]() : true;
     setBusy(false);
     if (!ok) return;
     setErrors({});
-    if (step < STEPS.length - 1) {
+    if (step < steps.length - 1) {
       setStep(step + 1);
       window.scrollTo(0, 0);
     } else {
@@ -164,8 +173,8 @@ function Wizard({ snap, me, start }) {
       <${Avatar} member=${me} size=${52} />
       <div>
         <p class="welcome__hi">היי ${displayName(me)}! עוד רגע בפנים 🔥</p>
-        <ol class="welcome__dots" aria-label=${`שלב ${step + 1} מתוך ${STEPS.length}`}>
-          ${STEPS.map((x, i) => html`<li key=${x.key} class=${cx('welcome__dot', i === step && 'is-on', i < step && 'is-done')}></li>`)}
+        <ol class="welcome__dots" aria-label=${`שלב ${step + 1} מתוך ${steps.length}`}>
+          ${steps.map((x, i) => html`<li key=${x.key} class=${cx('welcome__dot', i === step && 'is-on', i < step && 'is-done')}></li>`)}
         </ol>
       </div>
     </header>
@@ -216,7 +225,19 @@ function Wizard({ snap, me, start }) {
                 <${TextInput} type="time" value=${depart} onInput=${(e) => setDepart(e.target.value)} />
               </${Field}>`
             : null}
-          ${ways.flights
+          ${ways.flights && groupFlight
+            ? html`<div class="welcome-opts" role="radiogroup" aria-label="טיסה" data-testid="welcome-group-flight">
+                <button type="button" role="radio" aria-checked=${!ownFlight ? 'true' : 'false'} class=${cx('welcome-opt', !ownFlight && 'is-on')} onClick=${() => setOwnFlight(false)}>
+                  <span class="welcome-opt__emoji" aria-hidden="true">✈️</span>
+                  <span class="welcome-opt__text"><b>טס/ה עם הקבוצה</b><span dir="auto">${groupFlight.flight}${groupFlight.at ? ` · ${groupFlight.at.slice(11, 16)}` : ''}</span></span>
+                </button>
+                <button type="button" role="radio" aria-checked=${ownFlight ? 'true' : 'false'} class=${cx('welcome-opt', ownFlight && 'is-on')} onClick=${() => setOwnFlight(true)}>
+                  <span class="welcome-opt__emoji" aria-hidden="true">🛫</span>
+                  <span class="welcome-opt__text"><b>בטיסה אחרת</b><span>מצטרפים מאוחר / חוזרים בנפרד</span></span>
+                </button>
+              </div>`
+            : null}
+          ${ways.flights && (!groupFlight || ownFlight)
             ? html`<div class="welcome-flights" data-testid="welcome-flights">
                 <p class="field__label">✈️ הטיסות שלכם (לא חובה — אפשר גם אחר כך)</p>
                 <div class="date-pair">
@@ -229,7 +250,7 @@ function Wizard({ snap, me, start }) {
                 </div>
               </div>`
             : null}
-          <div class="welcome-late">
+          ${ways.flights ? null : html`<div class="welcome-late">
             <button type="button" role="switch" aria-checked=${late ? 'true' : 'false'} class=${cx('welcome-chk', late && 'is-on')}
               onClick=${() => setLate(!late)}>
               ${late ? '☑️' : '⬜'} מגיעים בשעה אחרת${startHm ? ` (לא ב-${startHm} עם כולם)` : ''}
@@ -239,7 +260,7 @@ function Wizard({ snap, me, start }) {
                   <${TextInput} type="time" value=${arrival} onInput=${(e) => setArrival(e.target.value)} />
                 </${Field}>`
               : null}
-          </div>`
+          </div>`}`
         : null}
 
       ${s.key === 'more'
@@ -250,23 +271,25 @@ function Wizard({ snap, me, start }) {
           <${Field} label="משהו נוסף? (לא חובה)">
             <${TextInput} value=${dietNote} maxlength="120" placeholder="למשל: אלרגיה לבוטנים" onInput=${(e) => setDietNote(e.target.value)} />
           </${Field}>
-          <p class="welcome__lead">מה יש לכם בבית שיכול לעזור בטיול?</p>
-          <div class="me-chips" role="group" aria-label="מה יש לנו בבית">
-            ${INVENTORY_SUGGESTIONS.map(([name, em]) => html`<${Chip} key=${name} active=${inv.includes(name)} onClick=${() => toggleInv(name)}>
-              <span aria-hidden="true">${em}</span> ${name}
-            </${Chip}>`)}
-          </div>`
+          ${askHome
+            ? html`<p class="welcome__lead">מה יש לכם בבית שיכול לעזור בטיול?</p>
+              <div class="me-chips" role="group" aria-label="מה יש לנו בבית">
+                ${INVENTORY_SUGGESTIONS.map(([name, em]) => html`<${Chip} key=${name} active=${inv.includes(name)} onClick=${() => toggleInv(name)}>
+                  <span aria-hidden="true">${em}</span> ${name}
+                </${Chip}>`)}
+              </div>`
+            : null}`
         : null}
     </section>
 
     <footer class="welcome__foot">
       <${Button} variant="accent" size="lg" block loading=${busy} onClick=${() => next(true)}>
-        ${step < STEPS.length - 1 ? 'הבא' : 'סיימנו — לטיול! 🔥'}
+        ${step < steps.length - 1 ? 'הבא' : 'סיימנו — לטיול! 🔥'}
       </${Button}>
       <div class="row row--center wrap">
         ${step > 0 ? html`<${Button} variant="ghost" onClick=${() => { setErrors({}); setStep(step - 1); }}>חזרה</${Button}>` : null}
         <${Button} variant="ghost" disabled=${busy} onClick=${() => next(false)}>
-          ${step < STEPS.length - 1 ? 'דלג על השלב' : 'אחר כך'}
+          ${step < steps.length - 1 ? 'דלג על השלב' : 'אחר כך'}
         </${Button}>
       </div>
     </footer>
