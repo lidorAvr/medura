@@ -44,7 +44,8 @@ function Wizard({ snap, me, start }) {
     actions.run((api) => api.getMemberEmails(me.id), { refresh: false, error: () => 'לא הצלחנו לטעון את המיילים' })
       .then((list) => {
         if (!alive) return;
-        if (list?.length) setEmails(people.map((_, i) => list[i] || ''));
+        // fill only fields that are still empty — never overwrite what's being typed
+        if (list?.length) setEmails((typed) => people.map((_, i) => typed[i] || list[i] || ''));
         setLoaded(true);
       });
     return () => { alive = false; };
@@ -78,8 +79,10 @@ function Wizard({ snap, me, start }) {
     setErrors(errs);
     if (Object.keys(errs).length) return false;
     const list = emails.map((m) => m.trim().toLowerCase()).filter(Boolean);
+    // Before the current list has loaded, an empty form must not wipe it — anything typed is saved.
+    const skipEmails = !loaded && !list.length;
     return (await run((api) => api.updateMember(me.id, { phone: phone.trim() || null })))
-      && (!loaded || await run((api) => api.setMemberEmails(me.id, list)));
+      && (skipEmails || await run((api) => api.setMemberEmails(me.id, list)));
   };
 
   const saveArrive = async () => {
