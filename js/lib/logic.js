@@ -1588,9 +1588,9 @@ export function myChecklist(snap, meId, extras = {}) {
   const items = [
     { key: 'contact', done: Boolean(me.phone) || Boolean(extras.hasEmail), label: 'פרטי קשר (טלפון / מייל)', href: `${t}/welcome?step=contact` },
     {
-      key: 'arrive', done: Boolean(arrive), label: 'איך מגיעים',
+      key: 'arrive', done: Boolean(arrive), label: 'איך אני מגיע/ה? 🚗',
       detail: rides.myRide ? 'נוהג/ת' : rides.mySeat ? `עם ${displayName(rides.mySeat.driver)}` : rides.myAsk ? `⏳ מחכה ל${displayName(rides.myAsk.driver)}` : transport === 'need' ? 'מחפשים טרמפ' : null,
-      href: arrive || transport === 'need' ? `${t}/trip` : `${t}/welcome?step=arrive`,
+      href: `${t}/rides`,
     },
     {
       key: 'bring', done: myPledges > 0 && openPledges === 0, label: myPledges ? 'מה אני מביא/ה' : 'לקחת משהו מהרשימה',

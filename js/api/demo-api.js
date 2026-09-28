@@ -379,6 +379,11 @@ function bump(ctx, tripId) {
   ctx.touched.add(tripId);
 }
 
+function fmtShekel(amount) {
+  const n = Number(amount) || 0;
+  return `₪${n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })}`;
+}
+
 function notify(ctx, tripId, { title, body = null, audience = null, link = null }) {
   ctx.db.notifications.push({
     id: newId(),
@@ -1615,6 +1620,16 @@ const RPC = {
     };
     db.expenses.push(row);
     if (mode === 'members') replaceShares(ctx, row, f.members);
+    // no ping per receipt: in the app now, push/e-mail in the next daily summary
+    const payer = db.members.find((m) => m.id === paidBy);
+    ctx.db.notifications.push({
+      id: newId(), trip_id: tripId, kind: 'system',
+      title: clip(`💸 ${payer ? payer.display_name : ''} שילמ/ה: ${row.title} · ${fmtShekel(row.amount)}`, 80),
+      body: 'החלק של כל אחד — במסך הכסף.',
+      audience: mode === 'members' ? db.expense_shares.filter((s) => s.expense_id === row.id).map((s) => s.member_id) : null,
+      author_member: me.id, urgent: false, link: `#/t/${tripId}/money`, topic: 'money', delivery: 'digest',
+      created_at: ctx.now(),
+    });
     bump(ctx, tripId);
     return row.id;
   },

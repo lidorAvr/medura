@@ -17,6 +17,7 @@ const ROUTES = [
   ['/t/:tripId/people', 'people'],
   ['/t/:tripId/me', 'me'],
   ['/t/:tripId/trip', 'trip'],
+  ['/t/:tripId/rides', 'rides'],
   ['/t/:tripId/welcome', 'welcome'],
 ];
 

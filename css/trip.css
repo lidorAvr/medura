@@ -354,7 +354,7 @@
 
 /* ---------- rides ---------- */
 .rides__sum { margin-top: -4px; margin-bottom: 10px; }
-.rides__list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.rides__list { display: flex; flex-direction: column; gap: 10px; margin: 0 0 12px; padding: 0; list-style: none; }
 .ride {
   display: flex; flex-direction: column; gap: 8px; padding: 12px;
   border-radius: 16px; background: var(--surface-2); min-width: 0;

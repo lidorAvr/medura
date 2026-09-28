@@ -8,6 +8,7 @@ import { navigate } from '../router.js';
 import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js';
 import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js';
 import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js';
+import { RideOffers } from './rides.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
@@ -194,6 +195,7 @@ function Wizard({ snap, me, start }) {
                 <${TextInput} value=${from} maxlength="80" placeholder="למשל: תל אביב, רמת גן" onInput=${(e) => setFrom(e.target.value)} />
               </${Field}>`
             : null}
+          ${mode === 'need' ? html`<${RideOffers} snap=${snap} me=${me} />` : null}
           ${mode === 'car'
             ? html`<div class="welcome-row">
                 <span class="field__label">כמה מקומות פנויים (בלי אתכם)?</span>

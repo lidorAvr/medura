@@ -9,7 +9,7 @@ import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
 } from '../lib/logic.js';
 import {
-  Avatar, AvatarStack, Button, Card, CopyButton, EmojiPicker, EmptyState, Field, IconButton, Sheet, ShareButton, Skeleton,
+  Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, IconButton, Sheet, ShareButton, Skeleton,
   TextArea, TextInput, Toggle, confirmDialog,
 } from '../ui/components.js';
 
@@ -563,6 +563,29 @@ function draftFrom(trip) {
   };
 }
 
+const hmAdd = (hm, min) => {
+  const [h, m] = String(hm || '').split(':').map(Number);
+  if (!Number.isFinite(h)) return '';
+  const t = (((h * 60 + (m || 0) + min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+};
+
+/** One-tap schedule rows, in trip order; times come from the trip's start and end. */
+function schedulePresets(d) {
+  const start = d.startTime || '09:00';
+  const end = d.endTime || '14:00';
+  return [
+    { emoji: '🚗', label: 'יציאה', time: start },
+    { emoji: '⛺', label: 'הקמת המחנה', time: hmAdd(start, 120) },
+    { emoji: '🥪', label: 'ארוחת צהריים', time: '13:30' },
+    { emoji: '🔥', label: 'על האש', time: '19:30' },
+    { emoji: '🎶', label: 'מדורה ושירים', time: '21:30' },
+    { emoji: '☕', label: 'קפה וארוחת בוקר', time: '08:30' },
+    { emoji: '🧹', label: 'פירוק וניקיון', time: hmAdd(end, -120) },
+    { emoji: '🏠', label: 'חזרה הביתה', time: end },
+  ];
+}
+
 /** Comparable form of a draft (row keys don't count as changes). */
 const draftSig = (d) => JSON.stringify({
   ...d,
@@ -784,7 +807,24 @@ function EditTripSheet({ open, onClose, trip, snap }) {
 
       <section class="trip-edit__group">
         <h3 class="trip-edit__h">⏰ לו״ז</h3>
-        <p class="trip-edit__hint">שעה מוקדמת מהשורה שלפניה = למחרת.</p>
+        <p class="trip-edit__hint">לוחצים על מה שיש בטיול — ומשנים שעה רק אם צריך. שעה מוקדמת מהשורה שלפניה = למחרת.</p>
+        <div class="sched-quick" role="group" aria-label="הוספה מהירה ללו״ז" data-testid="sched-quick">
+          ${schedulePresets(d).map((p) => {
+            const has = d.schedule.some((r) => r.label.trim() === p.label);
+            return html`<${Chip} key=${p.label} active=${has} onClick=${() => setD((x) => ({
+              ...x,
+              schedule: has
+                ? x.schedule.filter((r) => r.label.trim() !== p.label)
+                : [...x.schedule, { key: rowKey(), time: p.time, emoji: p.emoji, label: p.label }],
+            }))}>${p.emoji} ${p.label}</${Chip}>`;
+          })}
+        </div>
+        ${d.schedule.length
+          ? null
+          : html`<${Button} variant="secondary" size="sm" class="sched-quick__all"
+              onClick=${() => setD((x) => ({ ...x, schedule: schedulePresets(x).map((p) => ({ key: rowKey(), ...p })) }))}>
+              ✨ לו״ז מוכן לקמפינג — רק לעדכן
+            </${Button}>`}
         <div class="row-editor" role="group" aria-label="שורות הלו״ז">
           ${d.schedule.map((r, i) => html`<div class="row-editor__row row-editor__row--sched" key=${r.key} data-row=${r.key}>
             <${TextInput} type="time" value=${r.time} aria-label=${`שעה, שורה ${i + 1}`} class="row-editor__time"

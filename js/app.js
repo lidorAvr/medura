@@ -25,6 +25,7 @@ const SCREENS = {
   link: './screens/onboarding.js',
   home: './screens/home.js',
   trip: './screens/trip.js',
+  rides: './screens/rides.js',
   lists: './screens/lists.js',
   shop: './screens/shopping.js',
   import: './screens/import.js',
@@ -214,6 +215,7 @@ function TopBar({ route }) {
 const TABS = [
   { key: 'home', path: '', emoji: '🏕️', label: 'בית', match: ['home', 'trip'] },
   { key: 'lists', path: '/lists', emoji: '📋', label: 'רשימות', match: ['lists', 'shop', 'import'] },
+  { key: 'rides', path: '/rides', emoji: '🚗', label: 'הסעות', match: ['rides'] },
   { key: 'money', path: '/money', emoji: '💸', label: 'כסף', match: ['money'] },
   { key: 'messages', path: '/messages', emoji: '🔔', label: 'הודעות', match: ['messages'] },
   { key: 'people', path: '/people', emoji: '👥', label: "חבר'ה", match: ['people'] },

@@ -85,7 +85,8 @@ function RidesDemo() {
           ? html`<p class="tour-car__state">⏳ מחכה לאישור של מאיה…</p>`
           : html`<p class="tour-car__state is-ok">✅ מאיה אישרה — את/ה ברכב!</p>`}
     </div>
-    <p class="tour__text">ככה זה עם כל בקשה: מי שביקש מקבל תשובה, ומה שמחכה לך מופיע ב־<b>📥 מחכה לך</b>.</p>`;
+    <p class="tour__text">ככה זה עם כל בקשה: מי שביקש מקבל תשובה, ומה שמחכה לך מופיע ב־<b>📥 מחכה לך</b>.</p>
+    <p class="tour__text tour__text--soft">הרכבים — בלשונית <b>🚗 הסעות</b> למטה. הלו״ז, המקום ומזג האוויר — בלחיצה על <b>שם הטיול</b> למעלה.</p>`;
 }
 
 function InstallSlide() {
