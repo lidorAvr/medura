@@ -266,6 +266,12 @@ function infoVal(v) {
     if (u !== null && (typeof u !== 'string' || u.length > 500 || !/^https?:\/\/\S+$/.test(u))) bad();
     out.album_url = u;
   }
+  for (const key of ['bookings', 'costs', 'rooms']) {
+    if (given(v, key)) {
+      if (!Array.isArray(v[key]) || v[key].length > 30 || !v[key].every(isObj)) bad();
+      out[key] = v[key];
+    }
+  }
   if (given(v, 'packing')) {
     if (!Array.isArray(v.packing) || v.packing.length > 60
         || !v.packing.every((x) => typeof x === 'string' && cpLen(x) >= 1 && cpLen(x) <= 80)) bad();

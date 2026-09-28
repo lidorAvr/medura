@@ -6,6 +6,7 @@ import { actions, useTrip } from '../store.js';
 import { RidesCard } from './rides.js';
 import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js';
 import { CURRENCIES } from '../lib/fx.js';
+import { BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js';
 import { href, navigate } from '../router.js';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
@@ -318,6 +319,7 @@ export default function TripScreen({ route }) {
   const weather = useWeather(trip);
   const wantsEdit = route?.query?.edit === '1';
   const [editing, setEditing] = useState(false);
+  const [extra, setExtra] = useState({}); // detail cards an admin opened before filling
 
   useEffect(() => {
     if (wantsEdit && isAdmin && trip) setEditing(true);
@@ -356,6 +358,11 @@ export default function TripScreen({ route }) {
               action=${html`<${Button} size="sm" icon="plus" onClick=${openEdit}>הוספת לו״ז</${Button}>`} />
           </${Card}>`
         : null}
+
+    <${BookingsCard} trip=${trip} isAdmin=${isAdmin} force=${extra.bookings} />
+    <${CostsCard} trip=${trip} members=${members} isAdmin=${isAdmin} force=${extra.costs} />
+    <${RoomsCard} trip=${trip} members=${members} me=${me} isAdmin=${isAdmin} force=${extra.rooms} />
+    ${isAdmin ? html`<${MoreDetails} trip=${trip} open=${extra} onOpen=${(k) => setExtra({ ...extra, [k]: true })} />` : null}
 
     ${me && hasModule(trip, 'rides') ? html`<${RidesCard} snap=${snap} me=${me} isAdmin=${isAdmin} />` : null}
 

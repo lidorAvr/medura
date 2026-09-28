@@ -8,6 +8,7 @@ import { actions, useTrip } from '../store.js';
 import { navigate } from '../router.js';
 import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel } from '../lib/logic.js';
 import { ARRIVAL_MODES, arrivalOf } from '../lib/templates.js';
+import { wall } from './trip-extras.js';
 import { Avatar, Button, Card, Field, IconButton, Sheet, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
@@ -144,8 +145,26 @@ function FlightsCard({ snap, me }) {
     setBusy(false);
     if (done) setEditing(false);
   };
-  const when = (at) => (at ? `${formatDate(at, { weekday: 'short' })} ${formatTime(at)}` : '');
-  const group = (m, title) => html`<div class="flights__leg">
+  const when = (at) => wall(at);
+  const bookings = Array.isArray(snap.trip.info?.bookings) ? snap.trip.info.bookings : [];
+  const group = (m, title, leg) => {
+    const gf = bookings.find((b) => b.kind === 'flight' && (b.leg || 'out') === leg && b.flight);
+    if (gf) {
+      // the group's flight: everyone is on it unless they listed another one
+      const others = m.flights.filter((g) => g.flight !== gf.flight);
+      const away = new Set(others.flatMap((g) => g.members.map((x) => x.id)));
+      const notOn = snap.members.filter((x) => away.has(x.id));
+      return html`<div class="flights__leg">
+        <p class="flights__title">${title}</p>
+        <ul class="flights__list">
+          <li class="flights__row is-group"><b dir="ltr">${gf.flight}</b> <span class="muted small">${when(gf.at)}</span>
+            <span class="flights__who small">${notOn.length ? `כולם חוץ מ: ${notOn.map(displayName).join(' · ')}` : 'כולם 👥'}</span></li>
+          ${others.map((g) => html`<li key=${g.flight} class="flights__row"><b dir="ltr">${g.flight}</b> ${g.at ? html`<span class="muted small">${when(g.at)}</span>` : null}
+            <span class="flights__who small">${g.members.map(displayName).join(' · ')}</span></li>`)}
+        </ul>
+      </div>`;
+    }
+    return html`<div class="flights__leg">
     <p class="flights__title">${title}</p>
     ${m.flights.length
       ? html`<ul class="flights__list">${m.flights.map((g) => html`<li key=${g.flight} class="flights__row">
@@ -154,6 +173,8 @@ function FlightsCard({ snap, me }) {
         </li>`)}</ul>`
       : html`<p class="muted small">עוד אף אחד לא סימן.</p>`}
   </div>`;
+  };
+  const groupFlights = bookings.some((b) => b.kind === 'flight' && b.flight);
   const mine = travel.out?.flight || travel.back?.flight;
   return html`<${Card} emoji="✈️" title="טיסות" class="flights" data-testid="flights">
     ${editing
@@ -172,12 +193,12 @@ function FlightsCard({ snap, me }) {
           </div>
         </form>`
       : html`<div class="my-arrival__row">
-          <span>${mine ? html`הטיסות שלך: <b dir="ltr">${[travel.out?.flight, travel.back?.flight].filter(Boolean).join(' / ')}</b>` : 'עוד לא סימנת טיסה'}</span>
-          <${Button} variant=${mine ? 'ghost' : 'secondary'} size="sm" onClick=${() => setEditing(true)}>${mine ? 'עריכה' : '✈️ הטיסה שלי'}</${Button}>
+          <span>${mine ? html`הטיסות שלך: <b dir="ltr">${[travel.out?.flight, travel.back?.flight].filter(Boolean).join(' / ')}</b>` : groupFlights ? 'את/ה על טיסת הקבוצה' : 'עוד לא סימנת טיסה'}</span>
+          <${Button} variant=${mine || groupFlights ? 'ghost' : 'secondary'} size="sm" onClick=${() => setEditing(true)}>${mine ? 'עריכה' : groupFlights ? 'טס/ה בטיסה אחרת?' : '✈️ הטיסה שלי'}</${Button}>
         </div>`}
-    ${group(outs, '🛫 הלוך')}
-    ${group(backs, '🛬 חזור')}
-    ${outs.missing.length && outs.flights.length
+    ${group(outs, '🛫 הלוך', 'out')}
+    ${group(backs, '🛬 חזור', 'back')}
+    ${!groupFlights && outs.missing.length && outs.flights.length
       ? html`<p class="muted small">עוד לא סימנו: ${outs.missing.map(displayName).join(' · ')}</p>`
       : null}
   </${Card}>`;

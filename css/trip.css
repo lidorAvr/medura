@@ -382,3 +382,18 @@
 .ride__invite > span, .ride__waiting > span { flex: 1; min-width: 10em; }
 .rides__seekers { list-style: none; padding: 0; margin: 4px 0 0; display: flex; flex-direction: column; gap: 2px; }
 .rides__seekers li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+/* ---------- bookings / costs / rooms ---------- */
+.bookings__list, .costs__list, .rooms__list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.booking, .room { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }
+.booking__main, .room__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.booking__title { font-weight: 800; }
+.booking__line { font-size: 14px; }
+.booking__link { font-size: 14px; font-weight: 700; }
+.booking__tools, .costs__tools { flex: none; display: flex; }
+.bookings__add { gap: 8px; }
+.costs__row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); }
+.costs__main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.costs__total { font-size: 15px; margin-bottom: 10px; }
+.room.is-mine { background: color-mix(in srgb, var(--success-soft) 70%, var(--surface-2)); }
+.room__who { overflow-wrap: anywhere; }
+.more-details { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 2px; }
