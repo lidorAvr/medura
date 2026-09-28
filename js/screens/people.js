@@ -5,13 +5,13 @@ import { html } from 'htm/preact';
 import { useState, useMemo, useEffect } from 'preact/hooks';
 import { useTrip, actions } from '../store.js';
 import {
-  Avatar, AvatarStack, Button, Card, CopyButton, Pill, Sheet, ShareButton, Skeleton,
-  TextInput, confirmDialog,
+  Avatar, AvatarStack, Button, Card, CopyButton, Field, Pill, Sheet, ShareButton, Skeleton,
+  TextArea, TextInput, confirmDialog,
 } from '../ui/components.js';
 import { Icon } from '../ui/icons.js';
 import {
   adminVoteCounts, balances, buildInviteText, displayName, formatMoney, formatQty, headcountTotal,
-  hebrewCount, inviteUrl, isAdmin, membersById, timeAgo, whatsappChatUrl,
+  hebrewCount, inviteUrl, isAdmin, membersById, rideModel, timeAgo, whatsappChatUrl,
 } from '../lib/logic.js';
 import { ProfileForm } from './me.js';
 
@@ -394,6 +394,8 @@ function MemberSheet({ open, m, snap, me, admin, bal, hasMoney, invite, onClose 
           </a>`
         : null}
 
+      ${(admin || mine) && open ? html`<${PrivateDetails} key=${x.id} x=${x} snap=${snap} admin=${admin} mine=${mine} />` : null}
+
       ${canRole || canRemove
         ? html`<section class="ppl-sheet__admin" aria-label="ניהול">
             <h3 class="ppl-sheet__h">🛠️ ניהול</h3>
@@ -412,6 +414,85 @@ function MemberSheet({ open, m, snap, me, admin, bal, hasMoney, invite, onClose 
       ${x.role === 'owner' ? html`<p class="tiny muted">👑 יוצר/ת הטיול תמיד נשאר/ת מנהל/ת.</p>` : null}
     </div>
   </${Sheet}>`;
+}
+
+const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
+const MODE_TEXT = { car: '🚗 נוהג/ת', need: '🙋 מחפש/ת מקום', own: '🧍 מגיע/ה לבד', seat: '✅ ברכב של מישהו' };
+
+/** Admins (and the member): e-mails and whether they're verified, devices, push, how they get there —
+ *  and editing phone + e-mails. */
+function PrivateDetails({ x, snap, admin, mine }) {
+  const [d, setD] = useState(undefined); // undefined = loading, null = failed
+  const [editing, setEditing] = useState(false);
+  const [phone, setPhone] = useState(x.phone || '');
+  const [emails, setEmails] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => actions.run((api) => api.memberDetails(x.id), { refresh: false, error: () => 'לא הצלחנו לטעון את הפרטים' })
+    .then((r) => setD(r || null));
+  useEffect(() => { load(); }, [x.id]);
+
+  const rides = rideModel(snap, x.id);
+  const mode = x.prefs?.transport?.mode;
+  const arrive = rides.myRide ? `🚗 נוהג/ת (${hebrewCount(rides.myRide.free, 'מקום פנוי', 'מקומות פנויים')})`
+    : rides.mySeat ? `✅ עם ${displayName(rides.mySeat.driver)}` : rides.myAsk ? `⏳ ביקש/ה מקום אצל ${displayName(rides.myAsk.driver)}`
+      : MODE_TEXT[mode] || '— עוד לא סימן/ה';
+  const flight = x.prefs?.travel?.out?.flight;
+
+  const startEdit = () => {
+    setPhone(x.phone || '');
+    setEmails((d?.emails || []).join('\n'));
+    setError(null);
+    setEditing(true);
+  };
+  const save = async (e) => {
+    e?.preventDefault();
+    const list = [...new Set(emails.split(/[\s,;]+/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
+    const bad = list.find((m) => !MAIL_RE.test(m));
+    if (bad) return setError(`המייל ${bad} לא נראה תקין`);
+    setBusy(true);
+    const ok = await actions.run(async (api) => {
+      if ((phone.trim() || null) !== (x.phone || null)) await api.updateMember(x.id, { phone: phone.trim() || null });
+      await api.setMemberEmails(x.id, list);
+      return true;
+    }, { success: 'הפרטים נשמרו ✅' });
+    setBusy(false);
+    if (ok) {
+      setEditing(false);
+      load();
+    }
+    return undefined;
+  };
+
+  const verified = new Set(d?.verified || []);
+  const all = [...new Set([...(d?.verified || []), ...(d?.emails || [])])];
+  return html`<section class="ppl-sheet__section ppl-private" aria-label="פרטים" data-testid="private-details">
+    <h3 class="ppl-sheet__h">🔐 ${mine && !admin ? 'הפרטים שלך' : 'פרטים (רק מנהלים רואים)'}</h3>
+    ${d === undefined
+      ? html`<${Skeleton} lines=${2} />`
+      : editing
+        ? html`<form class="stack" onSubmit=${save} noValidate>
+            <${Field} label="טלפון"><${TextInput} type="tel" dir="ltr" value=${phone} maxlength="20" placeholder="050-1234567" onInput=${(e) => setPhone(e.target.value)} /></${Field}>
+            <${Field} label="מיילים לעדכונים (אחד בשורה)" hint="מקבלים את העדכונים של הפרופיל. מייל מאומת (✅) מחובר למכשיר ולא נמחק מכאן.">
+              <${TextArea} dir="ltr" rows=${3} value=${emails} onInput=${(e) => setEmails(e.target.value)} />
+            </${Field}>
+            ${error ? html`<p class="field__error" role="alert">${error}</p>` : null}
+            <div class="row wrap">
+              <${Button} type="submit" size="sm" loading=${busy}>שמירה</${Button}>
+              <${Button} variant="ghost" size="sm" onClick=${() => setEditing(false)}>ביטול</${Button}>
+            </div>
+          </form>`
+        : html`<ul class="ppl-private__list">
+            <li>✉️ ${all.length
+              ? all.map((m, i) => html`${i ? ' · ' : ''}<bdi dir="ltr">${m}</bdi> ${verified.has(m) ? html`<span class="ppl-ok">✅ מאומת</span>` : html`<span class="muted">(לא אומת)</span>`}`)
+              : html`<span class="ppl-warn">⚠️ אין מייל — לא יקבלו עדכונים במייל</span>`}</li>
+            <li>📞 ${x.phone ? html`<bdi dir="ltr">${x.phone}</bdi>` : html`<span class="muted">אין טלפון</span>`}</li>
+            ${d ? html`<li>📱 ${hebrewCount(d.devices, 'מכשיר מחובר', 'מכשירים מחוברים')} · 🔔 ${d.push ? `פוש פעיל (${d.push})` : 'פוש לא הופעל'}</li>` : null}
+            <li>🧭 ${arrive}${flight ? html` · ✈️ <bdi dir="ltr">${flight}</bdi>` : ''}</li>
+            <li>📝 ${x.prefs?.onboarded ? 'מילא/ה את פרטי ההצטרפות ✓' : 'עוד לא מילא/ה את פרטי ההצטרפות'}</li>
+          </ul>
+          <${Button} variant="secondary" size="sm" icon="edit" onClick=${startEdit}>עריכת טלפון ומיילים</${Button}>`}
+  </section>`;
 }
 
 // ---------------------------------------------------------------------------

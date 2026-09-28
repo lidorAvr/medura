@@ -908,6 +908,20 @@ const RPC = {
     return ctx.db.member_emails.filter((e) => e.member_id === member.id).map((e) => e.email);
   },
 
+  member_details(ctx, memberId) {
+    const { db } = ctx;
+    const member = need(db.members, memberId);
+    const me = requireMember(ctx, member.trip_id);
+    if (me.id !== member.id && !isAdmin(me)) fail('forbidden');
+    const users = new Set(db.member_users.filter((l) => l.member_id === member.id).map((l) => l.user_id));
+    return {
+      verified: [...new Set(db.user_contacts.filter((c) => users.has(c.user_id)).map((c) => c.email))],
+      emails: db.member_emails.filter((e) => e.member_id === member.id).map((e) => e.email),
+      devices: users.size,
+      push: db.push_subscriptions.filter((s) => s.member_id === member.id).length,
+    };
+  },
+
   set_member_emails(ctx, memberId, emails) {
     const { db } = ctx;
     const member = need(db.members, memberId);
@@ -2212,6 +2226,7 @@ export function createDemoApi(options = {}) {
     requestEmailCode: (email) => call('request_email_code', email).then((r) => ({ sent: true, ...r })),
     verifyEmailCode: (code) => call('verify_email_code', code),
     getMemberEmails: (memberId) => read('get_member_emails', memberId),
+    memberDetails: (memberId) => read('member_details', memberId),
     setMemberEmails: (memberId, emails) => call('set_member_emails', memberId, emails || []),
 
     upsertRide: (tripId, ride) => call('upsert_ride', tripId, ride),

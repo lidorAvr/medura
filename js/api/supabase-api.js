@@ -240,6 +240,7 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     requestEmailCode: (email) => rpc('request_email_code', { p_email: email }).then(() => ({ sent: true })),
     verifyEmailCode: (code) => rpc('verify_email_code', { p_code: code }),
     getMemberEmails: (memberId) => rpc('get_member_emails', { p_member: memberId }).then((r) => r || []),
+    memberDetails: (memberId) => rpc('member_details', { p_member: memberId }),
     setMemberEmails: (memberId, emails) => rpc('set_member_emails', { p_member: memberId, p_emails: emails || [] }),
 
     upsertRide: (tripId, ride) => rpc('upsert_ride', { p_trip: tripId, p_ride: ride }),
