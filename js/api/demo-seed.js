@@ -459,5 +459,10 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
     push_subscriptions: [],
     rides,
     ride_seats: rideSeats,
+    // טל asks to join שירה וטל from her own phone (she's listed in that profile)
+    profile_requests: [{
+      id: newId(), trip_id: tripId, member_id: M.shira.id, user_id: newId(), email: 'tal@example.com', person: 'טל',
+      name: 'טל', from_member: null, status: 'pending', created_at: past(5), answered_at: null,
+    }],
   };
 }

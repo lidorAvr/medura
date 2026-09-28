@@ -1520,6 +1520,9 @@ export function myInbox(snap, meId) {
   if (!snap || !meId) return [];
   const members = membersById(list(snap.members));
   const out = [];
+  for (const r of list(snap.profile_requests)) {
+    out.push({ kind: 'profile_request', key: `pr-${r.id}`, request: r, profile: members.get(r.member_id) || null });
+  }
   const model = rideModel(snap, meId);
   if (model.myRide) {
     for (const p of model.myRide.pending) {

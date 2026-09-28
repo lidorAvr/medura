@@ -10,6 +10,7 @@ import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/com
 import { Icon } from './ui/icons.js';
 import { EmailGate } from './ui/email-gate.js';
 import { Tour, tourDue } from './ui/tour.js';
+import { PendingGate } from './ui/pending.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -32,6 +33,7 @@ const SCREENS = {
   people: './screens/people.js',
   me: './screens/me.js',
   welcome: './screens/welcome.js',
+  signin: './screens/signin.js',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
@@ -332,7 +334,7 @@ function NotFound() {
 // App
 // ---------------------------------------------------------------------------
 
-const BARE_ROUTES = new Set(['landing', 'new', 'join', 'link', 'notfound']);
+const BARE_ROUTES = new Set(['landing', 'new', 'join', 'link', 'signin', 'notfound']);
 const FOCUS_ROUTES = new Set(['shop', 'welcome']); // full-screen, no chrome
 
 /** First visit to a trip: the welcome wizard (skipped by automated browsers unless ?welcome=1). */
@@ -401,7 +403,9 @@ export function App() {
 
   let body;
   if (route.name === 'notfound') body = html`<${NotFound} />`;
-  else if (gated) body = html`<${AccessGate} code=${error.code} />`;
+  else if (gated && error.code === 'forbidden') {
+    body = html`<${PendingGate} key=${routeTrip} tripId=${routeTrip} fallback=${html`<${AccessGate} code=${error.code} />`} />`;
+  } else if (gated) body = html`<${AccessGate} code=${error.code} />`;
   else if (emailGate) body = html`<${EmailGate} />`;
   else body = html`<${ScreenHost} route=${route} />`;
 

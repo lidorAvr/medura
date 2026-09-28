@@ -247,6 +247,12 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     takeSeat: (rideId, seats = 1) => rpc('take_seat', { p_ride: rideId, p_seats: seats }),
     leaveSeat: (tripId) => rpc('leave_seat', { p_trip: tripId }),
     sendTestNotification: (tripId) => rpc('send_test_notification', { p_trip: tripId }),
+    linkByEmail: () => rpc('link_by_email', {}).then((r) => r || []),
+    requestProfileJoin: (code, memberId, { person = null, name = null } = {}) =>
+      rpc('request_profile_join', { p_code: normCode(code), p_member: memberId, p_person: person, p_name: name }),
+    cancelProfileRequest: (tripId) => rpc('cancel_profile_request', { p_trip: tripId }),
+    respondProfileRequest: (requestId, approve) => rpc('respond_profile_request', { p_request: requestId, p_approve: Boolean(approve) }),
+    pendingView: (tripId) => rpc('pending_view', { p_trip: tripId }),
     inviteToRide: (rideId, memberId, seats = null) => rpc('invite_to_ride', { p_ride: rideId, p_member: memberId, p_seats: seats }),
     respondSeat: (rideId, memberId, approve) => rpc('respond_seat', { p_ride: rideId, p_member: memberId, p_approve: Boolean(approve) }),
     respondAssignment: (itemId, accept, reason = null) =>

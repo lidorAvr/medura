@@ -28,6 +28,18 @@ export function InboxCard({ snap, me, skip = [] }) {
   const rideLine = (ride) => [ride.from_text && `מ${ride.from_text}`, ride.depart_at && `ב-${formatTime(ride.depart_at)}`].filter(Boolean).join(' ');
 
   const row = (e) => {
+    if (e.kind === 'profile_request') {
+      const r = e.request;
+      const what = r.merging ? 'מצטרף/ת מפרופיל נפרד — הכול עובר אליכם' : r.person ? `כבר ברשימה של הפרופיל (${r.person})` : 'חדש/ה בפרופיל — יגדל באחד';
+      return html`<span class="inbox__emoji" aria-hidden="true">🤝</span>
+        <div class="inbox__text"><b>${r.name}</b> מבקש/ת להצטרף לפרופיל ${e.profile && e.profile.id !== me.id ? `״${displayName(e.profile)}״` : 'שלכם'}
+          <span class="muted small" style="display:block"><bdi dir="ltr">${r.email}</bdi> · ${what}</span></div>
+        <div class="inbox__acts">
+          <${Button} size="sm" loading=${busy === e.key}
+            onClick=${() => go(e.key, (api) => api.respondProfileRequest(r.id, true), `${r.name} בפרופיל ✅`)}>אישור</${Button}>
+          <${Button} size="sm" variant="ghost" onClick=${() => go(e.key, (api) => api.respondProfileRequest(r.id, false), 'הבקשה נדחתה')}>לא</${Button}>
+        </div>`;
+    }
     if (e.kind === 'ride_ask') {
       return html`<${Avatar} member=${e.member} size=${34} />
         <div class="inbox__text"><b>${displayName(e.member)}</b> מבקש/ת להצטרף לרכב שלך${e.seats > 1 ? ` (${e.seats} מקומות)` : ''}</div>

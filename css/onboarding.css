@@ -495,3 +495,16 @@
   .profile-names--two { grid-template-columns: 1fr; }
 }
 .onb-brand--small .onb-brand__tag { font-size: 15px; margin-top: 2px; }
+
+.claim-signin { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; border-radius: 16px; background: var(--surface-2); font-size: 15px; }
+/* ---------- waiting to join a profile (read-only) ---------- */
+.pending { display: flex; flex-direction: column; gap: 14px; padding-top: calc(var(--safe-top, 0px) + 20px); }
+.pending__status { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.pending__title { font-size: 18px; font-weight: 800; line-height: 1.4; }
+.pending__list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.pending__items li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.pending__missing { color: var(--accent-text); font-weight: 700; }
+.pending__people { display: flex; flex-wrap: wrap; gap: 8px; }
+.pending__person { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 999px; background: var(--surface-2); font-size: 14px; }
+.claim-tile--taken { opacity: 0.95; border-style: dashed; }
+.join-existing .welcome-opts { margin-top: 4px; }

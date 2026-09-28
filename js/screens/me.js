@@ -249,6 +249,7 @@ function MeBody({ snap, me, admin, tripId }) {
     <${DietCard} me=${me} />
     <${NotifyCard} me=${me} tripId=${tripId} />
     <${EmailCard} me=${me} />
+    <${TogetherCard} me=${me} trip=${snap.trip} />
     <${DeviceLinkCard} me=${me} trip=${snap.trip} />
     <${ThemeCard} />
     <${TripsCard} tripId=${tripId} />
@@ -704,6 +705,24 @@ function EmailCard({ me }) {
     </div>
   </${Card}>`;
 }
+// ---------------------------------------------------------------------------
+// who's in my profile + inviting a partner / joining another profile
+// ---------------------------------------------------------------------------
+
+function TogetherCard({ me, trip }) {
+  const people = me.people && me.people.length ? me.people : [displayName(me)];
+  const url = `${location.origin}${location.pathname}#/join/${trip.invite_code}`;
+  const text = `הצטרפ/י אליי במדורה 🔥 לטיול ״${trip.name}״:\n${url}\nבקישור לוחצים על ״${displayName(me)}״ ← ״גם אני בפרופיל הזה״ — ואני מאשר/ת.`;
+  return html`<${Card} emoji="🤝" title="מי בפרופיל" class="me-together">
+    <p class="muted small me-card__lead">כל אחד בפרופיל יכול להתחבר מהטלפון שלו — עם המייל שלו — ולקבל התראות משלו.</p>
+    <div class="me-together__people">${people.map((p) => html`<span class="me-together__person" key=${p}>🙂 ${p}</span>`)}</div>
+    <div class="me-together__actions">
+      <${ShareButton} text=${text} label="הזמנת בן/בת הזוג בוואטסאפ" />
+      <${Button} variant="ghost" size="sm" href=${`#/join/${trip.invite_code}?switch=1`}>אנחנו בעצם בפרופיל של מישהו אחר ←</${Button}>
+    </div>
+  </${Card}>`;
+}
+
 function TripsCard({ tripId }) {
   const trips = useStore((s) => s.trips) || [];
   useEffect(() => {

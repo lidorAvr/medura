@@ -263,3 +263,6 @@
 .me-email__addr { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
 .me-email__others { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent); }
 .me-email__others > .btn { align-self: flex-start; }
+.me-together__people { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.me-together__person { padding: 4px 12px; border-radius: 999px; background: var(--surface-2); font-size: 14px; }
+.me-together__actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }

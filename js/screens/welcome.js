@@ -164,13 +164,17 @@ function Wizard({ snap, me, start }) {
       <h1 class="welcome__title" id="welcome-title"><span aria-hidden="true">${s.emoji}</span> ${s.title}</h1>
 
       ${s.key === 'contact'
-        ? html`<p class="welcome__lead">כדי שנוכל לעדכן אתכם בכל מה שחשוב — ולהעביר כסף בקלות.</p>
+        ? html`<p class="welcome__lead">${people.length > 1
+            ? 'מייל לכל אחד מכם — ככה כל אחד יקבל עדכונים ויוכל להתחבר מהטלפון שלו.'
+            : 'כדי שנוכל לעדכן אותך בכל מה שחשוב — ולהעביר כסף בקלות.'}</p>
           <${Field} label="טלפון (לא חובה)" hint="בשביל Bit / PayBox ווואטסאפ — יוצג רק לחברי הטיול" error=${errors.phone}>
             <${TextInput} type="tel" inputmode="tel" autocomplete="tel" value=${phone} placeholder="050-1234567"
               onInput=${(e) => setPhone(e.target.value)} />
           </${Field}>
           ${people.map((name, i) => html`<${Field} key=${i} label=${people.length === 1 ? 'המייל שלך' : `המייל של ${name || `משתתף/ת ${i + 1}`}`}
-              hint=${i === 0 ? 'לשם יגיעו עדכונים ותזכורות (ערב לפני, בוקר היציאה). בכל מייל יש קישור להסרה.' : null}
+              hint=${i === 0
+                ? (verified && emails[0] === verified ? '✅ מאומת. לשם יגיעו עדכונים ותזכורות.' : 'לשם יגיעו עדכונים ותזכורות (ערב לפני, בוקר היציאה). בכל מייל יש קישור להסרה.')
+                : `✉️ יאומת בהמשך — כש${name || 'הם'} יתחבר/תתחבר מהטלפון שלו/ה עם המייל הזה, ייכנס/תיכנס ישר לפרופיל המשותף.`}
               error=${errors[`email${i}`]}>
             <${TextInput} type="email" inputmode="email" dir="ltr" autocomplete=${i === 0 ? 'email' : 'off'} value=${emails[i]}
               placeholder="name@example.com"

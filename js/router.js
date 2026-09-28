@@ -7,6 +7,7 @@ const ROUTES = [
   ['/new', 'new'],
   ['/join/:code', 'join'],
   ['/link/:code', 'link'],
+  ['/signin', 'signin'],
   ['/t/:tripId', 'home'],
   ['/t/:tripId/lists', 'lists'],
   ['/t/:tripId/shop', 'shop'],

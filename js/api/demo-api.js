@@ -32,7 +32,7 @@ const TABLES = [
   'trips', 'members', 'member_secrets', 'member_users', 'categories', 'items', 'pledges',
   'expenses', 'expense_shares', 'payments', 'notifications', 'notification_reads',
   'admin_votes', 'polls', 'poll_votes', 'personal_items', 'push_subscriptions',
-  'user_contacts', 'email_codes', 'member_emails', 'rides', 'ride_seats',
+  'user_contacts', 'email_codes', 'member_emails', 'rides', 'ride_seats', 'profile_requests',
 ];
 
 // Snapshot projections (SPEC §5) — the exact key sets.
@@ -54,6 +54,7 @@ const K = {
   personal: ['id', 'title', 'done', 'sort', 'created_at'],
   ride: ['id', 'driver_member', 'seats', 'from_text', 'depart_at', 'note', 'created_at'],
   rideSeat: ['ride_id', 'member_id', 'seats', 'status', 'requested_by'],
+  profileRequest: ['id', 'member_id', 'name', 'person', 'email', 'merging', 'created_at'],
 };
 
 // ---------------------------------------------------------------------------
@@ -610,6 +611,11 @@ const RPC = {
       member_count: members.length,
       headcount: members.reduce((s, m) => s + m.headcount, 0),
       unclaimed: members.filter((m) => !m.claimed_at).map((m) => pick(m, K.unclaimed)),
+      claimed: members.filter((m) => m.claimed_at).map((m) => pick(m, K.unclaimed)),
+      my_request: (() => {
+        const r = db.profile_requests.filter((x) => x.user_id === ctx.uid && x.trip_id === trip.id).sort(newest)[0];
+        return r ? { status: r.status, member_id: r.member_id } : null;
+      })(),
       my_member_id: mine ? mine.id : null,
     };
   },
@@ -751,6 +757,10 @@ const RPC = {
         .sort((a, b) => cmp(a.depart_at ?? '￿', b.depart_at ?? '￿') || byCreated(a, b))
         .map((r) => pick(r, K.ride)),
       ride_seats: db.ride_seats.filter(inTrip).sort(byCreated).map((s) => pick(s, K.rideSeat)),
+      profile_requests: db.profile_requests
+        .filter((r) => inTrip(r) && r.status === 'pending' && (r.member_id === me.id || admin))
+        .sort(byCreated)
+        .map((r) => pick({ ...r, merging: Boolean(r.from_member) }, K.profileRequest)),
     };
   },
 
@@ -1001,6 +1011,152 @@ const RPC = {
     }
     bump(ctx, tripId);
     return null;
+  },
+
+  link_by_email(ctx) {
+    const { db } = ctx;
+    const mine = db.user_contacts.find((c) => c.user_id === ctx.uid);
+    if (!mine) fail('forbidden');
+    const email = mine.email;
+    const byOtherDevice = new Set(db.member_users
+      .filter((l) => db.user_contacts.some((c) => c.user_id === l.user_id && c.email === email))
+      .map((l) => l.member_id));
+    const listed = new Set(db.member_emails.filter((e) => e.email === email).map((e) => e.member_id));
+    const out = [];
+    for (const m of db.members) {
+      if (!byOtherDevice.has(m.id) && !listed.has(m.id)) continue;
+      if (db.member_users.some((l) => l.user_id === ctx.uid && l.trip_id === m.trip_id)) continue;
+      if (out.some((o) => o.trip_id === m.trip_id)) continue;
+      db.member_users.push({ user_id: ctx.uid, trip_id: m.trip_id, member_id: m.id, created_at: ctx.now() });
+      if (!m.claimed_at) m.claimed_at = ctx.now();
+      if (!membersOf(db, m.trip_id).some((x) => isAdmin(x))) m.role = 'owner';
+      bump(ctx, m.trip_id);
+      out.push({ trip_id: m.trip_id, member_id: m.id });
+    }
+    return out;
+  },
+
+  request_profile_join(ctx, code, memberId, person = null, name = null) {
+    const { db } = ctx;
+    const contact = db.user_contacts.find((c) => c.user_id === ctx.uid);
+    if (!contact) fail('forbidden');
+    const trip = tripByCode(db, code);
+    if (!trip) fail('invalid_code');
+    const target = db.members.find((m) => m.id === memberId && m.trip_id === trip.id);
+    if (!target) fail('not_found');
+    const from = myMember(db, trip.id, ctx.uid);
+    if (from && from.id === target.id) fail('already_member');
+    const who = optText(person, 30);
+    const nm = optText(name, 40);
+    if (who && !(target.people || []).includes(who)) bad();
+    if (!who && !nm) bad();
+    remove(db.profile_requests, (r) => r.user_id === ctx.uid && r.trip_id === trip.id);
+    const row = {
+      id: newId(), trip_id: trip.id, member_id: target.id, user_id: ctx.uid, email: contact.email, person: who,
+      name: who || nm, from_member: from ? from.id : null, status: 'pending', created_at: ctx.now(), answered_at: null,
+    };
+    db.profile_requests.push(row);
+    notify(ctx, trip.id, {
+      title: `${row.name} מבקש/ת להצטרף לפרופיל שלכם 🙋`, body: `${contact.email} · אפשר לאשר או לדחות במסך הבית`,
+      audience: [target.id], link: `#/t/${trip.id}`,
+    });
+    bump(ctx, trip.id);
+    return row.id;
+  },
+
+  cancel_profile_request(ctx, tripId) {
+    remove(ctx.db.profile_requests, (r) => r.user_id === ctx.uid && r.trip_id === tripId && r.status === 'pending');
+    bump(ctx, tripId);
+    return null;
+  },
+
+  respond_profile_request(ctx, requestId, approve) {
+    const { db } = ctx;
+    const q = db.profile_requests.find((r) => r.id === requestId);
+    if (!q || q.status !== 'pending') fail('not_allowed_state');
+    const me = requireMember(ctx, q.trip_id);
+    if (me.id !== q.member_id && !isAdmin(me)) fail('forbidden');
+    const t = byId(db.members, q.member_id);
+    if (!toBool(approve)) {
+      q.status = 'declined';
+      q.answered_at = ctx.now();
+      if (q.from_member) notify(ctx, q.trip_id, { title: `${t.display_name} לא אישרו את ההצטרפות לפרופיל`, audience: [q.from_member], link: `#/t/${q.trip_id}` });
+      bump(ctx, q.trip_id);
+      return null;
+    }
+    let addHeads = 0;
+    let addPeople = [];
+    const f = q.from_member ? byId(db.members, q.from_member) : null;
+    if (f) {
+      if (db.expenses.some((e) => e.paid_by === f.id || e.created_by === f.id)
+          || db.expense_shares.some((s) => s.member_id === f.id)
+          || db.payments.some((p) => p.from_member === f.id || p.to_member === f.id)) fail('has_money_records');
+      for (const p of db.pledges.filter((x) => x.member_id === f.id)) {
+        const same = db.pledges.find((x) => x.item_id === p.item_id && x.member_id === t.id);
+        if (same) same.qty = Math.min(200, same.qty + p.qty);
+        else p.member_id = t.id;
+      }
+      remove(db.pledges, (x) => x.member_id === f.id);
+      db.personal_items.filter((x) => x.member_id === f.id).forEach((x) => { x.member_id = t.id; });
+      const targetRides = db.rides.some((r) => r.driver_member === t.id);
+      if (targetRides || db.ride_seats.some((s) => s.member_id === t.id)) remove(db.ride_seats, (s) => s.member_id === f.id);
+      else db.ride_seats.filter((s) => s.member_id === f.id).forEach((s) => { s.member_id = t.id; });
+      if (targetRides) remove(db.rides, (r) => r.driver_member === f.id);
+      else db.rides.filter((r) => r.driver_member === f.id).forEach((r) => { r.driver_member = t.id; });
+      for (const e of db.member_emails.filter((x) => x.member_id === f.id)) {
+        if (!db.member_emails.some((x) => x.member_id === t.id && x.email === e.email)) e.member_id = t.id;
+      }
+      remove(db.member_emails, (x) => x.member_id === f.id);
+      db.member_users.filter((l) => l.member_id === f.id).forEach((l) => { l.member_id = t.id; });
+      const rank = (r) => (r === 'owner' ? 0 : r === 'admin' ? 1 : 2);
+      if (rank(f.role) < rank(t.role)) t.role = f.role;
+      if (!q.person) {
+        addHeads = Math.max(1, f.headcount || 1);
+        addPeople = f.people && f.people.length ? f.people : [q.name];
+      }
+      for (const table of ['poll_votes', 'notification_reads', 'admin_votes', 'reminders_sent']) {
+        if (Array.isArray(db[table])) remove(db[table], (x) => x.member_id === f.id || x.voter_id === f.id || x.candidate_id === f.id);
+      }
+      remove(db.members, (m) => m === f);
+    } else {
+      remove(db.member_users, (l) => l.user_id === q.user_id && l.trip_id === q.trip_id);
+      db.member_users.push({ user_id: q.user_id, trip_id: q.trip_id, member_id: t.id, created_at: ctx.now() });
+      if (!q.person) {
+        addHeads = 1;
+        addPeople = [q.name];
+      }
+    }
+    t.headcount = Math.min(20, (t.headcount || 1) + addHeads);
+    t.people = [...(t.people || []), ...addPeople];
+    if (!t.claimed_at) t.claimed_at = ctx.now();
+    if (!db.member_emails.some((x) => x.member_id === t.id && x.email === q.email)) {
+      db.member_emails.push({ member_id: t.id, trip_id: q.trip_id, email: q.email, token: newId(), created_at: ctx.now() });
+    }
+    q.status = 'approved';
+    q.answered_at = ctx.now();
+    notify(ctx, q.trip_id, {
+      title: `${q.name} הצטרפ/ה לפרופיל ${t.display_name} ✅`, body: 'מעכשיו אתם יחד בפרופיל — הרשימות, ההסעה והכסף משותפים.',
+      audience: [t.id], link: `#/t/${q.trip_id}`,
+    });
+    bump(ctx, q.trip_id);
+    return null;
+  },
+
+  pending_view(ctx, tripId) {
+    const { db } = ctx;
+    const q = db.profile_requests.filter((r) => r.user_id === ctx.uid && r.trip_id === tripId).sort(newest)[0];
+    if (!q || myMember(db, tripId, ctx.uid)) fail('forbidden');
+    const trip = byId(db.trips, tripId);
+    const cats = new Map(db.categories.filter((c) => c.trip_id === tripId).map((c) => [c.id, c]));
+    return {
+      request: { id: q.id, status: q.status, name: q.name, created_at: q.created_at, profile: byId(db.members, q.member_id)?.display_name ?? null },
+      trip: { id: trip.id, name: trip.name, emoji: trip.emoji, location: trip.location, starts_at: trip.starts_at, ends_at: trip.ends_at, info: trip.info },
+      members: membersOf(db, tripId).sort(byCreated).map((m) => ({ display_name: m.display_name, emoji: m.emoji, color: m.color, headcount: m.headcount })),
+      items: db.items.filter((i) => i.trip_id === tripId && i.status === 'active').sort(bySort).map((i) => ({
+        title: i.title, category: cats.get(i.category_id)?.name ?? null, emoji: cats.get(i.category_id)?.emoji ?? null,
+        who: db.pledges.filter((p) => p.item_id === i.id).map((p) => byId(db.members, p.member_id)?.display_name).filter(Boolean).join(', ') || null,
+      })),
+    };
   },
 
   send_test_notification(ctx, tripId) {
@@ -1971,6 +2127,11 @@ export function createDemoApi(options = {}) {
     takeSeat: (rideId, seats = 1) => call('take_seat', rideId, seats),
     leaveSeat: (tripId) => call('leave_seat', tripId),
     sendTestNotification: (tripId) => call('send_test_notification', tripId),
+    linkByEmail: () => call('link_by_email'),
+    requestProfileJoin: (code, memberId, { person = null, name = null } = {}) => call('request_profile_join', code, memberId, person, name),
+    cancelProfileRequest: (tripId) => call('cancel_profile_request', tripId),
+    respondProfileRequest: (requestId, approve) => call('respond_profile_request', requestId, Boolean(approve)),
+    pendingView: (tripId) => read('pending_view', tripId),
     inviteToRide: (rideId, memberId, seats = null) => call('invite_to_ride', rideId, memberId, seats),
     respondSeat: (rideId, memberId, approve) => call('respond_seat', rideId, memberId, Boolean(approve)),
     respondAssignment: (itemId, accept, reason = null) => call('respond_assignment', itemId, Boolean(accept), reason ?? null),

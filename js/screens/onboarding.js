@@ -12,6 +12,7 @@ import {
   fireConfetti,
 } from '../ui/components.js';
 import { Icon } from '../ui/icons.js';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];
@@ -25,7 +26,7 @@ export default function OnboardingScreen({ route }) {
     case 'new':
       return html`<${NewTrip} />`;
     case 'join':
-      return html`<${Join} code=${route.params.code} />`;
+      return html`<${Join} code=${route.params.code} switchMode=${route.query?.switch === '1'} />`;
     case 'link':
       return html`<${LinkDevice} code=${route.params.code} />`;
     default:
@@ -273,6 +274,7 @@ function Landing({ openCode }) {
       <div class="stack">
         <${Button} variant="accent" size="lg" block icon="plus" href="#/new">צור טיול חדש</${Button}>
         <${CodeEntry} startOpen=${openCode} />
+        <${Button} variant="ghost" block href="#/signin">🔑 כבר הצטרפתי ממכשיר אחר — התחברות עם המייל</${Button}>
       </div>
       <p class="onb__foot muted tiny center">עושים סדר בבלגן — כדי שיהיה זמן לשבת ליד המדורה 🌲</p>
     </div>
@@ -668,27 +670,123 @@ function ClaimGrid({ unclaimed, onPick }) {
         <span class="claim-tile__cta">יצירת פרופיל</span>
       </button>
     </div>
+    <div class="claim-signin" data-testid="claim-signin">
+      <p><b>הפרופיל שלכם לא ברשימה?</b> כנראה כבר הצטרפתם ממכשיר אחר.</p>
+      <${Button} variant="secondary" icon="link" href="#/signin">🔑 התחברות עם המייל</${Button}>
+    </div>
   </section>`;
 }
 
-function Join({ code }) {
+
+/** Taken profiles on the invite: "גם אני בפרופיל הזה 🤝" → ask to join (verified e-mail, answered by its people). */
+function ClaimedGrid({ claimed, onPick, title }) {
+  if (!claimed?.length) return null;
+  return html`<section class="stack" aria-labelledby="already-in">
+    <div>
+      <h2 class="h2" id="already-in">${title || 'כבר בטיול'}</h2>
+      <p class="muted small">בן/בת הזוג כבר נרשם/ה? מצטרפים לאותו פרופיל — הם יאשרו.</p>
+    </div>
+    <div class="claim-grid">
+      ${claimed.map((m) => html`<button type="button" class="claim-tile claim-tile--taken" key=${m.id} onClick=${() => onPick(m)}>
+        <${Avatar} member=${{ ...m, claimed: true }} size=${50} />
+        <span class="claim-tile__name">${displayName(m)}</span>
+        <span class="claim-tile__cta">גם אני בפרופיל הזה 🤝</span>
+      </button>`)}
+    </div>
+  </section>`;
+}
+
+/** Ask to join an existing profile: verify an e-mail (maybe it's already yours → straight in), say who you are, send. */
+function JoinExisting({ code, tripId, target, onBack }) {
+  const contact = useStore((s) => s.contact);
+  const people = (target.people || []).filter(Boolean);
+  const [who, setWho] = useState(people.length ? '' : '__new');
+  const [name, setName] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  // Just verified: if this e-mail already belongs to a profile here (a partner listed it), go straight in.
+  useEffect(() => {
+    if (!contact?.verified) return;
+    linkThisDevice().then((linked) => {
+      const here = linked.find((l) => l.trip_id === tripId);
+      if (here) {
+        actions.toast('זיהינו אותך ✅ נכנסים לפרופיל', 'success', 3200);
+        navigate(`/t/${tripId}`, { replace: true });
+      }
+    });
+  }, [contact?.verified]);
+
+  if (!contact?.verified) {
+    return html`<div class="stack">
+      <p class="muted small">כדי להצטרף ל<b>${displayName(target)}</b> — קודם מאמתים את המייל שלך:</p>
+      <${EmailGate} mode="inline" />
+      <button type="button" class="link onb-back-link" onClick=${onBack}><${Icon} name="arrow-right" size=${18} /> חזרה</button>
+    </div>`;
+  }
+
+  const send = async (e) => {
+    e?.preventDefault();
+    if (!who) return setError('מי את/ה בפרופיל? 🙂');
+    if (who === '__new' && !name.trim()) return setError('איך קוראים לך?');
+    setBusy(true);
+    const opts = who === '__new' ? { name: name.trim() } : { person: who };
+    const id = await actions.run((api) => api.requestProfileJoin(code, target.id, opts), { refresh: false });
+    setBusy(false);
+    if (!id) return undefined;
+    actions.toast(`הבקשה נשלחה ל${displayName(target)} ⏳`, 'success', 3200);
+    navigate(`/t/${tripId}`, { replace: true });
+    return undefined;
+  };
+
+  return html`<form class="stack-lg join-existing" onSubmit=${send} noValidate>
+    <div>
+      <h2 class="h2">מי את/ה ב״${displayName(target)}״? 🤝</h2>
+      <p class="muted small">ככה לא נספור אותך פעמיים. אחרי שיאשרו — הרשימות, ההסעה והכסף משותפים.</p>
+    </div>
+    <div class="welcome-opts" role="radiogroup" aria-label="מי את/ה">
+      ${people.map((p) => html`<button type="button" role="radio" key=${p} aria-checked=${who === p ? 'true' : 'false'}
+        class=${who === p ? 'welcome-opt is-on' : 'welcome-opt'} onClick=${() => { setWho(p); setError(null); }}>
+        <span class="welcome-opt__emoji" aria-hidden="true">🙋</span>
+        <span class="welcome-opt__text"><b>אני ${p}</b><span>כבר ברשימה של הפרופיל</span></span>
+      </button>`)}
+      <button type="button" role="radio" aria-checked=${who === '__new' ? 'true' : 'false'}
+        class=${who === '__new' ? 'welcome-opt is-on' : 'welcome-opt'} onClick=${() => { setWho('__new'); setError(null); }}>
+        <span class="welcome-opt__emoji" aria-hidden="true">➕</span>
+        <span class="welcome-opt__text"><b>אני חדש/ה בפרופיל</b><span>הפרופיל יגדל באחד</span></span>
+      </button>
+    </div>
+    ${who === '__new'
+      ? html`<${Field} label="איך קוראים לך?">
+          <${TextInput} value=${name} maxlength="40" placeholder="השם שלך" onInput=${(ev) => { setName(ev.target.value); setError(null); }} />
+        </${Field}>`
+      : null}
+    ${error ? html`<p class="field__error" role="alert">${error}</p>` : null}
+    <${Button} type="submit" variant="accent" size="lg" block loading=${busy}>שליחת בקשה להצטרף</${Button}>
+    <button type="button" class="link onb-back-link" onClick=${onBack}><${Icon} name="arrow-right" size=${18} /> חזרה לבחירת פרופיל</button>
+  </form>`;
+}
+
+function Join({ code, switchMode = false }) {
   const api = useStore((s) => s.api);
   const cleanCode = String(code || '').trim().toLowerCase();
   const [state, setState] = useState({ status: 'loading', preview: null, error: null });
   const [choice, setChoice] = useState(undefined); // undefined = choosing, null = new profile, member = claim
   const [busy, setBusy] = useState(false);
+  const [target, setTarget] = useState(null); // a taken profile to ask to join
 
   const load = async () => {
     setState({ status: 'loading', preview: null, error: null });
     try {
       const preview = await api.previewInvite(cleanCode);
-      if (preview.my_member_id) {
+      const waiting = preview.my_request?.status === 'pending' && !preview.my_member_id;
+      if ((preview.my_member_id && !switchMode) || waiting) {
         await actions.loadTrips();
         navigate(`/t/${preview.trip.id}`, { replace: true });
         return;
       }
       setState({ status: 'ready', preview, error: null });
-      setChoice(preview.unclaimed?.length ? undefined : null);
+      setChoice(switchMode || preview.unclaimed?.length || preview.claimed?.length ? undefined : null);
     } catch (e) {
       setState({ status: 'error', preview: null, error: toApiError(e) });
     }
@@ -767,12 +865,18 @@ function Join({ code }) {
     ${header}
     <div class="onb__body onb__body--lift">
       <${JoinTicket} preview=${preview} />
-      ${choice === undefined
-        ? html`<${ClaimGrid} unclaimed=${unclaimed} onPick=${pickProfile} />`
+      ${target
+        ? html`<${JoinExisting} code=${cleanCode} tripId=${preview.trip.id} target=${target} onBack=${() => setTarget(null)} />`
+        : choice === undefined
+        ? html`<div class="stack-lg">
+            ${switchMode ? null : html`<${ClaimGrid} unclaimed=${unclaimed} onPick=${pickProfile} />`}
+            <${ClaimedGrid} claimed=${(preview.claimed || []).filter((m) => m.id !== preview.my_member_id)}
+              title=${switchMode ? 'לאיזה פרופיל מצטרפים?' : null} onPick=${(m) => { setTarget(m); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+          </div>`
         : html`<div class="stack-lg">
             <div>
               <h2 class="h2">${choice ? 'רק מוודאים שהכל נכון 👌' : 'ספרו לנו עליכם 🙂'}</h2>
-              <p class="muted small">${choice ? 'אפשר לתקן שמות, אימוג׳י וצבע — ולהוסיף טלפון בשביל Bit.' : 'שם, אימוג׳י וצבע — וזהו, אתם בפנים.'}</p>
+              <p class="muted small">${choice ? 'אפשר לתקן שמות, אימוג׳י וצבע. טלפון ומייל — בשלב הבא.' : 'שם, אימוג׳י וצבע — וזהו, אתם בפנים.'}</p>
             </div>
             <${ProfileForm} key=${choice?.id || 'new'} initial=${choice || null} submitLabel="יאללה, נכנסים! 🔥" busy=${busy} onSubmit=${join} />
             ${unclaimed.length
