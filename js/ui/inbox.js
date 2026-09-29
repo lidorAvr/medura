@@ -2,10 +2,10 @@
 // told (the RPCs send the notification). Shown on the home screen; hidden when empty.
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { actions } from '../store.js?v=6582265';
-import { href } from '../router.js?v=6582265';
-import { displayName, formatMoney, formatTime, hebrewCount, myInbox } from '../lib/logic.js?v=6582265';
-import { Avatar, Button, Card, TextInput } from './components.js?v=6582265';
+import { actions } from '../store.js?v=d288b77';
+import { href } from '../router.js?v=d288b77';
+import { displayName, formatMoney, formatTime, hebrewCount, myInbox } from '../lib/logic.js?v=d288b77';
+import { Avatar, Button, Card, TextInput } from './components.js?v=d288b77';
 
 const ok = (fn) => async (api) => {
   await fn(api);

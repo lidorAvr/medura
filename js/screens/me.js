@@ -5,16 +5,16 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=6582265';
-import { cleanPhone } from '../ui/account.js?v=6582265';
-import { navigate } from '../router.js?v=6582265';
+import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=d288b77';
+import { cleanPhone } from '../ui/account.js?v=d288b77';
+import { navigate } from '../router.js?v=d288b77';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
   ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=6582265';
-import { Icon } from '../ui/icons.js?v=6582265';
-import { disablePush, enablePush, pushState } from '../lib/device.js?v=6582265';
-import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js?v=6582265';
+} from '../ui/components.js?v=d288b77';
+import { Icon } from '../ui/icons.js?v=d288b77';
+import { disablePush, enablePush, pushState } from '../lib/device.js?v=d288b77';
+import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js?v=d288b77';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -47,6 +47,8 @@ const REMINDER_KEYS = [
   ['morning_gaps', '☀️ בוקר — מה עוד פתוח אצלך', 'שורה או שתיים בסיכום של 09:30, רק כשחסר משהו'],
   ['pack_evening_before', '🎒 לפני היציאה — לארוז / לקנות', 'יום לפני ב-12:00 וב-19:00, ושעה לפני שיוצאים — רק מה שעוד לא סומן'],
   ['task_due', '⏰ הגיע הזמן למשימה', 'כשמגיע המועד של משימה שלקחת'],
+  ['unclaimed', '🙋 מה שאף אחד לא לקח (מנהלים)', 'יום לפני ב-12:00 וב-19:00, ובבוקר היציאה — רק אם יש כאלה'],
+  ['expense_missing', '🧾 לרשום הוצאה על הקניות', 'בערב שלפני היציאה, אם יש לך קניות ועוד לא רשמת הוצאה (מנהלים: מי עוד לא)'],
   ['departure_morning', '🚗 בוקר היציאה', 'מה לא לשכוח לפני שיוצאים'],
   ['pay_after_trip', '💸 אחרי הטיול — להתחשבן', 'למי להעביר וכמה'],
 ];

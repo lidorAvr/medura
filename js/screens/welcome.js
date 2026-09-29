@@ -3,13 +3,13 @@
 // Every step can be skipped; finishing (or skipping to the end) sets prefs.onboarded.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, store, useStore, useTrip } from '../store.js?v=6582265';
-import { navigate } from '../router.js?v=6582265';
-import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=6582265';
-import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js?v=6582265';
-import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=6582265';
-import { RideOffers } from './rides.js?v=6582265';
-import { arrivalOf, hasModule, tripType } from '../lib/templates.js?v=6582265';
+import { actions, store, useStore, useTrip } from '../store.js?v=d288b77';
+import { navigate } from '../router.js?v=d288b77';
+import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=d288b77';
+import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js?v=d288b77';
+import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=d288b77';
+import { RideOffers } from './rides.js?v=d288b77';
+import { arrivalOf, hasModule, tripType } from '../lib/templates.js?v=d288b77';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;

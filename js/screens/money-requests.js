@@ -3,11 +3,11 @@
 // so balances, "📥 מחכה לך" and the morning reminders follow). Lives on the money screen.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { actions, store } from '../store.js?v=6582265';
-import { balances, displayName, formatMoney, headcountTotal, hebrewCount, whatsappChatUrl } from '../lib/logic.js?v=6582265';
+import { actions, store } from '../store.js?v=d288b77';
+import { balances, displayName, formatMoney, headcountTotal, hebrewCount, whatsappChatUrl } from '../lib/logic.js?v=d288b77';
 import {
   Avatar, Button, Card, Chip, CopyButton, Field, MemberPicker, MoneyInput, Segmented, Sheet, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=6582265';
+} from '../ui/components.js?v=d288b77';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const METHOD = { bit: '📱 ביט', paybox: '📦 פייבוקס', bank: '🏦 העברה בנקאית', cash: '💵 מזומן' };

@@ -4,18 +4,18 @@
 // Also exports small helpers that shopping.js and import.js reuse.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=6582265';
-import { navigate, href } from '../router.js?v=6582265';
+import { actions, useTrip } from '../store.js?v=d288b77';
+import { navigate, href } from '../router.js?v=d288b77';
 import {
   buildSummaryText, displayName, formatQty, headcountTotal, hebrewCount, itemEffectiveQty, itemProgress,
   membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
   ilIso as ilIsoDue, ilWall as ilWallDue,
-} from '../lib/logic.js?v=6582265';
+} from '../lib/logic.js?v=d288b77';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, Pill, ProgressBar,
   Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti,
-} from '../ui/components.js?v=6582265';
-import { Icon } from '../ui/icons.js?v=6582265';
+} from '../ui/components.js?v=d288b77';
+import { Icon } from '../ui/icons.js?v=d288b77';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by shopping.js and import.js)
@@ -115,7 +115,7 @@ export function itemStatus(item, prog) {
         ? { text: `${prog.doneCount}/${prog.total} ארזו`, tone: 'accent' }
         : { text: `חלקי ${prog.pledged}/${prog.needed}`, tone: 'accent' };
     default:
-      return item.type === 'each' ? { text: `0/${prog.total} ארזו`, tone: 'ember' } : { text: 'חסר', tone: 'ember' };
+      return item.type === 'each' ? { text: `0/${prog.total} ארזו`, tone: 'ember' } : { text: '🙋 אף אחד עוד לא לקח', tone: 'ember' };
   }
 }
 

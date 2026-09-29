@@ -2,19 +2,19 @@
 // rules & tips, notes, invite link — and for admins an edit sheet for every trip field.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=6582265';
-import { RidesCard } from './rides.js?v=6582265';
-import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js?v=6582265';
-import { CURRENCIES } from '../lib/fx.js?v=6582265';
-import { BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=6582265';
-import { href, navigate } from '../router.js?v=6582265';
+import { actions, useTrip } from '../store.js?v=d288b77';
+import { RidesCard } from './rides.js?v=d288b77';
+import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js?v=d288b77';
+import { CURRENCIES } from '../lib/fx.js?v=d288b77';
+import { BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=d288b77';
+import { href, navigate } from '../router.js?v=d288b77';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
-} from '../lib/logic.js?v=6582265';
+} from '../lib/logic.js?v=d288b77';
 import {
   Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, IconButton, Sheet, ShareButton, Skeleton,
   TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=6582265';
+} from '../ui/components.js?v=d288b77';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';
