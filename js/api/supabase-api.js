@@ -2,7 +2,7 @@
 // Every method is a thin camelCase wrapper around one RPC from SPEC §4 with the exact
 // `p_*` parameter names. All failures are normalized to ApiError via toApiError.
 
-import { ApiError, toApiError } from './errors.js?v=71bed20';
+import { ApiError, toApiError } from './errors.js?v=6582265';
 
 const POLL_MS = 45000;
 
@@ -212,6 +212,10 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     deleteExpense: (id) => rpc('delete_expense', { p_expense: id }),
 
     addPayment: (tripId, pay) => rpc('add_payment', { p_trip: tripId, p_pay: pay }),
+    createMoneyRequest: (tripId, req) => rpc('create_money_request', { p_trip: tripId, p_req: req }),
+    payMoneyRequest: (requestId, method) => rpc('pay_money_request', { p_request: requestId, p_method: method ?? null }),
+    cancelMoneyRequest: (requestId) => rpc('cancel_money_request', { p_request: requestId }),
+    settleMoneyRequestShare: (requestId, memberId) => rpc('settle_money_request_share', { p_request: requestId, p_member: memberId }),
     confirmPayment: (id) => rpc('confirm_payment', { p_payment: id }),
     deletePayment: (id) => rpc('delete_payment', { p_payment: id }),
 

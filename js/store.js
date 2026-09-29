@@ -1,9 +1,9 @@
 // App store (SPEC §7.3): one tiny observable object + hooks + actions.
 import { useEffect, useReducer, useRef } from 'preact/hooks';
-import { createApi } from './api/index.js?v=71bed20';
-import { hebrewError, toApiError } from './api/errors.js?v=71bed20';
-import { isAdmin as memberIsAdmin, tripPhase, visibleNotifications } from './lib/logic.js?v=71bed20';
-import { parseHash, navigate } from './router.js?v=71bed20';
+import { createApi } from './api/index.js?v=6582265';
+import { hebrewError, toApiError } from './api/errors.js?v=6582265';
+import { isAdmin as memberIsAdmin, tripPhase, visibleNotifications } from './lib/logic.js?v=6582265';
+import { parseHash, navigate } from './router.js?v=6582265';
 
 const THEME_KEY = 'medura:theme';
 const THEMES = ['auto', 'light', 'dark'];
@@ -114,6 +114,19 @@ export function useTrip() {
 // ---------------------------------------------------------------------------
 
 let toastSeq = 0;
+
+/** New screens met old modules (a deploy mid-load): tell the person and reload once per session. */
+function reloadForUpdate() {
+  try {
+    if (sessionStorage.getItem('medura:reloaded')) return false;
+    sessionStorage.setItem('medura:reloaded', '1');
+  } catch {
+    return false;
+  }
+  toast('יש גרסה חדשה — מרעננים רגע… 🔄', 'info', 2500);
+  setTimeout(() => location.reload(), 1200);
+  return true;
+}
 
 function dismissToast(id) {
   store.set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
@@ -364,6 +377,8 @@ export const actions = {
       return result;
     } catch (e) {
       const err = toApiError(e);
+      console.warn('[medura] action failed', err.code, err.detail || '', e);
+      if (e instanceof TypeError && /is not a function/.test(String(e.message)) && reloadForUpdate()) return undefined;
       const text = typeof error === 'function' ? error(err.code, err) : error || hebrewError(err.code);
       toast(text, 'error', 3800);
       if (err.code === 'network') store.set({ online: false });

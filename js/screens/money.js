@@ -3,18 +3,19 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=71bed20';
-import { navigate } from '../router.js?v=71bed20';
+import { actions, store, useTrip } from '../store.js?v=6582265';
+import { navigate } from '../router.js?v=6582265';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
   membersById, settlePlan, timeAgo, tripTotals, whatsappChatUrl,
-} from '../lib/logic.js?v=71bed20';
+} from '../lib/logic.js?v=6582265';
 import {
   Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, IconButton, MemberPicker, MoneyInput, Pill,
   ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, confirmDialog, fireConfetti,
-} from '../ui/components.js?v=71bed20';
-import { Icon } from '../ui/icons.js?v=71bed20';
-import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=71bed20';
+} from '../ui/components.js?v=6582265';
+import { Icon } from '../ui/icons.js?v=6582265';
+import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=6582265';
+import { MoneyRequests } from './money-requests.js?v=6582265';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -226,6 +227,8 @@ export default function MoneyScreen({ route }) {
       active=${active}
       onAdd=${() => openExpense({})}
     />
+
+    <${MoneyRequests} snap=${snap} me=${me} admin=${admin} />
 
     ${active ? html`<${PayStyle} me=${me} />` : null}
 

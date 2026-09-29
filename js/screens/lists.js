@@ -4,17 +4,18 @@
 // Also exports small helpers that shopping.js and import.js reuse.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=71bed20';
-import { navigate, href } from '../router.js?v=71bed20';
+import { actions, useTrip } from '../store.js?v=6582265';
+import { navigate, href } from '../router.js?v=6582265';
 import {
   buildSummaryText, displayName, formatQty, headcountTotal, hebrewCount, itemEffectiveQty, itemProgress,
   membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
-} from '../lib/logic.js?v=71bed20';
+  ilIso as ilIsoDue, ilWall as ilWallDue,
+} from '../lib/logic.js?v=6582265';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, Pill, ProgressBar,
   Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti,
-} from '../ui/components.js?v=71bed20';
-import { Icon } from '../ui/icons.js?v=71bed20';
+} from '../ui/components.js?v=6582265';
+import { Icon } from '../ui/icons.js?v=6582265';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by shopping.js and import.js)
@@ -909,7 +910,7 @@ const SELF_LABEL = { buy: 'אני קונה את זה', bring: 'אני מביא/�
 
 function blankForm(patch) {
   return {
-    title: '', category_id: null, type: 'buy', qty: '', unit: null, per_person: false, needed: 1, note: '',
+    title: '', category_id: null, type: 'buy', qty: '', unit: null, per_person: false, needed: 1, note: '', due: '',
     self: false, selfQty: 1, catTouched: false, typeTouched: false, ...patch,
   };
 }
@@ -924,6 +925,7 @@ function formFromItem(item) {
     per_person: !!item.per_person,
     needed: item.needed || 1,
     note: item.note || '',
+    due: item.due_at ? (({ ymd, hm }) => `${ymd}T${hm}`)(ilWallDue(new Date(item.due_at))) : '',
     catTouched: true,
     typeTouched: true,
   });
@@ -955,6 +957,7 @@ function formToPayload(form, { creating }) {
     category_id: form.category_id || null,
     type: form.type,
     note: form.note.trim() || null,
+    due_at: form.due ? ilIsoDue(form.due.slice(0, 10), form.due.slice(11, 16) || '09:00') : null,
   };
   if (form.type === 'buy') {
     const q = parseQty(form.qty);
@@ -1086,6 +1089,9 @@ function ItemFormFields({ form, set, errors, ctx, creating, lockType, afterTitle
 
     <${Field} label="הערה" error=${errors.note}>
       <${TextArea} value=${form.note} onInput=${(e) => set({ note: e.currentTarget.value })} rows=${2} placeholder="מותג, גודל, למי לפנות… (לא חובה)" maxlength="500" />
+    </${Field}>
+    <${Field} label="⏰ עד מתי? (לא חובה)" hint="בזמן הזה מי שלקח את זה ועוד לא סימן — מקבל תזכורת בפוש ובמייל">
+      <${TextInput} type="datetime-local" value=${form.due} onInput=${(e) => set({ due: e.currentTarget.value })} />
     </${Field}>
 
     ${creating && form.type !== 'each'

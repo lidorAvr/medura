@@ -5,15 +5,16 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions, emailRequired } from '../store.js?v=71bed20';
-import { navigate } from '../router.js?v=71bed20';
+import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=6582265';
+import { cleanPhone } from '../ui/account.js?v=6582265';
+import { navigate } from '../router.js?v=6582265';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
   ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=71bed20';
-import { Icon } from '../ui/icons.js?v=71bed20';
-import { disablePush, enablePush, pushState } from '../lib/device.js?v=71bed20';
-import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js?v=71bed20';
+} from '../ui/components.js?v=6582265';
+import { Icon } from '../ui/icons.js?v=6582265';
+import { disablePush, enablePush, pushState } from '../lib/device.js?v=6582265';
+import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js?v=6582265';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -44,7 +45,8 @@ const NOTIFY_KEYS = [
 ];
 const REMINDER_KEYS = [
   ['morning_gaps', '☀️ בוקר — מה עוד פתוח אצלך', 'שורה או שתיים בסיכום של 09:30, רק כשחסר משהו'],
-  ['pack_evening_before', '🎒 ערב לפני — לארוז', 'רשימת "המשימות שלי" + מה עוד לא ארוז'],
+  ['pack_evening_before', '🎒 לפני היציאה — לארוז / לקנות', 'יום לפני ב-12:00 וב-19:00, ושעה לפני שיוצאים — רק מה שעוד לא סומן'],
+  ['task_due', '⏰ הגיע הזמן למשימה', 'כשמגיע המועד של משימה שלקחת'],
   ['departure_morning', '🚗 בוקר היציאה', 'מה לא לשכוח לפני שיוצאים'],
   ['pay_after_trip', '💸 אחרי הטיול — להתחשבן', 'למי להעביר וכמה'],
 ];
@@ -249,6 +251,7 @@ function MeBody({ snap, me, admin, tripId }) {
     <${InventoryCard} me=${me} />
     <${DietCard} me=${me} />
     <${NotifyCard} me=${me} tripId=${tripId} />
+    <${AccountCard} />
     <${EmailCard} me=${me} />
     <${TogetherCard} me=${me} trip=${snap.trip} />
     <${DeviceLinkCard} me=${me} trip=${snap.trip} />
@@ -656,6 +659,49 @@ function ThemeCard() {
 // ---------------------------------------------------------------------------
 
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
+
+/** "הפרופיל שלי": the person (by verified e-mail) — one name and phone for all their trips. */
+function AccountCard() {
+  const [acc, setAcc] = useState(undefined);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    store.get().api.myAccount?.().then((a) => {
+      if (!alive) return;
+      setAcc(a || null);
+      setName(a?.name || '');
+      setPhone(a?.phone || '');
+    }).catch(() => alive && setAcc(null));
+    return () => { alive = false; };
+  }, []);
+  if (!acc?.verified) return null;
+  const dirty = name.trim() !== (acc.name || '') || phone.trim() !== (acc.phone || '');
+  const save = async (e) => {
+    e?.preventDefault();
+    if (!name.trim()) return;
+    if (phone.trim() && !cleanPhone(phone)) {
+      actions.toast('הטלפון לא נראה תקין — רק ספרות, רווחים ומקפים', 'error');
+      return;
+    }
+    setBusy(true);
+    const res = await actions.run((api) => api.saveAccount({ name: name.trim(), phone: cleanPhone(phone) }),
+      { refresh: false, success: 'הפרופיל שלך נשמר ✅' });
+    setBusy(false);
+    if (res) setAcc(res);
+  };
+  return html`<${Card} emoji="🙂" title="הפרופיל שלי" class="me-account" data-testid="account-card">
+    <p class="muted small me-card__lead">פעם אחת לכל הטיולים · <bdi dir="ltr">${acc.email}</bdi> ✅</p>
+    <form class="stack" onSubmit=${save} noValidate>
+      <div class="grid-2">
+        <${Field} label="השם שלי"><${TextInput} value=${name} maxlength="40" onInput=${(e) => setName(e.target.value)} /></${Field}>
+        <${Field} label="טלפון"><${TextInput} type="tel" dir="ltr" value=${phone} maxlength="20" placeholder="050-1234567" onInput=${(e) => setPhone(e.target.value)} /></${Field}>
+      </div>
+      ${dirty ? html`<${Button} type="submit" size="sm" loading=${busy}>שמירה</${Button}>` : null}
+    </form>
+  </${Card}>`;
+}
 
 function EmailCard({ me }) {
   const contact = useStore((s) => s.contact);

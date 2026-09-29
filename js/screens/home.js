@@ -3,21 +3,22 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=71bed20';
-import { href, navigate } from '../router.js?v=71bed20';
+import { actions, useTrip } from '../store.js?v=6582265';
+import { href, navigate } from '../router.js?v=6582265';
 import {
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
   hebrewCount, itemEffectiveQty, itemProgress, membersById, missingItems, myAgenda, similarItems, timeAgo, tripReadiness,
   visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats,
-} from '../lib/logic.js?v=71bed20';
+} from '../lib/logic.js?v=6582265';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js?v=71bed20';
-import { Icon } from '../ui/icons.js?v=71bed20';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=71bed20';
-import { InboxCard } from '../ui/inbox.js?v=71bed20';
-import { hasModule, tripSetupGaps } from '../lib/templates.js?v=71bed20';
+} from '../ui/components.js?v=6582265';
+import { Icon } from '../ui/icons.js?v=6582265';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=6582265';
+import { InboxCard } from '../ui/inbox.js?v=6582265';
+import { hebrewError } from '../api/errors.js?v=6582265';
+import { hasModule, tripSetupGaps } from '../lib/templates.js?v=6582265';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 6;
@@ -170,7 +171,7 @@ export default function HomeScreen({ route }) {
     <${PhaseStrip} phase=${phase} />
 
     ${phase === 'during'
-      ? html`<${RestCard} snap=${snap} />`
+      ? html`<${RestCard} snap=${snap} /><${InboxCard} snap=${snap} me=${me} only=${['profile_request']} />`
       : html`
         ${after ? html`<${AfterCard} snap=${snap} me=${me} isAdmin=${isAdmin} />` : html`<${TripDayCard} snap=${snap} me=${me} now=${now} />`}
         <${InboxCard} snap=${snap} me=${me} skip=${['proposals']} />
@@ -204,7 +205,7 @@ export default function HomeScreen({ route }) {
         ${after ? null : html`<${StillMissing} model=${model} busy=${busy} onTake=${take} onAdd=${() => setSheet('item')} />`}
       `}
 
-    <${WhoAmI} snap=${snap} me=${me} />
+    <${WhoAmI} snap=${snap} me=${me} phase=${phase} />
     <${ItemSheet} open=${sheet === 'item'} onClose=${() => setSheet(null)} snap=${snap} isAdmin=${isAdmin} tripId=${tripId} />
     <${ExpenseSheet} open=${sheet === 'expense'} onClose=${() => setSheet(null)} snap=${snap} me=${me} tripId=${tripId} />
     ${isAdmin
@@ -411,31 +412,49 @@ function PhaseStrip({ phase }) {
 }
 
 /** Once, for a device that joined a shared profile before profiles knew their people: "מי את/ה ב״הדס ועידו״?" */
-function WhoAmI({ snap, me }) {
+function WhoAmI({ snap, me, phase }) {
+  const tripId = snap.trip.id;
+  const snoozeKey = `medura:whoami:${tripId}`;
   const [busy, setBusy] = useState(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return Number(localStorage.getItem(snoozeKey) || 0) > Date.now();
+    } catch {
+      return false;
+    }
+  });
   const people = (me?.people || []).filter(Boolean);
-  const open = Boolean(me && people.length > 1 && snap.me && !snap.me.person && !dismissed);
+  const open = Boolean(me && people.length > 1 && snap.me && !snap.me.person && !dismissed && phase !== 'during');
   const joined = new Set(me?.joined || []);
+  const later = () => {
+    try {
+      localStorage.setItem(snoozeKey, String(Date.now() + 24 * 3600e3));   // ask again tomorrow
+    } catch {
+      /* storage unavailable */
+    }
+    setDismissed(true);
+  };
   const choose = async (p) => {
     setBusy(p);
-    const ok = await actions.run(async (api) => { await api.setMyPerson(snap.trip.id, p); return true; },
-      { success: `היי ${p}! 👋 מעכשיו רואים בדיוק מי מה` });
+    const ok = await actions.run(async (api) => { await api.setMyPerson(tripId, p); return true; }, {
+      success: `היי ${p}! 👋 מעכשיו רואים בדיוק מי מה`,
+      error: (code) => (code === 'already_claimed' ? `מישהו אחר (במייל אחר) כבר נכנס בתור ${p} — אפשר לבדוק במסך חבר׳ה` : hebrewError(code)),
+    });
     setBusy(null);
     if (ok) setDismissed(true);
   };
-  const free = people.filter((p) => !joined.has(p));
-  return html`<${Sheet} open=${open} onClose=${() => {}} title=${`מי את/ה ב״${me ? displayName(me) : ''}״? 🙋`}>
+  // every name stays tappable — the server knows whether "the other device" is you (same e-mail)
+  return html`<${Sheet} open=${open} onClose=${later} title=${`מי את/ה ב״${me ? displayName(me) : ''}״? 🙋`}>
     <div class="stack" data-testid="who-am-i">
-      <p class="muted">פעם אחת בלבד — ככה כולם רואים מי מביא ומי ראה, בלי בלבול.</p>
+      <p class="muted">פעם אחת — ככה כולם רואים מי מביא ומי ראה, בלי בלבול.</p>
       <div class="welcome-opts" role="radiogroup" aria-label="מי את/ה">
         ${people.map((p) => html`<button type="button" role="radio" key=${p} aria-checked="false" class="welcome-opt"
-          disabled=${joined.has(p) || Boolean(busy)} onClick=${() => choose(p)}>
-          <span class="welcome-opt__emoji" aria-hidden="true">${joined.has(p) ? '✓' : '🙋'}</span>
-          <span class="welcome-opt__text"><b>אני ${p}</b><span>${joined.has(p) ? 'כבר נכנס/ה ממכשיר אחר' : busy === p ? 'רגע…' : 'זה אני'}</span></span>
+          disabled=${Boolean(busy)} onClick=${() => choose(p)}>
+          <span class="welcome-opt__emoji" aria-hidden="true">🙋</span>
+          <span class="welcome-opt__text"><b>אני ${p}</b><span>${busy === p ? 'רגע…' : joined.has(p) ? 'נכנס/ה גם ממכשיר אחר — אם זה את/ה, מצוין' : 'זה אני'}</span></span>
         </button>`)}
       </div>
-      ${free.length ? null : html`<${Button} variant="ghost" onClick=${() => setDismissed(true)}>אף אחד מאלה — אחר כך</${Button}>`}
+      <${Button} variant="ghost" disabled=${Boolean(busy)} onClick=${later}>אחר כך</${Button}>
     </div>
   </${Sheet}>`;
 }

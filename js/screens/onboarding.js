@@ -1,20 +1,20 @@
 // Onboarding (SPEC §8.1): landing / new trip / join ("מי אתם?") / link device.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, useStore } from '../store.js?v=71bed20';
-import { navigate, href } from '../router.js?v=71bed20';
-import { hebrewError, toApiError } from '../api/errors.js?v=71bed20';
+import { actions, useStore } from '../store.js?v=6582265';
+import { navigate, href } from '../router.js?v=6582265';
+import { hebrewError, toApiError } from '../api/errors.js?v=6582265';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
-} from '../lib/logic.js?v=71bed20';
+} from '../lib/logic.js?v=6582265';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
   fireConfetti,
-} from '../ui/components.js?v=71bed20';
-import { Icon } from '../ui/icons.js?v=71bed20';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=71bed20';
-import { Entry } from '../ui/account.js?v=71bed20';
-import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js?v=71bed20';
+} from '../ui/components.js?v=6582265';
+import { Icon } from '../ui/icons.js?v=6582265';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=6582265';
+import { Entry, cleanPhone } from '../ui/account.js?v=6582265';
+import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js?v=6582265';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];
@@ -684,7 +684,7 @@ function JoinTicket({ preview }) {
 }
 
 /** Everyone on the trip, one card per person ("עידו", small: "בפרופיל הדס ועידו") — pick yourself, you're in. */
-function PeopleGrid({ unclaimed, claimed, busy, onPickPerson, onNew }) {
+function PeopleGrid({ unclaimed, claimed, busy, onPickPerson, onAsk, onNew }) {
   const tiles = [];
   for (const m of [...unclaimed, ...claimed]) {
     const people = (m.people || []).filter(Boolean);
@@ -693,7 +693,9 @@ function PeopleGrid({ unclaimed, claimed, busy, onPickPerson, onNew }) {
     const isClaimed = claimed.includes(m);
     for (const p of names) {
       const taken = isClaimed && (names.length < 2 || joined.has(p));
-      tiles.push({ key: `${m.id}:${p}`, m, person: people.length ? p : null, name: p, taken, multi: names.length > 1 });
+      // an owner/admin profile, or one whose device never said who it is: its people approve (older servers send no `open`)
+      const ask = isClaimed && !taken && Array.isArray(m.open) && !m.open.includes(p);
+      tiles.push({ key: `${m.id}:${p}`, m, person: people.length ? p : null, name: p, taken, ask, multi: names.length > 1 });
     }
   }
   tiles.sort((a, b) => Number(a.taken) - Number(b.taken));
@@ -704,11 +706,11 @@ function PeopleGrid({ unclaimed, claimed, busy, onPickPerson, onNew }) {
     </div>
     <div class="claim-grid" data-testid="people-grid">
       ${tiles.map((x) => html`<button type="button" key=${x.key} class=${x.taken ? 'claim-tile claim-tile--taken is-in' : 'claim-tile'}
-        disabled=${x.taken || busy} data-person=${x.name} onClick=${() => onPickPerson(x.m, x.person)}>
+        disabled=${x.taken || busy} data-person=${x.name} onClick=${() => (x.ask ? onAsk(x.m, x.person) : onPickPerson(x.m, x.person))}>
         <${Avatar} member=${{ ...x.m, headcount: 1, claimed: true, display_name: x.name }} size=${54} />
         <span class="claim-tile__name">${x.name}</span>
         ${x.multi ? html`<span class="claim-tile__people">בפרופיל ${displayName(x.m)}</span>` : null}
-        <span class="claim-tile__cta">${x.taken ? '✓ כבר בפנים' : 'זה אני!'}</span>
+        <span class="claim-tile__cta">${x.taken ? '✓ כבר בפנים' : x.ask ? 'זה אני — לבקש 🤝' : 'זה אני!'}</span>
       </button>`)}
       <button type="button" class="claim-tile claim-tile--new" disabled=${busy} onClick=${onNew}>
         <span class="claim-tile__plus" aria-hidden="true">✨</span>
@@ -745,7 +747,7 @@ function ClaimedGrid({ claimed, onPick, title }) {
 function JoinExisting({ code, tripId, target, onBack }) {
   const contact = useStore((s) => s.contact);
   const people = (target.people || []).filter(Boolean);
-  const [who, setWho] = useState(people.length ? '' : '__new');
+  const [who, setWho] = useState(target.preselect && people.includes(target.preselect) ? target.preselect : people.length ? '' : '__new');
   const [name, setName] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -819,6 +821,11 @@ function Join({ code, switchMode = false }) {
   const [choice, setChoice] = useState(undefined); // undefined = choosing, null = new profile, member = claim
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState(null); // a taken profile to ask to join
+  const [account, setAccount] = useState(null); // "הפרופיל שלי" (name, phone) when this device has one
+  useEffect(() => {
+    if (!api?.myAccount) return;
+    api.myAccount().then((a) => setAccount(a?.verified ? a : null)).catch(() => {});
+  }, [api]);
 
   const load = async () => {
     setState({ status: 'loading', preview: null, error: null });
@@ -857,6 +864,10 @@ function Join({ code, switchMode = false }) {
         refresh: false,
         error: (errCode) => {
           if (errCode === 'already_claimed' || errCode === 'not_found') retryPreview = true;
+          if (errCode === 'needs_approval' && as) {
+            setTarget({ ...as.member, preselect: as.person });            // → ask the profile's people
+            return 'לפרופיל הזה נכנסים באישור — שולחים להם בקשה 🤝';
+          }
           return hebrewError(errCode);
         },
       },
@@ -868,7 +879,17 @@ function Join({ code, switchMode = false }) {
     }
     fireConfetti();
     await actions.loadTrips();
-    await actions.openTrip(res.trip_id, { force: true });
+    const opened = await actions.openTrip(res.trip_id, { force: true });
+    // the profile has no phone yet and my account has one: fill it (never overwrite)
+    const mine = opened?.members?.find((m) => m.id === res.member_id);
+    if (cleanPhone(account?.phone) && mine && !mine.phone) {
+      try {
+        await store.get().api.updateMember(mine.id, { phone: cleanPhone(account.phone) });
+        await actions.refresh();
+      } catch {
+        /* a phone is a nicety — never block joining over it */
+      }
+    }
     actions.toast('ברוכים הבאים! 🔥 איזה כיף שבאתם', 'success', 3200);
     navigate(`/t/${res.trip_id}`);
   };
@@ -919,7 +940,9 @@ function Join({ code, switchMode = false }) {
             ${switchMode
               ? null
               : html`<${PeopleGrid} unclaimed=${unclaimed} claimed=${preview.claimed || []} busy=${busy}
-                  onPickPerson=${(m, person) => join(null, { member: m, person })} onNew=${() => pickProfile(null)} />`}
+                  onPickPerson=${(m, person) => join(null, { member: m, person })}
+                  onAsk=${(m, person) => { setTarget({ ...m, preselect: person }); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  onNew=${() => pickProfile(null)} />`}
             <details class="join-more" open=${switchMode}>
               <summary>${switchMode ? 'לאיזה פרופיל מצטרפים?' : 'מצטרפים לפרופיל של מישהו (בן/בת זוג, משפחה)?'}</summary>
               <${ClaimedGrid} claimed=${(preview.claimed || []).filter((m) => m.id !== preview.my_member_id)}
@@ -931,7 +954,10 @@ function Join({ code, switchMode = false }) {
               <h2 class="h2">${choice ? 'רק מוודאים שהכל נכון 👌' : 'ספרו לנו עליכם 🙂'}</h2>
               <p class="muted small">${choice ? 'אפשר לתקן שמות, אימוג׳י וצבע. טלפון ומייל — בשלב הבא.' : 'שם, אימוג׳י וצבע — וזהו, אתם בפנים.'}</p>
             </div>
-            <${ProfileForm} key=${choice?.id || 'new'} initial=${choice || null} submitLabel="יאללה, נכנסים! 🔥" busy=${busy} onSubmit=${join} />
+            <${ProfileForm} key=${choice?.id || (account?.name ? 'new-acc' : 'new')}
+              initial=${choice || (account?.name ? { display_name: account.name, people: [account.name], headcount: 1 } : null)}
+              submitLabel="יאללה, נכנסים! 🔥" busy=${busy}
+              onSubmit=${(profile) => join(!choice && cleanPhone(account?.phone) && profile && !profile.phone ? { ...profile, phone: cleanPhone(account.phone) } : profile)} />
             ${unclaimed.length
               ? html`<button type="button" class="link onb-back-link" onClick=${() => setChoice(undefined)}><${Icon} name="arrow-right" size=${18} /> חזרה לבחירת פרופיל</button>`
               : null}

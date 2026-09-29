@@ -2,16 +2,17 @@
 import { html } from 'htm/preact';
 import { Component } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { useRoute, href, navigate } from './router.js?v=71bed20';
-import { useStore, useTrip, actions, emailRequired } from './store.js?v=71bed20';
-import { unreadCount } from './lib/logic.js?v=71bed20';
-import { hebrewError } from './api/errors.js?v=71bed20';
-import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=71bed20';
-import { Icon } from './ui/icons.js?v=71bed20';
-import { EmailGate } from './ui/email-gate.js?v=71bed20';
-import { Tour, tourDue } from './ui/tour.js?v=71bed20';
-import { PendingGate } from './ui/pending.js?v=71bed20';
-import { arrivalOf, hasModule } from './lib/templates.js?v=71bed20';
+import { useRoute, href, navigate } from './router.js?v=6582265';
+import { useStore, useTrip, actions, emailRequired } from './store.js?v=6582265';
+import { unreadCount } from './lib/logic.js?v=6582265';
+import { hebrewError } from './api/errors.js?v=6582265';
+import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=6582265';
+import { Icon } from './ui/icons.js?v=6582265';
+import { EmailGate } from './ui/email-gate.js?v=6582265';
+import { Tour, tourDue } from './ui/tour.js?v=6582265';
+import { PendingGate } from './ui/pending.js?v=6582265';
+import { arrivalOf, hasModule } from './lib/templates.js?v=6582265';
+import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=6582265';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -20,22 +21,22 @@ const cx = (...a) => a.filter(Boolean).join(' ');
 // ---------------------------------------------------------------------------
 
 const SCREENS = {
-  landing: './screens/onboarding.js?v=71bed20',
-  new: './screens/onboarding.js?v=71bed20',
-  join: './screens/onboarding.js?v=71bed20',
-  link: './screens/onboarding.js?v=71bed20',
-  home: './screens/home.js?v=71bed20',
-  trip: './screens/trip.js?v=71bed20',
-  rides: './screens/rides.js?v=71bed20',
-  lists: './screens/lists.js?v=71bed20',
-  shop: './screens/shopping.js?v=71bed20',
-  import: './screens/import.js?v=71bed20',
-  money: './screens/money.js?v=71bed20',
-  messages: './screens/messages.js?v=71bed20',
-  people: './screens/people.js?v=71bed20',
-  me: './screens/me.js?v=71bed20',
-  welcome: './screens/welcome.js?v=71bed20',
-  signin: './screens/signin.js?v=71bed20',
+  landing: './screens/onboarding.js?v=6582265',
+  new: './screens/onboarding.js?v=6582265',
+  join: './screens/onboarding.js?v=6582265',
+  link: './screens/onboarding.js?v=6582265',
+  home: './screens/home.js?v=6582265',
+  trip: './screens/trip.js?v=6582265',
+  rides: './screens/rides.js?v=6582265',
+  lists: './screens/lists.js?v=6582265',
+  shop: './screens/shopping.js?v=6582265',
+  import: './screens/import.js?v=6582265',
+  money: './screens/money.js?v=6582265',
+  messages: './screens/messages.js?v=6582265',
+  people: './screens/people.js?v=6582265',
+  me: './screens/me.js?v=6582265',
+  welcome: './screens/welcome.js?v=6582265',
+  signin: './screens/signin.js?v=6582265',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
@@ -204,6 +205,9 @@ function TopBar({ route }) {
           : html`<span class="topbar__name topbar__name--loading" aria-hidden="true"></span>`}
       </a>
       <div class="topbar__actions">
+        ${hasGuide(route.name)
+          ? html`<button type="button" class="topbar__help" aria-label="מה אפשר לעשות כאן?" onClick=${() => openGuide(route.name)}>?</button>`
+          : null}
         <${IconButton} icon="bell" label="הודעות" badge=${unread} href=${href(`/t/${tripId}/messages`)} class="topbar__bell" />
         <a class="topbar__me" href=${href(`/t/${tripId}/me`)} aria-label="הפרופיל שלי">
           <${Avatar} member=${me} size=${36} />
@@ -426,6 +430,7 @@ export function App() {
     </main>
     ${showNav ? html`<${BottomNav} route=${route} />` : null}
     ${showNav ? html`<${Tour} open=${tourOpen} tripId=${routeTrip} onClose=${() => setTourOpen(false)} />` : null}
+    ${showNav ? html`<${TabGuide} key=${route.name} name=${route.name} blocked=${tourOpen} />` : null}
     <${Toasts} />
   </div>`;
 }

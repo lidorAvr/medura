@@ -7,7 +7,8 @@
 // Every call loads a fresh copy, runs one RPC against it, and saves only on success —
 // so a failed call never leaves partial changes behind (like a SQL transaction).
 
-import { ApiError } from './errors.js?v=71bed20';
+import { ApiError } from './errors.js?v=6582265';
+import { balances } from '../lib/logic.js?v=6582265';
 import {
   DEMO_VERSION,
   DEFAULT_CATEGORIES,
@@ -16,7 +17,7 @@ import {
   PERSONAL_TEMPLATE,
   buildDemoSeed,
   jerusalemYmd,
-} from './demo-seed.js?v=71bed20';
+} from './demo-seed.js?v=6582265';
 
 export const DEMO_STORAGE_KEY = 'medura:demo:v1';
 export const DEMO_UID_KEY = 'medura:demo:uid';
@@ -32,7 +33,7 @@ const TABLES = [
   'trips', 'members', 'member_secrets', 'member_users', 'categories', 'items', 'pledges',
   'expenses', 'expense_shares', 'payments', 'notifications', 'notification_reads',
   'admin_votes', 'polls', 'poll_votes', 'personal_items', 'push_subscriptions',
-  'user_contacts', 'email_codes', 'member_emails', 'rides', 'ride_seats', 'profile_requests', 'accounts',
+  'user_contacts', 'email_codes', 'member_emails', 'rides', 'ride_seats', 'profile_requests', 'accounts', 'money_requests', 'money_request_members',
 ];
 
 // Snapshot projections (SPEC §5) — the exact key sets.
@@ -42,7 +43,7 @@ const K = {
   memberBrief: ['id', 'display_name', 'emoji', 'color', 'role'],
   unclaimed: ['id', 'display_name', 'headcount', 'people', 'emoji', 'color'],
   category: ['id', 'name', 'emoji', 'sort', 'default_buyer_id', 'note'],
-  item: ['id', 'category_id', 'title', 'note', 'type', 'qty', 'unit', 'per_person', 'needed', 'status', 'done', 'done_at', 'reject_reason', 'created_by', 'approved_by', 'sort', 'created_at', 'updated_at'],
+  item: ['id', 'category_id', 'title', 'note', 'type', 'qty', 'unit', 'per_person', 'needed', 'status', 'done', 'done_at', 'reject_reason', 'created_by', 'approved_by', 'sort', 'created_at', 'updated_at', 'due_at'],
   pledge: ['id', 'item_id', 'member_id', 'qty', 'done', 'assigned_by', 'accepted_at', 'created_at'],
   expense: ['id', 'title', 'amount', 'paid_by', 'category_id', 'note', 'split_mode', 'created_by', 'spent_on', 'created_at', 'currency', 'orig_amount', 'rate'],
   share: ['expense_id', 'member_id', 'weight'],
@@ -55,6 +56,8 @@ const K = {
   ride: ['id', 'driver_member', 'seats', 'from_text', 'depart_at', 'note', 'kind', 'to_text', 'created_at'],
   rideSeat: ['ride_id', 'member_id', 'seats', 'status', 'requested_by'],
   profileRequest: ['id', 'member_id', 'name', 'person', 'email', 'merging', 'created_at'],
+  moneyRequest: ['id', 'requested_by', 'title', 'note', 'due', 'methods', 'status', 'created_at', 'expense_id'],
+  moneyRequestMember: ['request_id', 'member_id', 'amount', 'payment_id'],
 };
 
 // ---------------------------------------------------------------------------
@@ -472,6 +475,69 @@ function linkUser(ctx, tripId, memberId, person = null) {
 }
 
 /** The people of a profile already in (linked with a person). */
+/** How someone likes to get paid: {bit, paybox, bank: text, cash: true}. */
+function payMethods(p) {
+  if (p == null) return {};
+  if (!isObj(p)) bad();
+  const out = {};
+  for (const k of ['bit', 'paybox', 'bank']) {
+    const v = typeof p[k] === 'string' ? p[k].trim() : '';
+    if (v) {
+      if (cpLen(v) > 160) bad();
+      out[k] = v;
+    }
+  }
+  if (p.cash === true) out.cash = true;
+  return out;
+}
+
+/** After a confirmation: every share of its request paid and confirmed → closed, the requester told. */
+/** A member's balance, the way the settle-up (logic.js balances) and the server's _member_balance count it. */
+function memberBalance(db, tripId, memberId) {
+  const inTrip = (r) => r.trip_id === tripId;
+  const snap = {
+    trip: db.trips.find((x) => x.id === tripId), members: db.members.filter(inTrip), expenses: db.expenses.filter(inTrip),
+    expense_shares: db.expense_shares.filter(inTrip), payments: db.payments.filter(inTrip),
+  };
+  return balances(snap).find((b) => b.member_id === memberId)?.balance ?? 0;
+}
+
+/** A payment A→R also covers A's unpaid shares on R's open "already paid" requests (oldest first; ₪1 slack). */
+function linkPaymentToRequests(ctx, pay) {
+  const { db } = ctx;
+  let left = Number(pay.amount) + 1;
+  const reqs = db.money_requests
+    .filter((q) => q.trip_id === pay.trip_id && q.status === 'open' && q.expense_id && q.requested_by === pay.to_member)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)));
+  for (const q of reqs) {
+    const x = db.money_request_members.find((r) => r.request_id === q.id && r.member_id === pay.from_member && !r.payment_id);
+    if (!x) continue;
+    if (Number(x.amount) > left) break;
+    x.payment_id = pay.id;
+    left -= Number(x.amount);
+  }
+}
+
+function closeMoneyRequestIfDone(ctx, paymentId) {
+  const { db } = ctx;
+  const ids = [...new Set(db.money_request_members.filter((r) => r.payment_id === paymentId).map((r) => r.request_id))];
+  for (const id of ids) closeOneMoneyRequest(ctx, db.money_requests.find((r) => r.id === id && r.status === 'open'));
+}
+
+function closeOneMoneyRequest(ctx, q) {
+  const { db } = ctx;
+  if (!q) return;
+  const done = db.money_request_members.filter((r) => r.request_id === q.id)
+    .every((r) => r.payment_id && db.payments.find((y) => y.id === r.payment_id)?.status === 'confirmed');
+  if (!done) return;
+  q.status = 'closed';
+  notify(ctx, q.trip_id, {
+    title: `כולם שילמו על ${q.title} 🎉`,
+    body: q.expense_id ? 'הבקשה נסגרה.' : 'אחרי הקנייה — רושמים אותה כהוצאה 🧾, והחשבון מתאזן לבד.',
+    audience: [q.requested_by], link: `#/t/${q.trip_id}/money`,
+  });
+}
+
 function joinedPeople(db, memberId) {
   return [...new Set(db.member_users.filter((l) => l.member_id === memberId && l.person).map((l) => l.person))];
 }
@@ -501,6 +567,7 @@ function itemFields(db, tripId, p, creating) {
   if (given(p, 'needed')) out.needed = toInt(p.needed, 1, 200);
   if (has(p, 'category_id')) out.category_id = categoryRef(db, tripId, p.category_id);
   if (!creating && given(p, 'sort')) out.sort = toInt(p.sort, -1000000, 1000000);
+  if (has(p, 'due_at')) out.due_at = p.due_at == null || p.due_at === '' ? null : timestampVal(p.due_at);
   return out;
 }
 
@@ -531,6 +598,7 @@ function insertItem(ctx, trip, me, f, pledgeQty, sort) {
     sort,
     created_at: now,
     updated_at: now,
+    due_at: f.due_at ?? null,
   };
   ctx.db.items.push(item);
   if (pledgeQty > 0 && item.type !== 'each') {
@@ -585,7 +653,7 @@ function sharesVal(db, tripId, list) {
     let weight;
     if (given(s, 'weight')) {
       weight = toNumber(s.weight);
-      if (weight <= 0 || weight > 1000) bad();
+      if (weight <= 0 || weight > 1000000) bad();
     } else {
       weight = byId(db.members, memberId).headcount;
     }
@@ -682,7 +750,12 @@ const RPC = {
       member_count: members.length,
       headcount: members.reduce((s, m) => s + m.headcount, 0),
       unclaimed: members.filter((m) => !m.claimed_at).map((m) => pick(m, K.unclaimed)),
-      claimed: members.filter((m) => m.claimed_at).map((m) => ({ ...pick(m, K.unclaimed), joined: joinedPeople(db, m.id) })),
+      claimed: members.filter((m) => m.claimed_at).map((m) => {
+        const joined = joinedPeople(db, m.id);
+        const unknown = db.member_users.filter((l) => l.member_id === m.id && !l.person).length;
+        const open = isAdmin(m) || unknown ? [] : (m.people || []).filter((x) => !joined.includes(x));
+        return { ...pick(m, K.unclaimed), joined, unknown, open };
+      }),
       my_request: (() => {
         const r = db.profile_requests.filter((x) => x.user_id === ctx.uid && x.trip_id === trip.id).sort(newest)[0];
         return r ? { status: r.status, member_id: r.member_id } : null;
@@ -711,6 +784,8 @@ const RPC = {
       if (member.claimed_at) {
         // one of its other people steps in — their slot is free
         if (!person || people.length < 2 || joinedPeople(db, member.id).includes(person)) fail('already_claimed');
+        // an owner/admin profile, or one with a device that never said who it is: its people approve instead
+        if (isAdmin(member) || db.member_users.some((l) => l.member_id === member.id && !l.person)) fail('needs_approval');
       } else {
         if (profile != null) applyProfile(member, profileFields(profile, false));
         member.claimed_at = ctx.now();
@@ -721,8 +796,9 @@ const RPC = {
       if (members.length >= LIMITS.members) fail('limit_reached');
       member = newMemberRow(ctx, trip.id, prof, 'member', true);
       db.members.push(member);
-      person = person || (member.people || [])[0] || null;
+      person = (member.people || []).includes(person) ? person : (member.people || [])[0] || null;
     }
+    const steppedIn = claimMemberId != null && Boolean(byId(db.members, claimMemberId)?.claimed_at) && db.member_users.some((l) => l.member_id === member.id);
     if (!hadAdmin) member.role = 'owner';
     linkUser(ctx, trip.id, member.id, person);
 
@@ -732,6 +808,12 @@ const RPC = {
         title: `${claimMemberId != null && person ? person : member.display_name} הצטרפ/ה לטיול 🎉`,
         audience: admins,
         link: `#/t/${trip.id}/people`,
+      });
+    }
+    if (steppedIn) {
+      notify(ctx, trip.id, {
+        title: `${person || member.display_name} הצטרפ/ה לפרופיל שלכם 🙋`, body: 'לא מכירים? אפשר להסיר במסך חבר׳ה.',
+        audience: [member.id], link: `#/t/${trip.id}/people`,
       });
     }
     bump(ctx, trip.id);
@@ -839,6 +921,8 @@ const RPC = {
         .sort((a, b) => cmp(a.depart_at ?? '￿', b.depart_at ?? '￿') || byCreated(a, b))
         .map((r) => pick(r, K.ride)),
       ride_seats: db.ride_seats.filter(inTrip).sort(byCreated).map((s) => pick(s, K.rideSeat)),
+      money_requests: db.money_requests.filter(inTrip).sort(byCreated).map((q) => pick(q, K.moneyRequest)),
+      money_request_members: db.money_request_members.filter(inTrip).map((x) => pick(x, K.moneyRequestMember)),
       profile_requests: db.profile_requests
         .filter((r) => inTrip(r) && r.status === 'pending' && (r.member_id === me.id || admin))
         .sort(byCreated)
@@ -1240,7 +1324,20 @@ const RPC = {
     if (f) {
       if (db.expenses.some((e) => e.paid_by === f.id || e.created_by === f.id)
           || db.expense_shares.some((s) => s.member_id === f.id)
-          || db.payments.some((p) => p.from_member === f.id || p.to_member === f.id)) fail('has_money_records');
+          || db.payments.some((p) => p.from_member === f.id || p.to_member === f.id)
+          || db.money_requests.some((r) => r.requested_by === f.id && r.status === 'open')
+          || db.money_request_members.some((a) => a.member_id === f.id && !a.payment_id
+            && db.money_request_members.some((b) => b.request_id === a.request_id && b.member_id === t.id && b.payment_id))) {
+        fail('has_money_records');
+      }
+      for (const x of db.money_request_members.filter((r) => r.member_id === f.id && !r.payment_id)) {
+        const q = db.money_requests.find((r) => r.id === x.request_id);
+        if (!q || q.status !== 'open' || q.requested_by === t.id) continue;
+        const mine = db.money_request_members.find((r) => r.request_id === x.request_id && r.member_id === t.id);
+        if (mine) mine.amount = Math.min(100000, Math.round((Number(mine.amount) + Number(x.amount)) * 100) / 100);
+        else db.money_request_members.push({ ...x, member_id: t.id });
+      }
+      remove(db.money_request_members, (r) => r.member_id === f.id);
       for (const p of db.pledges.filter((x) => x.member_id === f.id)) {
         const same = db.pledges.find((x) => x.item_id === p.item_id && x.member_id === t.id);
         if (same) same.qty = Math.min(200, same.qty + p.qty);
@@ -1389,8 +1486,12 @@ const RPC = {
     const hasMoney =
       db.expenses.some((e) => e.paid_by === id || e.created_by === id) ||
       db.expense_shares.some((s) => s.member_id === id) ||
-      db.payments.some((p) => p.from_member === id || p.to_member === id || p.created_by === id);
+      db.payments.some((p) => p.from_member === id || p.to_member === id || p.created_by === id) ||
+      db.money_requests.some((r) => r.requested_by === id && r.status === 'open');
     if (hasMoney) fail('has_money_records');
+    const theirs = db.money_requests.filter((r) => r.requested_by === id).map((r) => r.id);
+    remove(db.money_request_members, (x) => x.member_id === id || theirs.includes(x.request_id));
+    remove(db.money_requests, (r) => theirs.includes(r.id));
 
     remove(db.pledges, (p) => p.member_id === id);
     remove(db.admin_votes, (v) => v.voter_id === id || v.candidate_id === id);
@@ -1839,6 +1940,8 @@ const RPC = {
       created_by: me.id, created_at: now, confirmed_at: status === 'confirmed' ? now : null,
     };
     db.payments.push(row);
+    linkPaymentToRequests(ctx, row);
+    if (row.status === 'confirmed') closeMoneyRequestIfDone(ctx, row.id);
 
     const fromName = byId(db.members, from).display_name;
     const toName = byId(db.members, to).display_name;
@@ -1860,6 +1963,7 @@ const RPC = {
     if (pay.status !== 'confirmed') {
       pay.status = 'confirmed';
       pay.confirmed_at = ctx.now();
+      closeMoneyRequestIfDone(ctx, pay.id);
       if (pay.from_member !== me.id) {
         const toName = byId(db.members, pay.to_member).display_name;
         notify(ctx, pay.trip_id, {
@@ -1873,6 +1977,136 @@ const RPC = {
     return null;
   },
 
+  create_money_request(ctx, tripId, req) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    reqObj(req);
+    if (db.money_requests.filter((q) => q.trip_id === tripId).length >= 100) fail('limit_reached');
+    const title = reqText(req.title, 1, 80);
+    const due = given(req, 'due') ? dateVal(req.due) : null;
+    const methods = payMethods(req.methods);
+    let ids = Array.isArray(req.members) ? [...new Set(req.members)] : membersOf(db, tripId).map((m) => m.id);
+    ids = ids.filter((id) => id !== me.id);
+    if (!ids.length || !ids.every((id) => db.members.some((m) => m.id === id && m.trip_id === tripId))) bad();
+    const per = req.per_person == null ? null : Number(req.per_person);
+    const total = req.total == null ? null : Number(req.total);
+    if ((per == null) === (total == null)) bad();
+    const members = ids.map((id) => byId(db.members, id))
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)));
+    const heads = (m) => Math.max(1, Number(m.headcount) || 1);
+    const id = newId();
+    const request = { id, trip_id: tripId, requested_by: me.id, title, note: optText(req.note, 500), due, methods, status: 'open', created_at: ctx.now(), expense_id: null };
+    db.money_requests.push(request);
+    let shares;
+    if (total != null) {
+      const cents = Math.round(moneyVal(total) * 100);
+      const all = members.reduce((n, m) => n + heads(m), 0);
+      const base = members.map((m) => Math.floor((cents * heads(m)) / all));
+      let left = cents - base.reduce((a, b) => a + b, 0);
+      shares = base.map((c) => (left-- > 0 ? c + 1 : c));
+    } else {
+      const p = moneyVal(per);
+      shares = members.map((m) => Math.round(p * heads(m) * 100));
+    }
+    members.forEach((m, i) => {
+      const amount = moneyVal(shares[i] / 100);
+      db.money_request_members.push({ request_id: id, trip_id: tripId, member_id: m.id, amount, payment_id: null });
+      notify(ctx, tripId, {
+        title: `💰 ${me.display_name} מבקש/ת ₪${formatAmount(amount)} — ${title}`,
+        body: [due && `עד ${due.slice(8, 10)}.${due.slice(5, 7)}`, methods.bit && `ביט ${methods.bit}`, methods.paybox && `פייבוקס ${methods.paybox}`,
+          methods.bank && 'העברה בנקאית', methods.cash && 'מזומן'].filter(Boolean).join(' · ') || null,
+        audience: [m.id], link: `#/t/${tripId}/money`,
+      });
+    });
+    if (req.already_paid !== false) {
+      // already paid: the shares are an expense of mine, so paying them settles it
+      const shares = db.money_request_members.filter((x) => x.request_id === id);
+      const exp = {
+        id: newId(), trip_id: tripId, title, amount: moneyVal(shares.reduce((n, x) => n + Number(x.amount), 0)), paid_by: me.id,
+        category_id: null, note: 'בקשת תשלום 💰', split_mode: 'members', created_by: me.id, spent_on: jerusalemYmd(new Date()),
+        created_at: ctx.now(), currency: null, orig_amount: null, rate: null,
+      };
+      db.expenses.push(exp);
+      for (const x of shares) db.expense_shares.push({ expense_id: exp.id, trip_id: tripId, member_id: x.member_id, weight: Number(x.amount) });
+      request.expense_id = exp.id;
+    }
+    bump(ctx, tripId);
+    return id;
+  },
+
+  pay_money_request(ctx, requestId, method = null) {
+    const { db } = ctx;
+    const q = need(db.money_requests, requestId);
+    const me = requireMember(ctx, q.trip_id);
+    let m = typeof method === 'string' && method.trim() ? method.trim() : 'bit';
+    if (m === 'bank') m = 'transfer';
+    if (!PAY_METHODS.includes(m)) bad();
+    const x = db.money_request_members.find((r) => r.request_id === q.id && r.member_id === me.id);
+    if (!x || q.status !== 'open') fail('not_allowed_state');
+    if (x.payment_id) return x.payment_id;
+    if (q.expense_id && memberBalance(db, q.trip_id, me.id) >= -1) fail('already_settled');
+    const pay = { id: newId(), trip_id: q.trip_id, from_member: me.id, to_member: q.requested_by, amount: x.amount, method: m,
+      note: q.title.slice(0, 200), status: 'sent', created_by: me.id, created_at: ctx.now(), confirmed_at: null };
+    db.payments.push(pay);
+    x.payment_id = pay.id;
+    notify(ctx, q.trip_id, {
+      title: `${me.display_name} שילם/ה ₪${formatAmount(x.amount)} על ${q.title} — לאשר שקיבלת?`,
+      body: 'אפשר לאשר במסך הבית (📥 מחכה לך) או במסך הכסף', audience: [q.requested_by], link: `#/t/${q.trip_id}/money`,
+    });
+    bump(ctx, q.trip_id);
+    return pay.id;
+  },
+
+  settle_money_request_share(ctx, requestId, memberId) {
+    const { db } = ctx;
+    const q = need(db.money_requests, requestId);
+    const me = requireMember(ctx, q.trip_id);
+    if (me.id !== q.requested_by && !isAdmin(me)) fail('forbidden');
+    const x = db.money_request_members.find((r) => r.request_id === q.id && r.member_id === memberId);
+    if (!x || q.status !== 'open') fail('not_allowed_state');
+    let pay = x.payment_id ? db.payments.find((y) => y.id === x.payment_id) : null;
+    if (pay) {
+      pay.status = 'confirmed';
+      pay.confirmed_at = pay.confirmed_at || ctx.now();
+    } else {
+      pay = { id: newId(), trip_id: q.trip_id, from_member: memberId, to_member: q.requested_by, amount: x.amount, method: 'cash',
+        note: q.title.slice(0, 200), status: 'confirmed', created_by: me.id, created_at: ctx.now(), confirmed_at: ctx.now() };
+      db.payments.push(pay);
+      x.payment_id = pay.id;
+    }
+    closeMoneyRequestIfDone(ctx, pay.id);
+    bump(ctx, q.trip_id);
+    return pay.id;
+  },
+
+  cancel_money_request(ctx, requestId) {
+    const { db } = ctx;
+    const q = need(db.money_requests, requestId);
+    const me = requireMember(ctx, q.trip_id);
+    if (me.id !== q.requested_by && !isAdmin(me)) fail('forbidden');
+    if (q.status === 'closed') return null;
+    q.status = 'closed';
+    if (q.expense_id) {
+      const rows = db.money_request_members.filter((x) => x.request_id === q.id);
+      const paid = rows.filter((x) => x.payment_id);
+      if (paid.length) {
+        // keep what was paid as my expense; drop the unpaid shares
+        const unpaid = new Set(rows.filter((x) => !x.payment_id).map((x) => x.member_id));
+        remove(db.expense_shares, (s) => s.expense_id === q.expense_id && unpaid.has(s.member_id));
+        const exp = db.expenses.find((e) => e.id === q.expense_id);
+        if (exp) exp.amount = moneyVal(paid.reduce((n, x) => n + Number(x.amount), 0));
+      } else {
+        remove(db.expense_shares, (s) => s.expense_id === q.expense_id);
+        remove(db.expenses, (e) => e.id === q.expense_id);
+        q.expense_id = null;
+      }
+    }
+    const left = db.money_request_members.filter((x) => x.request_id === q.id && !x.payment_id).map((x) => x.member_id);
+    if (left.length) notify(ctx, q.trip_id, { title: `הבקשה "${q.title}" נסגרה — אין צורך להעביר`, audience: left, link: `#/t/${q.trip_id}/money` });
+    bump(ctx, q.trip_id);
+    return null;
+  },
+
   delete_payment(ctx, id) {
     const { db } = ctx;
     const pay = need(db.payments, id);
@@ -1881,6 +2115,7 @@ const RPC = {
       if (pay.created_by !== me.id) fail('forbidden');
       if (pay.status === 'confirmed') fail('not_allowed_state');
     }
+    for (const x of db.money_request_members) if (x.payment_id === pay.id) x.payment_id = null;
     remove(db.payments, (p) => p.id === pay.id);
     bump(ctx, pay.trip_id);
     return null;
@@ -2264,6 +2499,10 @@ export function createDemoApi(options = {}) {
     deleteExpense: (id) => call('delete_expense', id),
 
     addPayment: (tripId, pay) => call('add_payment', tripId, pay),
+    createMoneyRequest: (tripId, req) => call('create_money_request', tripId, req),
+    payMoneyRequest: (requestId, method) => call('pay_money_request', requestId, method ?? null),
+    cancelMoneyRequest: (requestId) => call('cancel_money_request', requestId),
+    settleMoneyRequestShare: (requestId, memberId) => call('settle_money_request_share', requestId, memberId),
     confirmPayment: (id) => call('confirm_payment', id),
     deletePayment: (id) => call('delete_payment', id),
 

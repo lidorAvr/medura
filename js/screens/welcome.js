@@ -3,13 +3,13 @@
 // Every step can be skipped; finishing (or skipping to the end) sets prefs.onboarded.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, useStore, useTrip } from '../store.js?v=71bed20';
-import { navigate } from '../router.js?v=71bed20';
-import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=71bed20';
-import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js?v=71bed20';
-import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=71bed20';
-import { RideOffers } from './rides.js?v=71bed20';
-import { arrivalOf, hasModule, tripType } from '../lib/templates.js?v=71bed20';
+import { actions, store, useStore, useTrip } from '../store.js?v=6582265';
+import { navigate } from '../router.js?v=6582265';
+import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=6582265';
+import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js?v=6582265';
+import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=6582265';
+import { RideOffers } from './rides.js?v=6582265';
+import { arrivalOf, hasModule, tripType } from '../lib/templates.js?v=6582265';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
@@ -44,6 +44,15 @@ function Wizard({ snap, me, start }) {
   // ---- step 1: contact ----
   const verified = useStore((s) => (s.contact?.verified ? s.contact.email : null));
   const [phone, setPhone] = useState(me.phone || '');
+  // "הפרופיל שלי" already has a phone? use it (only while the field is still empty)
+  useEffect(() => {
+    if (me.phone) return undefined;
+    let alive = true;
+    store.get().api.myAccount?.().then((acc) => {
+      if (alive && acc?.phone) setPhone((typed) => typed || acc.phone.replace(/[^0-9+() -]/g, ''));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [me.id]);
   // the e-mail verified at the door fills the first person's field
   const [emails, setEmails] = useState(() => people.map((_, i) => (i === 0 && verified) || ''));
   const [loaded, setLoaded] = useState(false);

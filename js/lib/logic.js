@@ -1564,6 +1564,15 @@ export function myInbox(snap, meId) {
     const item = items.get(pl.item_id);
     if (item && item.status === 'active') out.push({ kind: 'assignment', key: `as-${pl.id}`, item, pledge: pl, by: members.get(pl.assigned_by) || null });
   }
+  const reqs = new Map(list(snap.money_requests).map((q) => [q.id, q]));
+  const myBal = list(snap.money_requests).some((q) => q.expense_id) ? balances(snap).find((b) => b.member_id === meId)?.balance ?? 0 : null;
+  for (const x of list(snap.money_request_members)) {
+    const q = reqs.get(x.request_id);
+    // an "already paid" share is part of my balance — once that's even, there's nothing to pay here
+    if (q && q.status === 'open' && x.member_id === meId && !x.payment_id && !(q.expense_id && myBal >= -1)) {
+      out.push({ kind: 'money_request', key: `mr-${q.id}`, request: q, amount: x.amount, from: members.get(q.requested_by) || null });
+    }
+  }
   for (const pay of list(snap.payments)) {
     if (pay.to_member === meId && pay.status === 'sent') out.push({ kind: 'payment', key: `pay-${pay.id}`, payment: pay, from: members.get(pay.from_member) || null });
   }

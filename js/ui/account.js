@@ -3,10 +3,10 @@
 // People who already have a trip on this device never see it (only new joiners).
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, emailRequired, store, useStore } from '../store.js?v=71bed20';
-import { installState, onInstallChange, promptInstall } from '../lib/device.js?v=71bed20';
-import { EmailGate } from './email-gate.js?v=71bed20';
-import { Button, Card, Field, Skeleton, TextInput } from './components.js?v=71bed20';
+import { actions, emailRequired, store, useStore } from '../store.js?v=6582265';
+import { installState, onInstallChange, promptInstall } from '../lib/device.js?v=6582265';
+import { EmailGate } from './email-gate.js?v=6582265';
+import { Button, Card, Field, Skeleton, TextInput } from './components.js?v=6582265';
 
 const LATER = 'medura:email-later';
 const readLater = () => {
@@ -65,6 +65,16 @@ export function Entry({ requireVerified = false, children }) {
   return children;
 }
 
+/** A phone as typed or pasted (iOS adds invisible direction marks) → the characters a profile phone allows, or null. */
+export function cleanPhone(p) {
+  const t = String(p || '')
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/[\u00a0\u202f]/g, ' ')
+    .replace(/[\u2010-\u2015\u2212./]/g, '-')
+    .trim();
+  return t && t.length <= 20 && /^[0-9+() -]+$/.test(t) ? t : null;
+}
+
 /** "הפרופיל שלי": the person — name, phone, the app on the home screen. */
 export function AccountStep({ account, onDone }) {
   const [name, setName] = useState(account?.name || '');
@@ -76,8 +86,9 @@ export function AccountStep({ account, onDone }) {
   const save = async (e) => {
     e?.preventDefault();
     if (!name.trim()) return setError('איך קוראים לך? 🙂');
+    if (phone.trim() && !cleanPhone(phone)) return setError('הטלפון לא נראה תקין — רק ספרות, רווחים ומקפים');
     setBusy(true);
-    const res = await actions.run((api) => api.saveAccount({ name: name.trim(), phone: phone.trim() || null }), { refresh: false });
+    const res = await actions.run((api) => api.saveAccount({ name: name.trim(), phone: cleanPhone(phone) }), { refresh: false });
     setBusy(false);
     if (res) onDone(res);
     return undefined;

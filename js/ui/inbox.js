@@ -2,18 +2,18 @@
 // told (the RPCs send the notification). Shown on the home screen; hidden when empty.
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { actions } from '../store.js?v=71bed20';
-import { href } from '../router.js?v=71bed20';
-import { displayName, formatMoney, formatTime, hebrewCount, myInbox } from '../lib/logic.js?v=71bed20';
-import { Avatar, Button, Card, TextInput } from './components.js?v=71bed20';
+import { actions } from '../store.js?v=6582265';
+import { href } from '../router.js?v=6582265';
+import { displayName, formatMoney, formatTime, hebrewCount, myInbox } from '../lib/logic.js?v=6582265';
+import { Avatar, Button, Card, TextInput } from './components.js?v=6582265';
 
 const ok = (fn) => async (api) => {
   await fn(api);
   return true;
 };
 
-export function InboxCard({ snap, me, skip = [] }) {
-  const entries = myInbox(snap, me.id).filter((e) => !skip.includes(e.kind));
+export function InboxCard({ snap, me, skip = [], only = null }) {
+  const entries = myInbox(snap, me.id).filter((e) => !skip.includes(e.kind) && (!only || only.includes(e.kind)));
   const [busy, setBusy] = useState(null);
   const [declining, setDeclining] = useState(null); // pledge id → asking "why?"
   const [reason, setReason] = useState('');
@@ -77,6 +77,14 @@ export function InboxCard({ snap, me, skip = [] }) {
                 onClick=${() => go(e.key, (api) => api.respondAssignment(e.item.id, true), 'סגור ✅ עדכנו אותם')}>✅ סגור</${Button}>
               <${Button} size="sm" variant="ghost" onClick=${() => { setReason(''); setDeclining(e.pledge.id); }}>🙅 לא מסתדר</${Button}>
             </div>`}`;
+    }
+    if (e.kind === 'money_request') {
+      return html`<span class="inbox__emoji" aria-hidden="true">💰</span>
+        <div class="inbox__text"><b>${formatMoney(e.amount)}</b> ל${displayName(e.from)} — ${e.request.title}
+          ${e.request.due ? html`<span class="muted small" style="display:block">עד ${Number(e.request.due.slice(8, 10))}.${Number(e.request.due.slice(5, 7))}</span>` : null}</div>
+        <div class="inbox__acts">
+          <${Button} size="sm" href=${href(`/t/${tripId}/money`)}>לתשלום</${Button}>
+        </div>`;
     }
     if (e.kind === 'payment') {
       return html`<${Avatar} member=${e.from} size=${34} />

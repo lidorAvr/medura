@@ -1,7 +1,7 @@
 // Demo data for the in-browser fake backend (SPEC §6, §7.2).
 // Pure data + a builder: no storage, no randomness of its own (ids/codes are injected).
 
-export const DEMO_VERSION = 3;
+export const DEMO_VERSION = 6;
 
 /** SPEC §6 default categories, sort 1..10. */
 export const DEFAULT_CATEGORIES = Object.freeze([
@@ -111,6 +111,7 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
   const nowMs = now.getTime();
   let tick = 0;
   // Deterministic, strictly increasing "created" timestamps spread over the last 3 days.
+  const moneyReqId = newId();
   const past = (hoursAgo) => new Date(nowMs - hoursAgo * 3600e3 + tick++).toISOString();
 
   const startYmd = addDaysYmd(jerusalemYmd(now), 4);
@@ -252,6 +253,7 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
       sort: ++sort,
       created_at: at,
       updated_at: at,
+      due_at: null,
     };
     I[key] = row;
     items.push(row);
@@ -459,6 +461,14 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
     push_subscriptions: [],
     rides,
     ride_seats: rideSeats,
+    // מאיה collects for the campsite deposit before paying it
+    money_requests: [{
+      id: moneyReqId, trip_id: tripId, requested_by: M.maya.id, title: 'מקדמה לחניון 🏕️', note: 'משלמים מראש כדי לשריין את המקום',
+      due: addDaysYmd(jerusalemYmd(now), 2), methods: { bit: '050-1234567', cash: true }, status: 'open', created_at: past(20), expense_id: null,
+    }],
+    money_request_members: [M.noa, M.yoav, M.shira, M.uri].map((m) => ({
+      request_id: moneyReqId, trip_id: tripId, member_id: m.id, amount: 40 * m.headcount, payment_id: null,
+    })),
     // טל asks to join שירה וטל from her own phone (she's listed in that profile)
     profile_requests: [{
       id: newId(), trip_id: tripId, member_id: M.shira.id, user_id: newId(), email: 'tal@example.com', person: 'טל',

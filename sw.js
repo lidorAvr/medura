@@ -1,12 +1,12 @@
 /* מדורה service worker — offline shell (network-first) + push notifications.
    Same-origin GETs only; Supabase and other cross-origin requests are never touched. */
-const VERSION = 'medura-71bed20';
+const VERSION = 'medura-6582265';
 const NETWORK_TIMEOUT_MS = 4000; // weak reception at the campsite → fall back to cache quickly
 
 const SHELL = [
   './',
   'index.html',
-  'config.js',
+  'config.js?v=6582265',
   'manifest.webmanifest',
   'favicon.svg',
   'assets/icons/icon-192.png',
@@ -14,55 +14,57 @@ const SHELL = [
   'assets/icons/maskable-512.png',
   'assets/icons/apple-touch-icon.png',
   'assets/icons/badge-96.png',
-  'css/styles.css',
-  'css/onboarding.css',
-  'css/home.css',
-  'css/trip.css',
-  'css/lists.css',
-  'css/money.css',
-  'css/messages.css',
-  'css/people.css',
-  'css/me.css',
-  'js/vendor/preact.module.js',
-  'js/vendor/hooks.module.js',
-  'js/vendor/htm.module.js',
-  'js/vendor/htm-preact.module.js',
-  'js/vendor/supabase.umd.js',
-  'js/main.js',
-  'js/app.js',
-  'js/router.js',
-  'js/store.js',
-  'js/ui/components.js',
-  'js/ui/email-gate.js',
-  'js/ui/tour.js',
-  'js/ui/inbox.js',
-  'js/ui/pending.js',
-  'js/ui/account.js',
-  'js/lib/turnstile.js',
-  'js/lib/device.js',
-  'js/screens/rides.js',
-  'js/screens/welcome.js',
-  'js/screens/signin.js',
-  'js/ui/icons.js',
-  'js/lib/logic.js',
-  'js/lib/templates.js',
-  'js/lib/fx.js',
-  'js/api/index.js',
-  'js/api/errors.js',
-  'js/api/supabase-api.js',
-  'js/api/demo-api.js',
-  'js/api/demo-seed.js',
-  'js/screens/onboarding.js',
-  'js/screens/home.js',
-  'js/screens/trip.js',
-  'js/screens/trip-extras.js',
-  'js/screens/lists.js',
-  'js/screens/shopping.js',
-  'js/screens/import.js',
-  'js/screens/money.js',
-  'js/screens/messages.js',
-  'js/screens/people.js',
-  'js/screens/me.js',
+  'css/styles.css?v=6582265',
+  'css/onboarding.css?v=6582265',
+  'css/home.css?v=6582265',
+  'css/trip.css?v=6582265',
+  'css/lists.css?v=6582265',
+  'css/money.css?v=6582265',
+  'css/messages.css?v=6582265',
+  'css/people.css?v=6582265',
+  'css/me.css?v=6582265',
+  'js/vendor/preact.module.js?v=6582265',
+  'js/vendor/hooks.module.js?v=6582265',
+  'js/vendor/htm.module.js?v=6582265',
+  'js/vendor/htm-preact.module.js?v=6582265',
+  'js/vendor/supabase.umd.js?v=6582265',
+  'js/main.js?v=6582265',
+  'js/app.js?v=6582265',
+  'js/router.js?v=6582265',
+  'js/store.js?v=6582265',
+  'js/ui/components.js?v=6582265',
+  'js/ui/email-gate.js?v=6582265',
+  'js/ui/tour.js?v=6582265',
+  'js/ui/inbox.js?v=6582265',
+  'js/ui/pending.js?v=6582265',
+  'js/ui/account.js?v=6582265',
+  'js/ui/tab-guide.js?v=6582265',
+  'js/lib/turnstile.js?v=6582265',
+  'js/lib/device.js?v=6582265',
+  'js/screens/rides.js?v=6582265',
+  'js/screens/welcome.js?v=6582265',
+  'js/screens/signin.js?v=6582265',
+  'js/ui/icons.js?v=6582265',
+  'js/lib/logic.js?v=6582265',
+  'js/lib/templates.js?v=6582265',
+  'js/lib/fx.js?v=6582265',
+  'js/api/index.js?v=6582265',
+  'js/api/errors.js?v=6582265',
+  'js/api/supabase-api.js?v=6582265',
+  'js/api/demo-api.js?v=6582265',
+  'js/api/demo-seed.js?v=6582265',
+  'js/screens/onboarding.js?v=6582265',
+  'js/screens/home.js?v=6582265',
+  'js/screens/trip.js?v=6582265',
+  'js/screens/trip-extras.js?v=6582265',
+  'js/screens/lists.js?v=6582265',
+  'js/screens/shopping.js?v=6582265',
+  'js/screens/import.js?v=6582265',
+  'js/screens/money.js?v=6582265',
+  'js/screens/money-requests.js?v=6582265',
+  'js/screens/messages.js?v=6582265',
+  'js/screens/people.js?v=6582265',
+  'js/screens/me.js?v=6582265',
 ];
 
 self.addEventListener('install', (event) => {
@@ -84,14 +86,15 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-function fromCache(request) {
-  return caches.match(request, { ignoreSearch: true }).then((hit) => {
-    if (hit) return hit;
-    if (request.mode === 'navigate') {
-      return caches.match('index.html').then((page) => page || caches.match('./'));
-    }
-    return undefined;
-  });
+// Only this deploy's cache. A versioned file (?v=…) is served only as that exact version, so a slow network
+// can't mix modules of two deploys; unversioned files and pages fall back by path.
+async function fromCache(request) {
+  const cache = await caches.open(VERSION);
+  const versioned = new URL(request.url).searchParams.has('v');
+  const hit = await cache.match(request, versioned ? undefined : { ignoreSearch: true });
+  if (hit) return hit;
+  if (request.mode === 'navigate') return (await cache.match('index.html')) || cache.match('./');
+  return undefined;
 }
 
 async function networkFirst(event) {
