@@ -25,12 +25,12 @@ export async function linkThisDevice() {
  * mode 'gate'   — first visit to a trip: verify an e-mail before using it.
  * mode 'signin' — "כבר הצטרפתי ממכשיר אחר": verify → this device joins the profiles of that e-mail.
  */
-export function EmailGate({ mode: purpose = 'gate' }) {
+export function EmailGate({ mode: purpose = 'gate', initialEmail = '', onLater = null }) {
   const mode = useStore((s) => s.mode);
   const signin = purpose === 'signin';
   const inline = purpose === 'inline';
   const [step, setStep] = useState('email');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -151,6 +151,23 @@ export function EmailGate({ mode: purpose = 'gate' }) {
               maxlength="6" value=${code} placeholder="••••••" onInput=${onCode} />
           </${Field}>
           <${Button} type="submit" variant="accent" size="lg" block loading=${busy}>אימות</${Button}>
+          ${typeof navigator !== 'undefined' && navigator.clipboard?.readText
+            ? html`<${Button} variant="secondary" block onClick=${async () => {
+                try {
+                  const text = await navigator.clipboard.readText();
+                  const digits = String(text || '').replace(/\D/g, '').slice(0, 6);
+                  if (digits.length === 6) {
+                    setCode(digits);
+                    verify(digits);
+                  } else setError('לא מצאנו קוד בהעתקה — העתיקו את 6 הספרות מהמייל');
+                } catch {
+                  setError('לא הצלחנו לקרוא את ההעתקה — הקלידו את הקוד');
+                }
+              }}>📋 הדבקת הקוד מהמייל</${Button}>`
+            : null}
+          ${onLater
+            ? html`<button type="button" class="link email-gate__later" onClick=${() => onLater(email.trim().toLowerCase())}>אאמת אחר כך ←</button>`
+            : null}
           <div class="row row--center wrap email-gate__more">
             <${Button} variant="ghost" size="sm" disabled=${wait > 0 || busy} onClick=${send}>
               ${wait > 0 ? `שליחה חוזרת בעוד ${wait}` : 'שלחו קוד חדש'}

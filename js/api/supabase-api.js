@@ -103,11 +103,12 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     myTrips: () => rpc('my_trips', {}).then((rows) => rows || []),
     createTrip: (trip, profile) => rpc('create_trip', { p_trip: trip, p_profile: profile }),
     previewInvite: (code) => rpc('preview_invite', { p_code: normCode(code) }),
-    joinTrip: (code, { claimMemberId, profile } = {}) =>
+    joinTrip: (code, { claimMemberId, profile, person } = {}) =>
       rpc('join_trip', {
         p_code: normCode(code),
         p_claim_member: claimMemberId ?? null,
         p_profile: profile ?? null,
+        p_person: person ?? null,
       }),
     linkDevice: (code) => rpc('link_device', { p_device_code: normCode(code) }),
     getDeviceCode: (memberId) => rpc('get_device_code', { p_member: memberId }),
@@ -249,6 +250,9 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     leaveSeat: (tripId) => rpc('leave_seat', { p_trip: tripId }),
     sendTestNotification: (tripId) => rpc('send_test_notification', { p_trip: tripId }),
     linkByEmail: () => rpc('link_by_email', {}).then((r) => r || []),
+    setMyPerson: (tripId, person) => rpc('set_my_person', { p_trip: tripId, p_person: person }),
+    myAccount: () => rpc('my_account', {}),
+    saveAccount: (patch) => rpc('save_account', { p_patch: patch }),
     requestProfileJoin: (code, memberId, { person = null, name = null } = {}) =>
       rpc('request_profile_join', { p_code: normCode(code), p_member: memberId, p_person: person, p_name: name }),
     cancelProfileRequest: (tripId) => rpc('cancel_profile_request', { p_trip: tripId }),

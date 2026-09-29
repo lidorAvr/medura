@@ -32,7 +32,7 @@ const TABLES = [
   'trips', 'members', 'member_secrets', 'member_users', 'categories', 'items', 'pledges',
   'expenses', 'expense_shares', 'payments', 'notifications', 'notification_reads',
   'admin_votes', 'polls', 'poll_votes', 'personal_items', 'push_subscriptions',
-  'user_contacts', 'email_codes', 'member_emails', 'rides', 'ride_seats', 'profile_requests',
+  'user_contacts', 'email_codes', 'member_emails', 'rides', 'ride_seats', 'profile_requests', 'accounts',
 ];
 
 // Snapshot projections (SPEC §5) — the exact key sets.
@@ -467,8 +467,13 @@ function newMemberRow(ctx, tripId, prof, role, claimed) {
   };
 }
 
-function linkUser(ctx, tripId, memberId) {
-  ctx.db.member_users.push({ user_id: ctx.uid, trip_id: tripId, member_id: memberId, created_at: ctx.now() });
+function linkUser(ctx, tripId, memberId, person = null) {
+  ctx.db.member_users.push({ user_id: ctx.uid, trip_id: tripId, member_id: memberId, person, created_at: ctx.now() });
+}
+
+/** The people of a profile already in (linked with a person). */
+function joinedPeople(db, memberId) {
+  return [...new Set(db.member_users.filter((l) => l.member_id === memberId && l.person).map((l) => l.person))];
 }
 
 /** After a user link was removed: a member with no linked users becomes claimable again. */
@@ -655,7 +660,7 @@ const RPC = {
     db.trips.push(trip);
     const member = newMemberRow(ctx, trip.id, prof, 'owner', true);
     db.members.push(member);
-    linkUser(ctx, trip.id, member.id);
+    linkUser(ctx, trip.id, member.id, (member.people || [])[0] || null);
     startCats.forEach((c, i) => {
       db.categories.push({
         id: newId(), trip_id: trip.id, name: c.name, emoji: c.emoji, sort: i + 1,
@@ -677,7 +682,7 @@ const RPC = {
       member_count: members.length,
       headcount: members.reduce((s, m) => s + m.headcount, 0),
       unclaimed: members.filter((m) => !m.claimed_at).map((m) => pick(m, K.unclaimed)),
-      claimed: members.filter((m) => m.claimed_at).map((m) => pick(m, K.unclaimed)),
+      claimed: members.filter((m) => m.claimed_at).map((m) => ({ ...pick(m, K.unclaimed), joined: joinedPeople(db, m.id) })),
       my_request: (() => {
         const r = db.profile_requests.filter((x) => x.user_id === ctx.uid && x.trip_id === trip.id).sort(newest)[0];
         return r ? { status: r.status, member_id: r.member_id } : null;
@@ -686,7 +691,7 @@ const RPC = {
     };
   },
 
-  join_trip(ctx, code, claimMemberId, profile) {
+  join_trip(ctx, code, claimMemberId, profile, personArg = null) {
     const { db } = ctx;
     const trip = tripByCode(db, code);
     if (!trip) fail('invalid_code');
@@ -696,26 +701,35 @@ const RPC = {
     const members = membersOf(db, trip.id);
     const hadAdmin = members.some(isAdmin);
     let member;
+    let person = typeof personArg === 'string' && personArg.trim() ? personArg.trim() : null;
     if (claimMemberId != null) {
       member = byId(db.members, claimMemberId);
       if (!member || member.trip_id !== trip.id) fail('not_found');
-      if (member.claimed_at) fail('already_claimed');
-      if (profile != null) applyProfile(member, profileFields(profile, false));
-      member.claimed_at = ctx.now();
+      const people = member.people || [];
+      if (person && !people.includes(person)) bad();
+      if (!person && people.length === 1) [person] = people;
+      if (member.claimed_at) {
+        // one of its other people steps in — their slot is free
+        if (!person || people.length < 2 || joinedPeople(db, member.id).includes(person)) fail('already_claimed');
+      } else {
+        if (profile != null) applyProfile(member, profileFields(profile, false));
+        member.claimed_at = ctx.now();
+      }
     } else {
       if (profile == null) bad();
       const prof = profileFields(profile, true);
       if (members.length >= LIMITS.members) fail('limit_reached');
       member = newMemberRow(ctx, trip.id, prof, 'member', true);
       db.members.push(member);
+      person = person || (member.people || [])[0] || null;
     }
     if (!hadAdmin) member.role = 'owner';
-    linkUser(ctx, trip.id, member.id);
+    linkUser(ctx, trip.id, member.id, person);
 
     const admins = membersOf(db, trip.id).filter((m) => isAdmin(m) && m.id !== member.id).map((m) => m.id);
     if (admins.length) {
       notify(ctx, trip.id, {
-        title: `${member.display_name} הצטרפ/ה לטיול 🎉`,
+        title: `${claimMemberId != null && person ? person : member.display_name} הצטרפ/ה לטיול 🎉`,
         audience: admins,
         link: `#/t/${trip.id}/people`,
       });
@@ -771,7 +785,8 @@ const RPC = {
 
     return {
       trip: { ...pick(trip, K.trip), info: { ...clone(DEFAULT_TRIP_INFO), ...(trip.info || {}) }, settings: { ...DEFAULT_TRIP_SETTINGS, ...(trip.settings || {}) } },
-      me: { member_id: me.id, role: me.role, user_id: uid },
+      me: { member_id: me.id, role: me.role, user_id: uid,
+        person: db.member_users.find((l) => l.user_id === uid && l.trip_id === tripId)?.person ?? null },
       members: membersOf(db, tripId).sort(byCreated).map((m) => ({
         id: m.id,
         display_name: m.display_name,
@@ -784,6 +799,7 @@ const RPC = {
         prefs: m.prefs || {},
         inventory: m.inventory || [],
         claimed: Boolean(m.claimed_at),
+        joined: joinedPeople(db, m.id),
         created_at: m.created_at,
       })),
       categories: db.categories.filter(inTrip).sort(bySort).map((c) => pick(c, K.category)),
@@ -906,6 +922,47 @@ const RPC = {
     const me = requireMember(ctx, member.trip_id);
     if (me.id !== member.id && !isAdmin(me)) fail('forbidden');
     return ctx.db.member_emails.filter((e) => e.member_id === member.id).map((e) => e.email);
+  },
+
+  set_my_person(ctx, tripId, person) {
+    const { db } = ctx;
+    const me = requireMember(ctx, tripId);
+    const p = typeof person === 'string' ? person.trim() : '';
+    if (!p || !(me.people || []).includes(p)) bad();
+    const myEmail = db.user_contacts.find((c) => c.user_id === ctx.uid)?.email;
+    const taken = db.member_users.some((l) => l.member_id === me.id && l.person === p && l.user_id !== ctx.uid
+      && !(myEmail && db.user_contacts.some((c) => c.user_id === l.user_id && c.email === myEmail)));
+    if (taken) fail('already_claimed');
+    db.member_users.filter((l) => l.user_id === ctx.uid && l.trip_id === tripId).forEach((l) => { l.person = p; });
+    bump(ctx, tripId);
+    return null;
+  },
+
+  my_account(ctx) {
+    const email = ctx.db.user_contacts.find((c) => c.user_id === ctx.uid)?.email || null;
+    if (!email) return { email: null, verified: false };
+    const a = ctx.db.accounts.find((x) => x.email === email) || {};
+    return { email, verified: true, name: a.name ?? null, phone: a.phone ?? null, prefs: { ...(a.prefs || {}) } };
+  },
+
+  save_account(ctx, patch) {
+    const { db } = ctx;
+    const email = db.user_contacts.find((c) => c.user_id === ctx.uid)?.email;
+    if (!email) fail('email_not_verified');
+    reqObj(patch);
+    let a = db.accounts.find((x) => x.email === email);
+    if (!a) {
+      a = { email, name: null, phone: null, prefs: {}, created_at: ctx.now() };
+      db.accounts.push(a);
+    }
+    if (has(patch, 'name')) a.name = optText(patch.name, 40);
+    if (has(patch, 'phone')) a.phone = optText(patch.phone, 20);
+    if (has(patch, 'prefs')) {
+      if (!isObj(patch.prefs)) bad();
+      a.prefs = jsonSize({ ...a.prefs, ...patch.prefs }, 4000);
+    }
+    ctx.dirty = true;
+    return RPC.my_account(ctx);
   },
 
   member_details(ctx, memberId) {
@@ -1118,7 +1175,9 @@ const RPC = {
       if (!byOtherDevice.has(m.id) && !listed.has(m.id)) continue;
       if (db.member_users.some((l) => l.user_id === ctx.uid && l.trip_id === m.trip_id)) continue;
       if (out.some((o) => o.trip_id === m.trip_id)) continue;
-      db.member_users.push({ user_id: ctx.uid, trip_id: m.trip_id, member_id: m.id, created_at: ctx.now() });
+      const same = db.member_users.find((l) => l.member_id === m.id && l.person
+        && db.user_contacts.some((c) => c.user_id === l.user_id && c.email === email));
+      db.member_users.push({ user_id: ctx.uid, trip_id: m.trip_id, member_id: m.id, person: same?.person ?? null, created_at: ctx.now() });
       if (!m.claimed_at) m.claimed_at = ctx.now();
       if (!membersOf(db, m.trip_id).some((x) => isAdmin(x))) m.role = 'owner';
       bump(ctx, m.trip_id);
@@ -1211,7 +1270,7 @@ const RPC = {
       remove(db.members, (m) => m === f);
     } else {
       remove(db.member_users, (l) => l.user_id === q.user_id && l.trip_id === q.trip_id);
-      db.member_users.push({ user_id: q.user_id, trip_id: q.trip_id, member_id: t.id, created_at: ctx.now() });
+      db.member_users.push({ user_id: q.user_id, trip_id: q.trip_id, member_id: t.id, person: q.person || q.name || null, created_at: ctx.now() });
       if (!q.person) {
         addHeads = 1;
         addPeople = [q.name];
@@ -1964,7 +2023,7 @@ function actAsMember(ctx, memberId) {
   const { db } = ctx;
   const member = need(db.members, memberId);
   remove(db.member_users, (l) => l.user_id === ctx.uid && l.trip_id === member.trip_id);
-  linkUser(ctx, member.trip_id, member.id);
+  linkUser(ctx, member.trip_id, member.id, (member.people || [])[0] || null);
   bump(ctx, member.trip_id);
   return { trip_id: member.trip_id, member_id: member.id };
 }
@@ -2144,7 +2203,7 @@ export function createDemoApi(options = {}) {
     myTrips: () => read('my_trips'),
     createTrip: (trip, profile) => call('create_trip', trip, profile),
     previewInvite: (code) => read('preview_invite', code),
-    joinTrip: (code, { claimMemberId, profile } = {}) => call('join_trip', code, claimMemberId ?? null, profile ?? null),
+    joinTrip: (code, { claimMemberId, profile, person } = {}) => call('join_trip', code, claimMemberId ?? null, profile ?? null, person ?? null),
     linkDevice: (code) => call('link_device', code),
     getDeviceCode: (memberId) => call('get_device_code', memberId),
 
@@ -2235,6 +2294,9 @@ export function createDemoApi(options = {}) {
     leaveSeat: (tripId) => call('leave_seat', tripId),
     sendTestNotification: (tripId) => call('send_test_notification', tripId),
     linkByEmail: () => call('link_by_email'),
+    setMyPerson: (tripId, person) => call('set_my_person', tripId, person),
+    myAccount: () => read('my_account'),
+    saveAccount: (patch) => call('save_account', patch),
     requestProfileJoin: (code, memberId, { person = null, name = null } = {}) => call('request_profile_join', code, memberId, person, name),
     cancelProfileRequest: (tripId) => call('cancel_profile_request', tripId),
     respondProfileRequest: (requestId, approve) => call('respond_profile_request', requestId, Boolean(approve)),

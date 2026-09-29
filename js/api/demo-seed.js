@@ -1,7 +1,7 @@
 // Demo data for the in-browser fake backend (SPEC §6, §7.2).
 // Pure data + a builder: no storage, no randomness of its own (ids/codes are injected).
 
-export const DEMO_VERSION = 2;
+export const DEMO_VERSION = 3;
 
 /** SPEC §6 default categories, sort 1..10. */
 export const DEFAULT_CATEGORIES = Object.freeze([
@@ -200,7 +200,7 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
     hoursAgo: 45, unclaimed: true, inventory: ['נפנף'],
   });
 
-  const memberUsers = [{ user_id: userId, trip_id: tripId, member_id: M.noa.id, created_at: created }];
+  const memberUsers = [{ user_id: userId, trip_id: tripId, member_id: M.noa.id, person: M.noa.people[0], created_at: created }];
 
   // ----- categories -----
   const defaultBuyers = { '🥩': 'maya', '🥗': 'maya', '🥫': 'maya', '🥤': 'yoav', '🔥': 'noa' };

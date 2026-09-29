@@ -204,6 +204,7 @@ export default function HomeScreen({ route }) {
         ${after ? null : html`<${StillMissing} model=${model} busy=${busy} onTake=${take} onAdd=${() => setSheet('item')} />`}
       `}
 
+    <${WhoAmI} snap=${snap} me=${me} />
     <${ItemSheet} open=${sheet === 'item'} onClose=${() => setSheet(null)} snap=${snap} isAdmin=${isAdmin} tripId=${tripId} />
     <${ExpenseSheet} open=${sheet === 'expense'} onClose=${() => setSheet(null)} snap=${snap} me=${me} tripId=${tripId} />
     ${isAdmin
@@ -407,6 +408,36 @@ function PhaseStrip({ phase }) {
     ${PHASES.map(([k, label], i) => html`<li key=${k} class=${i === at ? 'is-now' : i < at ? 'is-past' : ''}
       aria-current=${i === at ? 'step' : undefined}>${label}</li>`)}
   </ol>`;
+}
+
+/** Once, for a device that joined a shared profile before profiles knew their people: "מי את/ה ב״הדס ועידו״?" */
+function WhoAmI({ snap, me }) {
+  const [busy, setBusy] = useState(null);
+  const [dismissed, setDismissed] = useState(false);
+  const people = (me?.people || []).filter(Boolean);
+  const open = Boolean(me && people.length > 1 && snap.me && !snap.me.person && !dismissed);
+  const joined = new Set(me?.joined || []);
+  const choose = async (p) => {
+    setBusy(p);
+    const ok = await actions.run(async (api) => { await api.setMyPerson(snap.trip.id, p); return true; },
+      { success: `היי ${p}! 👋 מעכשיו רואים בדיוק מי מה` });
+    setBusy(null);
+    if (ok) setDismissed(true);
+  };
+  const free = people.filter((p) => !joined.has(p));
+  return html`<${Sheet} open=${open} onClose=${() => {}} title=${`מי את/ה ב״${me ? displayName(me) : ''}״? 🙋`}>
+    <div class="stack" data-testid="who-am-i">
+      <p class="muted">פעם אחת בלבד — ככה כולם רואים מי מביא ומי ראה, בלי בלבול.</p>
+      <div class="welcome-opts" role="radiogroup" aria-label="מי את/ה">
+        ${people.map((p) => html`<button type="button" role="radio" key=${p} aria-checked="false" class="welcome-opt"
+          disabled=${joined.has(p) || Boolean(busy)} onClick=${() => choose(p)}>
+          <span class="welcome-opt__emoji" aria-hidden="true">${joined.has(p) ? '✓' : '🙋'}</span>
+          <span class="welcome-opt__text"><b>אני ${p}</b><span>${joined.has(p) ? 'כבר נכנס/ה ממכשיר אחר' : busy === p ? 'רגע…' : 'זה אני'}</span></span>
+        </button>`)}
+      </div>
+      ${free.length ? null : html`<${Button} variant="ghost" onClick=${() => setDismissed(true)}>אף אחד מאלה — אחר כך</${Button}>`}
+    </div>
+  </${Sheet}>`;
 }
 
 /** Admins: what the trip itself still misses (by its type) — one tap to where it's filled. */

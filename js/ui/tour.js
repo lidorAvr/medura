@@ -1,6 +1,5 @@
-// First-run guide (once per device, re-openable from Me): what Medura is for, two tiny hands-on
-// demos, then the two things that make it work on a phone — installing it as an app and turning
-// on notifications. Automated browsers skip it unless the URL has ?tour=1.
+// First-run guide (once per device, re-openable from Me), three short screens: what Medura does,
+// installing it as an app, turning on notifications. Automated browsers skip it unless the URL has ?tour=1.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
 import { actions } from '../store.js';
@@ -42,51 +41,13 @@ export function tourDue() {
 // ---- slide bodies ----------------------------------------------------------------------
 
 function Welcome() {
-  return html`<div class="tour-art tour-art--fire" aria-hidden="true"><span>🔥</span></div>
-    <p class="tour__text">כל הארגון של הטיול במקום אחד: <b>מי מביא מה, קניות, טרמפים וכסף</b>.</p>
-    <p class="tour__text tour__text--soft">ובטיול עצמו? האפליקציה נחה — מדברים אחד עם השני 🙂</p>`;
-}
-
-const DEMO_ITEMS = [['🥩', 'פרגיות'], ['🔥', 'פחמים'], ['🍉', 'אבטיח']];
-
-function ListsDemo() {
-  const [mine, setMine] = useState([]);
-  return html`<ul class="tour-demo" aria-label="דוגמה: רשימה">
-      ${DEMO_ITEMS.map(([em, name]) => {
-        const on = mine.includes(name);
-        return html`<li key=${name} class=${cx('tour-demo__row', on && 'is-on')}>
-          <span aria-hidden="true">${em}</span><span class="tour-demo__name">${name}</span>
-          <button type="button" class="tour-demo__btn" aria-pressed=${on ? 'true' : 'false'}
-            onClick=${() => setMine((m) => (on ? m.filter((x) => x !== name) : [...m, name]))}>
-            ${on ? '✅ עליך!' : '✋ אני על זה'}
-          </button>
-        </li>`;
-      })}
+  return html`<ul class="tour-points">
+      <li><span aria-hidden="true">📋</span> <b>מי מביא מה</b> — לוקחים דבר מהרשימה בלחיצה</li>
+      <li><span aria-hidden="true">🚗</span> <b>איך מגיעים</b> — מבקשים מקום, הנהג/ת מאשר/ת</li>
+      <li><span aria-hidden="true">💸</span> <b>כסף</b> — רושמים הוצאה, החשבון מתחלק לבד</li>
+      <li><span aria-hidden="true">📥</span> <b>מה מחכה לך</b> — תמיד למעלה במסך הבית</li>
     </ul>
-    <p class="tour__text">${mine.length ? 'ככה כולם רואים שזה מכוסה — בלי ״מי מביא?״ בוואטסאפ 🎉' : 'נסו: לחצו ״✋ אני על זה״ על משהו.'}</p>`;
-}
-
-function RidesDemo() {
-  const [step, setStep] = useState(0); // 0 idle, 1 waiting, 2 approved
-  useEffect(() => {
-    if (step !== 1) return undefined;
-    const t = setTimeout(() => setStep(2), 1100);
-    return () => clearTimeout(t);
-  }, [step]);
-  return html`<div class="tour-car" aria-label="דוגמה: טרמפ">
-      <span class="tour-car__car" aria-hidden="true">🚗</span>
-      <div class="tour-car__seats" aria-hidden="true">
-        <span class="is-taken"></span><span class=${step === 2 ? 'is-taken is-new' : ''}></span><span></span>
-      </div>
-      <p class="tour-car__who">מאיה נוסעת מתל אביב · יציאה 07:30</p>
-      ${step === 0
-        ? html`<button type="button" class="tour-demo__btn" onClick=${() => setStep(1)}>🙋 מבקשים להצטרף</button>`
-        : step === 1
-          ? html`<p class="tour-car__state">⏳ מחכה לאישור של מאיה…</p>`
-          : html`<p class="tour-car__state is-ok">✅ מאיה אישרה — את/ה ברכב!</p>`}
-    </div>
-    <p class="tour__text">ככה זה עם כל בקשה: מי שביקש מקבל תשובה, ומה שמחכה לך מופיע ב־<b>📥 מחכה לך</b>.</p>
-    <p class="tour__text tour__text--soft">הרכבים — בלשונית <b>🚗 הסעות</b> למטה. הלו״ז, המקום ומזג האוויר — בלחיצה על <b>שם הטיול</b> למעלה.</p>`;
+    <p class="tour__text tour__text--soft">הכול לפני ואחרי הטיול. בטיול עצמו — מדורה נחה 🙂</p>`;
 }
 
 function InstallSlide() {
@@ -155,8 +116,6 @@ function PushSlide({ tripId }) {
 
 const SLIDES = [
   { key: 'hi', emoji: '👋', title: 'ברוכים הבאים למדורה!', Body: Welcome },
-  { key: 'lists', emoji: '📋', title: 'מי מביא מה', Body: ListsDemo },
-  { key: 'rides', emoji: '🚗', title: 'טרמפים — בקשה ותשובה', Body: RidesDemo },
   { key: 'install', emoji: '📲', title: 'מדורה על המסך שלכם', Body: InstallSlide },
   { key: 'push', emoji: '🔔', title: 'שלא תפספסו', Body: PushSlide },
 ];

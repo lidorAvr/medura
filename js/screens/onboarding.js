@@ -13,6 +13,7 @@ import {
 } from '../ui/components.js';
 import { Icon } from '../ui/icons.js';
 import { EmailGate, linkThisDevice } from '../ui/email-gate.js';
+import { Entry } from '../ui/account.js';
 import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
@@ -24,14 +25,14 @@ const baseUrl = () => `${location.origin}${location.pathname}`;
 
 export default function OnboardingScreen({ route }) {
   switch (route.name) {
-    case 'new':
-      return html`<${NewTrip} />`;
     case 'join':
-      return html`<${Join} code=${route.params.code} switchMode=${route.query?.switch === '1'} />`;
+      return html`<${Entry} requireVerified><${Join} code=${route.params.code} switchMode=${route.query?.switch === '1'} /></${Entry}>`;
     case 'link':
       return html`<${LinkDevice} code=${route.params.code} />`;
+    case 'new':
+      return html`<${Entry} requireVerified><${NewTrip} /></${Entry}>`;
     default:
-      return html`<${Landing} openCode=${route.query.link === '1'} />`;
+      return html`<${Entry}><${Landing} openCode=${route.query.link === '1'} /></${Entry}>`;
   }
 }
 
@@ -682,36 +683,45 @@ function JoinTicket({ preview }) {
   </div>`;
 }
 
-function ClaimGrid({ unclaimed, onPick }) {
+/** Everyone on the trip, one card per person ("עידו", small: "בפרופיל הדס ועידו") — pick yourself, you're in. */
+function PeopleGrid({ unclaimed, claimed, busy, onPickPerson, onNew }) {
+  const tiles = [];
+  for (const m of [...unclaimed, ...claimed]) {
+    const people = (m.people || []).filter(Boolean);
+    const names = people.length ? people : [displayName(m)];
+    const joined = new Set(m.joined || []);
+    const isClaimed = claimed.includes(m);
+    for (const p of names) {
+      const taken = isClaimed && (names.length < 2 || joined.has(p));
+      tiles.push({ key: `${m.id}:${p}`, m, person: people.length ? p : null, name: p, taken, multi: names.length > 1 });
+    }
+  }
+  tiles.sort((a, b) => Number(a.taken) - Number(b.taken));
   return html`<section class="stack" aria-labelledby="who-are-you">
     <div>
-      <h2 class="h2" id="who-are-you">מי אתם? 👀</h2>
-      <p class="muted small">המנהל/ת כבר הכין/ה פרופילים — מצאו את שלכם, או צרו חדש.</p>
+      <h2 class="h2" id="who-are-you">מי את/ה? 👀</h2>
+      <p class="muted small">מוצאים את השם שלך ולוחצים — וזהו, בפנים.</p>
     </div>
-    <div class="claim-grid">
-      ${unclaimed.map((m) => {
-        const couple = (m.headcount || 1) >= 2;
-        const people = (m.people || []).filter(Boolean);
-        return html`<button type="button" class="claim-tile" key=${m.id} onClick=${() => onPick(m)}>
-          <${Avatar} member=${{ ...m, claimed: true }} size=${58} />
-          <span class="claim-tile__name">${displayName(m)}</span>
-          ${couple && people.length > 1 ? html`<span class="claim-tile__people">${hebrewCount(m.headcount, 'איש', 'אנשים')}</span>` : null}
-          <span class="claim-tile__cta">${couple ? 'זה אנחנו!' : 'זה אני!'}</span>
-        </button>`;
-      })}
-      <button type="button" class="claim-tile claim-tile--new" onClick=${() => onPick(null)}>
+    <div class="claim-grid" data-testid="people-grid">
+      ${tiles.map((x) => html`<button type="button" key=${x.key} class=${x.taken ? 'claim-tile claim-tile--taken is-in' : 'claim-tile'}
+        disabled=${x.taken || busy} data-person=${x.name} onClick=${() => onPickPerson(x.m, x.person)}>
+        <${Avatar} member=${{ ...x.m, headcount: 1, claimed: true, display_name: x.name }} size=${54} />
+        <span class="claim-tile__name">${x.name}</span>
+        ${x.multi ? html`<span class="claim-tile__people">בפרופיל ${displayName(x.m)}</span>` : null}
+        <span class="claim-tile__cta">${x.taken ? '✓ כבר בפנים' : 'זה אני!'}</span>
+      </button>`)}
+      <button type="button" class="claim-tile claim-tile--new" disabled=${busy} onClick=${onNew}>
         <span class="claim-tile__plus" aria-hidden="true">✨</span>
-        <span class="claim-tile__name">אנחנו חדשים</span>
+        <span class="claim-tile__name">אני לא ברשימה</span>
         <span class="claim-tile__cta">יצירת פרופיל</span>
       </button>
     </div>
     <div class="claim-signin" data-testid="claim-signin">
-      <p><b>הפרופיל שלכם לא ברשימה?</b> כנראה כבר הצטרפתם ממכשיר אחר.</p>
+      <p><b>כתוב "כבר בפנים" ליד השם שלך?</b> כנראה נכנסת ממכשיר אחר.</p>
       <${Button} variant="secondary" icon="link" href="#/signin">🔑 התחברות עם המייל</${Button}>
     </div>
   </section>`;
 }
-
 
 /** Taken profiles on the invite: "גם אני בפרופיל הזה 🤝" → ask to join (verified e-mail, answered by its people). */
 function ClaimedGrid({ claimed, onPick, title }) {
@@ -836,11 +846,13 @@ function Join({ code, switchMode = false }) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const join = async (profile) => {
+  const join = async (profile, as = null) => {
     setBusy(true);
     let retryPreview = false;
     const res = await actions.run(
-      (a) => a.joinTrip(cleanCode, { claimMemberId: choice?.id || null, profile }),
+      (a) => a.joinTrip(cleanCode, as
+        ? { claimMemberId: as.member.id, person: as.person, profile: null }
+        : { claimMemberId: choice?.id || null, profile }),
       {
         refresh: false,
         error: (errCode) => {
@@ -904,9 +916,15 @@ function Join({ code, switchMode = false }) {
         ? html`<${JoinExisting} code=${cleanCode} tripId=${preview.trip.id} target=${target} onBack=${() => setTarget(null)} />`
         : choice === undefined
         ? html`<div class="stack-lg">
-            ${switchMode ? null : html`<${ClaimGrid} unclaimed=${unclaimed} onPick=${pickProfile} />`}
-            <${ClaimedGrid} claimed=${(preview.claimed || []).filter((m) => m.id !== preview.my_member_id)}
-              title=${switchMode ? 'לאיזה פרופיל מצטרפים?' : null} onPick=${(m) => { setTarget(m); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+            ${switchMode
+              ? null
+              : html`<${PeopleGrid} unclaimed=${unclaimed} claimed=${preview.claimed || []} busy=${busy}
+                  onPickPerson=${(m, person) => join(null, { member: m, person })} onNew=${() => pickProfile(null)} />`}
+            <details class="join-more" open=${switchMode}>
+              <summary>${switchMode ? 'לאיזה פרופיל מצטרפים?' : 'מצטרפים לפרופיל של מישהו (בן/בת זוג, משפחה)?'}</summary>
+              <${ClaimedGrid} claimed=${(preview.claimed || []).filter((m) => m.id !== preview.my_member_id)}
+                title=${switchMode ? 'לאיזה פרופיל מצטרפים?' : null} onPick=${(m) => { setTarget(m); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+            </details>
           </div>`
         : html`<div class="stack-lg">
             <div>

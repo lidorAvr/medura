@@ -525,3 +525,18 @@
 .trip-type.is-on .trip-type__label { color: var(--accent-text); }
 .trip-types__gets { font-size: 13.5px; line-height: 1.5; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); animation: fade-in 200ms var(--ease); }
 @media (prefers-reduced-motion: reduce) { .trip-type:active { transform: none; } }
+
+/* ---------- join: a card per person ---------- */
+.claim-tile.is-in { opacity: 0.55; cursor: default; }
+.claim-tile.is-in .claim-tile__cta { color: var(--success-text); }
+.join-more { border-radius: 16px; background: var(--surface-2); padding: 10px 14px; }
+.join-more > summary { cursor: pointer; font-weight: 700; font-size: 14.5px; }
+.join-more[open] > summary { margin-bottom: 10px; }
+
+/* ---------- entry: e-mail → my profile ---------- */
+.entry__head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 32px 20px 8px; }
+.entry__logo { font-size: 46px; line-height: 1; animation: pop 420ms var(--spring) both; }
+.entry__title { font-size: 25px; font-weight: 900; }
+.entry__lead { color: var(--muted); max-width: 34ch; line-height: 1.5; }
+.entry__install { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.email-gate__later { align-self: center; font-weight: 700; }
