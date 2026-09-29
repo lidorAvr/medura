@@ -5,15 +5,15 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions, emailRequired } from '../store.js';
-import { navigate } from '../router.js';
+import { useTrip, useStore, actions, emailRequired } from '../store.js?v=71bed20';
+import { navigate } from '../router.js?v=71bed20';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
   ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js';
-import { Icon } from '../ui/icons.js';
-import { disablePush, enablePush, pushState } from '../lib/device.js';
-import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js';
+} from '../ui/components.js?v=71bed20';
+import { Icon } from '../ui/icons.js?v=71bed20';
+import { disablePush, enablePush, pushState } from '../lib/device.js?v=71bed20';
+import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js?v=71bed20';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 

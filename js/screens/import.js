@@ -2,12 +2,12 @@
 // (parseListText) → per-row include / type / category edits → add_items_bulk → back to lists.
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js';
-import { navigate, href } from '../router.js';
-import { formatQty, hebrewCount, parseListText, similarItems, titleSimilarity } from '../lib/logic.js';
-import { Button, Chip, Field, IconButton, Pill, Sheet, Skeleton, TextArea, fireConfetti } from '../ui/components.js';
-import { Icon } from '../ui/icons.js';
-import { cx, emojiKey, matchCategory, normText, sortedCategories } from './lists.js';
+import { actions, useTrip } from '../store.js?v=71bed20';
+import { navigate, href } from '../router.js?v=71bed20';
+import { formatQty, hebrewCount, parseListText, similarItems, titleSimilarity } from '../lib/logic.js?v=71bed20';
+import { Button, Chip, Field, IconButton, Pill, Sheet, Skeleton, TextArea, fireConfetti } from '../ui/components.js?v=71bed20';
+import { Icon } from '../ui/icons.js?v=71bed20';
+import { cx, emojiKey, matchCategory, normText, sortedCategories } from './lists.js?v=71bed20';
 
 const BULK_MAX = 150; // add_items_bulk limit per call (SPEC §4)
 

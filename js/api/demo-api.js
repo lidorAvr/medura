@@ -7,7 +7,7 @@
 // Every call loads a fresh copy, runs one RPC against it, and saves only on success —
 // so a failed call never leaves partial changes behind (like a SQL transaction).
 
-import { ApiError } from './errors.js';
+import { ApiError } from './errors.js?v=71bed20';
 import {
   DEMO_VERSION,
   DEFAULT_CATEGORIES,
@@ -16,7 +16,7 @@ import {
   PERSONAL_TEMPLATE,
   buildDemoSeed,
   jerusalemYmd,
-} from './demo-seed.js';
+} from './demo-seed.js?v=71bed20';
 
 export const DEMO_STORAGE_KEY = 'medura:demo:v1';
 export const DEMO_UID_KEY = 'medura:demo:uid';

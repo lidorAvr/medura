@@ -1,20 +1,20 @@
 // Onboarding (SPEC §8.1): landing / new trip / join ("מי אתם?") / link device.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, useStore } from '../store.js';
-import { navigate, href } from '../router.js';
-import { hebrewError, toApiError } from '../api/errors.js';
+import { actions, useStore } from '../store.js?v=71bed20';
+import { navigate, href } from '../router.js?v=71bed20';
+import { hebrewError, toApiError } from '../api/errors.js?v=71bed20';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
-} from '../lib/logic.js';
+} from '../lib/logic.js?v=71bed20';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
   fireConfetti,
-} from '../ui/components.js';
-import { Icon } from '../ui/icons.js';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js';
-import { Entry } from '../ui/account.js';
-import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js';
+} from '../ui/components.js?v=71bed20';
+import { Icon } from '../ui/icons.js?v=71bed20';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=71bed20';
+import { Entry } from '../ui/account.js?v=71bed20';
+import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js?v=71bed20';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];

@@ -3,21 +3,21 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js';
-import { href, navigate } from '../router.js';
+import { actions, useTrip } from '../store.js?v=71bed20';
+import { href, navigate } from '../router.js?v=71bed20';
 import {
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
   hebrewCount, itemEffectiveQty, itemProgress, membersById, missingItems, myAgenda, similarItems, timeAgo, tripReadiness,
   visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats,
-} from '../lib/logic.js';
+} from '../lib/logic.js?v=71bed20';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js';
-import { Icon } from '../ui/icons.js';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js';
-import { InboxCard } from '../ui/inbox.js';
-import { hasModule, tripSetupGaps } from '../lib/templates.js';
+} from '../ui/components.js?v=71bed20';
+import { Icon } from '../ui/icons.js?v=71bed20';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=71bed20';
+import { InboxCard } from '../ui/inbox.js?v=71bed20';
+import { hasModule, tripSetupGaps } from '../lib/templates.js?v=71bed20';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 6;

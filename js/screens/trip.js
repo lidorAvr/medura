@@ -2,19 +2,19 @@
 // rules & tips, notes, invite link — and for admins an edit sheet for every trip field.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js';
-import { RidesCard } from './rides.js';
-import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js';
-import { CURRENCIES } from '../lib/fx.js';
-import { BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js';
-import { href, navigate } from '../router.js';
+import { actions, useTrip } from '../store.js?v=71bed20';
+import { RidesCard } from './rides.js?v=71bed20';
+import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js?v=71bed20';
+import { CURRENCIES } from '../lib/fx.js?v=71bed20';
+import { BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=71bed20';
+import { href, navigate } from '../router.js?v=71bed20';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
-} from '../lib/logic.js';
+} from '../lib/logic.js?v=71bed20';
 import {
   Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, IconButton, Sheet, ShareButton, Skeleton,
   TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js';
+} from '../ui/components.js?v=71bed20';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';

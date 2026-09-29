@@ -3,18 +3,18 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js';
-import { navigate } from '../router.js';
+import { actions, store, useTrip } from '../store.js?v=71bed20';
+import { navigate } from '../router.js?v=71bed20';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
   membersById, settlePlan, timeAgo, tripTotals, whatsappChatUrl,
-} from '../lib/logic.js';
+} from '../lib/logic.js?v=71bed20';
 import {
   Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, IconButton, MemberPicker, MoneyInput, Pill,
   ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, confirmDialog, fireConfetti,
-} from '../ui/components.js';
-import { Icon } from '../ui/icons.js';
-import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js';
+} from '../ui/components.js?v=71bed20';
+import { Icon } from '../ui/icons.js?v=71bed20';
+import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=71bed20';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 

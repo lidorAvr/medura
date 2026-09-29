@@ -2,9 +2,9 @@
 // installing it as an app, turning on notifications. Automated browsers skip it unless the URL has ?tour=1.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions } from '../store.js';
-import { Button, Sheet } from './components.js';
-import { enablePush, installState, onInstallChange, promptInstall, pushState } from '../lib/device.js';
+import { actions } from '../store.js?v=71bed20';
+import { Button, Sheet } from './components.js?v=71bed20';
+import { enablePush, installState, onInstallChange, promptInstall, pushState } from '../lib/device.js?v=71bed20';
 
 const KEY = 'medura:tour:v2';
 const cx = (...a) => a.filter(Boolean).join(' ');

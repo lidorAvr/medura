@@ -3,13 +3,13 @@
 // Every step can be skipped; finishing (or skipping to the end) sets prefs.onboarded.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, useStore, useTrip } from '../store.js';
-import { navigate } from '../router.js';
-import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js';
-import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js';
-import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js';
-import { RideOffers } from './rides.js';
-import { arrivalOf, hasModule, tripType } from '../lib/templates.js';
+import { actions, useStore, useTrip } from '../store.js?v=71bed20';
+import { navigate } from '../router.js?v=71bed20';
+import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=71bed20';
+import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput } from '../ui/components.js?v=71bed20';
+import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=71bed20';
+import { RideOffers } from './rides.js?v=71bed20';
+import { arrivalOf, hasModule, tripType } from '../lib/templates.js?v=71bed20';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;

@@ -1,6 +1,6 @@
 /* מדורה service worker — offline shell (network-first) + push notifications.
    Same-origin GETs only; Supabase and other cross-origin requests are never touched. */
-const VERSION = 'medura-v1';
+const VERSION = 'medura-71bed20';
 const NETWORK_TIMEOUT_MS = 4000; // weak reception at the campsite → fall back to cache quickly
 
 const SHELL = [

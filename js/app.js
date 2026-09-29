@@ -2,16 +2,16 @@
 import { html } from 'htm/preact';
 import { Component } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { useRoute, href, navigate } from './router.js';
-import { useStore, useTrip, actions, emailRequired } from './store.js';
-import { unreadCount } from './lib/logic.js';
-import { hebrewError } from './api/errors.js';
-import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js';
-import { Icon } from './ui/icons.js';
-import { EmailGate } from './ui/email-gate.js';
-import { Tour, tourDue } from './ui/tour.js';
-import { PendingGate } from './ui/pending.js';
-import { arrivalOf, hasModule } from './lib/templates.js';
+import { useRoute, href, navigate } from './router.js?v=71bed20';
+import { useStore, useTrip, actions, emailRequired } from './store.js?v=71bed20';
+import { unreadCount } from './lib/logic.js?v=71bed20';
+import { hebrewError } from './api/errors.js?v=71bed20';
+import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=71bed20';
+import { Icon } from './ui/icons.js?v=71bed20';
+import { EmailGate } from './ui/email-gate.js?v=71bed20';
+import { Tour, tourDue } from './ui/tour.js?v=71bed20';
+import { PendingGate } from './ui/pending.js?v=71bed20';
+import { arrivalOf, hasModule } from './lib/templates.js?v=71bed20';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -20,22 +20,22 @@ const cx = (...a) => a.filter(Boolean).join(' ');
 // ---------------------------------------------------------------------------
 
 const SCREENS = {
-  landing: './screens/onboarding.js',
-  new: './screens/onboarding.js',
-  join: './screens/onboarding.js',
-  link: './screens/onboarding.js',
-  home: './screens/home.js',
-  trip: './screens/trip.js',
-  rides: './screens/rides.js',
-  lists: './screens/lists.js',
-  shop: './screens/shopping.js',
-  import: './screens/import.js',
-  money: './screens/money.js',
-  messages: './screens/messages.js',
-  people: './screens/people.js',
-  me: './screens/me.js',
-  welcome: './screens/welcome.js',
-  signin: './screens/signin.js',
+  landing: './screens/onboarding.js?v=71bed20',
+  new: './screens/onboarding.js?v=71bed20',
+  join: './screens/onboarding.js?v=71bed20',
+  link: './screens/onboarding.js?v=71bed20',
+  home: './screens/home.js?v=71bed20',
+  trip: './screens/trip.js?v=71bed20',
+  rides: './screens/rides.js?v=71bed20',
+  lists: './screens/lists.js?v=71bed20',
+  shop: './screens/shopping.js?v=71bed20',
+  import: './screens/import.js?v=71bed20',
+  money: './screens/money.js?v=71bed20',
+  messages: './screens/messages.js?v=71bed20',
+  people: './screens/people.js?v=71bed20',
+  me: './screens/me.js?v=71bed20',
+  welcome: './screens/welcome.js?v=71bed20',
+  signin: './screens/signin.js?v=71bed20',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
