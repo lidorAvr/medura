@@ -3,22 +3,22 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=c11e2d1';
-import { href, navigate } from '../router.js?v=c11e2d1';
+import { actions, useTrip } from '../store.js?v=65baf9b';
+import { href, navigate } from '../router.js?v=65baf9b';
 import {
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
   hebrewCount, itemEffectiveQty, itemProgress, membersById, missingItems, myAgenda, similarItems, timeAgo, tripReadiness,
   visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats,
-} from '../lib/logic.js?v=c11e2d1';
+} from '../lib/logic.js?v=65baf9b';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js?v=c11e2d1';
-import { Icon } from '../ui/icons.js?v=c11e2d1';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=c11e2d1';
-import { InboxCard } from '../ui/inbox.js?v=c11e2d1';
-import { hebrewError } from '../api/errors.js?v=c11e2d1';
-import { hasModule, tripSetupGaps } from '../lib/templates.js?v=c11e2d1';
+} from '../ui/components.js?v=65baf9b';
+import { Icon } from '../ui/icons.js?v=65baf9b';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=65baf9b';
+import { InboxCard } from '../ui/inbox.js?v=65baf9b';
+import { hebrewError } from '../api/errors.js?v=65baf9b';
+import { hasModule, tripSetupGaps } from '../lib/templates.js?v=65baf9b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 6;

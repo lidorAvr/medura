@@ -2,19 +2,19 @@
 // rules & tips, notes, invite link — and for admins an edit sheet for every trip field.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=c11e2d1';
-import { RidesCard } from './rides.js?v=c11e2d1';
-import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js?v=c11e2d1';
-import { CURRENCIES } from '../lib/fx.js?v=c11e2d1';
-import { BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=c11e2d1';
-import { href, navigate } from '../router.js?v=c11e2d1';
+import { actions, useTrip } from '../store.js?v=65baf9b';
+import { RidesCard } from './rides.js?v=65baf9b';
+import { ARRIVAL_MODES, MODULES, arrivalOf, hasModule, schedulePresets, tripType } from '../lib/templates.js?v=65baf9b';
+import { CURRENCIES } from '../lib/fx.js?v=65baf9b';
+import { BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=65baf9b';
+import { href, navigate } from '../router.js?v=65baf9b';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, isAdmin as memberIsAdmin,
-} from '../lib/logic.js?v=c11e2d1';
+} from '../lib/logic.js?v=65baf9b';
 import {
   Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, IconButton, Sheet, ShareButton, Skeleton,
   TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=c11e2d1';
+} from '../ui/components.js?v=65baf9b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';

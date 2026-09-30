@@ -3,19 +3,19 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=c11e2d1';
-import { navigate } from '../router.js?v=c11e2d1';
+import { actions, store, useTrip } from '../store.js?v=65baf9b';
+import { navigate } from '../router.js?v=65baf9b';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
   membersById, settlePlan, timeAgo, tripTotals, whatsappChatUrl,
-} from '../lib/logic.js?v=c11e2d1';
+} from '../lib/logic.js?v=65baf9b';
 import {
   Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, IconButton, MemberPicker, MoneyInput, Pill,
   ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, confirmDialog, fireConfetti,
-} from '../ui/components.js?v=c11e2d1';
-import { Icon } from '../ui/icons.js?v=c11e2d1';
-import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=c11e2d1';
-import { MoneyRequests } from './money-requests.js?v=c11e2d1';
+} from '../ui/components.js?v=65baf9b';
+import { Icon } from '../ui/icons.js?v=65baf9b';
+import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=65baf9b';
+import { MoneyRequests } from './money-requests.js?v=65baf9b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 

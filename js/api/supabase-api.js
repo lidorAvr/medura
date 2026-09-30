@@ -2,7 +2,7 @@
 // Every method is a thin camelCase wrapper around one RPC from SPEC §4 with the exact
 // `p_*` parameter names. All failures are normalized to ApiError via toApiError.
 
-import { ApiError, toApiError } from './errors.js?v=c11e2d1';
+import { ApiError, toApiError } from './errors.js?v=65baf9b';
 
 const POLL_MS = 45000;
 

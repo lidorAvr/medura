@@ -4,12 +4,12 @@
 // picks which ways a trip offers (settings.arrival). Used on the rides tab, the trip screen and the wizard.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=c11e2d1';
-import { navigate } from '../router.js?v=c11e2d1';
-import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel } from '../lib/logic.js?v=c11e2d1';
-import { ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=c11e2d1';
-import { wall } from './trip-extras.js?v=c11e2d1';
-import { Avatar, Button, Card, Field, IconButton, Sheet, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=c11e2d1';
+import { actions, useTrip } from '../store.js?v=65baf9b';
+import { navigate } from '../router.js?v=65baf9b';
+import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel } from '../lib/logic.js?v=65baf9b';
+import { ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=65baf9b';
+import { wall } from './trip-extras.js?v=65baf9b';
+import { Avatar, Button, Card, Field, IconButton, Sheet, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=65baf9b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const ok = (fn) => async (api) => {

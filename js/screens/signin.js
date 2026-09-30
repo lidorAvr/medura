@@ -1,10 +1,10 @@
 // "כבר הצטרפתי ממכשיר אחר" — sign in with the e-mail you verified, on any device.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { useStore, actions } from '../store.js?v=c11e2d1';
-import { navigate } from '../router.js?v=c11e2d1';
-import { Skeleton } from '../ui/components.js?v=c11e2d1';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=c11e2d1';
+import { useStore, actions } from '../store.js?v=65baf9b';
+import { navigate } from '../router.js?v=65baf9b';
+import { Skeleton } from '../ui/components.js?v=65baf9b';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=65baf9b';
 
 export default function SignInScreen() {
   const contact = useStore((s) => s.contact);

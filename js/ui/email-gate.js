@@ -2,10 +2,10 @@
 // summary and every push also go there. Two steps: address → 6-digit code.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore } from '../store.js?v=c11e2d1';
-import { navigate } from '../router.js?v=c11e2d1';
-import { hebrewError, toApiError } from '../api/errors.js?v=c11e2d1';
-import { Button, Card, Field, TextInput } from './components.js?v=c11e2d1';
+import { actions, store, useStore } from '../store.js?v=65baf9b';
+import { navigate } from '../router.js?v=65baf9b';
+import { hebrewError, toApiError } from '../api/errors.js?v=65baf9b';
+import { Button, Card, Field, TextInput } from './components.js?v=65baf9b';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
 const RESEND_S = 30;

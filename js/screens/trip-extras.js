@@ -3,10 +3,10 @@
 // Times here are wall-clock strings ('YYYY-MM-DDTHH:MM', local to the place) — shown as typed.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { actions } from '../store.js?v=c11e2d1';
-import { displayName, formatMoney, hebrewCount } from '../lib/logic.js?v=c11e2d1';
-import { symbolOf } from '../lib/fx.js?v=c11e2d1';
-import { Button, Card, Chip, Field, IconButton, Segmented, Sheet, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=c11e2d1';
+import { actions } from '../store.js?v=65baf9b';
+import { displayName, formatMoney, hebrewCount } from '../lib/logic.js?v=65baf9b';
+import { symbolOf } from '../lib/fx.js?v=65baf9b';
+import { Button, Card, Chip, Field, IconButton, Segmented, Sheet, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=65baf9b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];

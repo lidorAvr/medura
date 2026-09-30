@@ -3,8 +3,8 @@
 import { html } from 'htm/preact';
 import { render, cloneElement, isValidElement, toChildArray } from 'preact';
 import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
-import { Icon } from './icons.js?v=c11e2d1';
-import { whatsappShareUrl, displayName } from '../lib/logic.js?v=c11e2d1';
+import { Icon } from './icons.js?v=65baf9b';
+import { whatsappShareUrl, displayName } from '../lib/logic.js?v=65baf9b';
 
 // ---------------------------------------------------------------------------
 // helpers (module-private)
@@ -601,9 +601,18 @@ export function TextArea({ class: klass, onInput, rows = 3, ...props }) {
 }
 
 const moneyText = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? '' : String(Number(v)));
+// "1,240.50" / "1,240" → thousands separators; "12,5" (a comma with 1–2 digits after it, no dot) → decimal comma
+const moneyNormalize = (t) => {
+  const s = String(t ?? '');
+  if (!s.includes(',')) return s;
+  if (s.includes('.') || /,\d{3}(?:,|$)/.test(s)) return s.replace(/,/g, '');
+  const last = s.lastIndexOf(',');
+  return `${s.slice(0, last).replace(/,/g, '')}.${s.slice(last + 1)}`;
+};
 const moneyParse = (t) => {
-  if (!t || t === '.') return null;
-  const n = Number(t);
+  const s = moneyNormalize(t);
+  if (!s || s === '.') return null;
+  const n = Number(s);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
 };
 
@@ -615,10 +624,11 @@ export function MoneyInput({ value, onChange, placeholder = '0', symbol = '₪',
     if (moneyParse(text) !== incoming) setText(moneyText(value));
   }, [value]);
   const onInput = (e) => {
-    let t = e.target.value.replace(/,/g, '.').replace(/[^\d.]/g, '');
+    // keep what was typed (commas included) — "1,240.50" must not become 1.24 while typing; parse decides
+    let t = e.target.value.replace(/[^\d.,]/g, '');
     const dot = t.indexOf('.');
-    if (dot >= 0) t = `${t.slice(0, dot + 1)}${t.slice(dot + 1).replace(/\./g, '').slice(0, 2)}`;
-    if (t.length > 9) t = t.slice(0, 9);
+    if (dot >= 0) t = `${t.slice(0, dot + 1)}${t.slice(dot + 1).replace(/[.,]/g, '').slice(0, 2)}`;
+    if (t.length > 12) t = t.slice(0, 12);
     if (t !== e.target.value) e.target.value = t;
     setText(t);
     onChange?.(moneyParse(t));

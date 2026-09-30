@@ -3,10 +3,10 @@
 // People who already have a trip on this device never see it (only new joiners).
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, emailRequired, store, useStore } from '../store.js?v=c11e2d1';
-import { installState, onInstallChange, promptInstall } from '../lib/device.js?v=c11e2d1';
-import { EmailGate } from './email-gate.js?v=c11e2d1';
-import { Button, Card, Field, Skeleton, TextInput } from './components.js?v=c11e2d1';
+import { actions, emailRequired, store, useStore } from '../store.js?v=65baf9b';
+import { installState, onInstallChange, promptInstall } from '../lib/device.js?v=65baf9b';
+import { EmailGate } from './email-gate.js?v=65baf9b';
+import { Button, Card, Field, Skeleton, TextInput } from './components.js?v=65baf9b';
 
 const LATER = 'medura:email-later';
 const readLater = () => {
