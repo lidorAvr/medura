@@ -4,18 +4,18 @@
 // Also exports small helpers that shopping.js and import.js reuse.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=d288b77';
-import { navigate, href } from '../router.js?v=d288b77';
+import { actions, useTrip } from '../store.js?v=c11e2d1';
+import { navigate, href } from '../router.js?v=c11e2d1';
 import {
   buildSummaryText, displayName, formatQty, headcountTotal, hebrewCount, itemEffectiveQty, itemProgress,
   membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
   ilIso as ilIsoDue, ilWall as ilWallDue,
-} from '../lib/logic.js?v=d288b77';
+} from '../lib/logic.js?v=c11e2d1';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, Pill, ProgressBar,
   Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti,
-} from '../ui/components.js?v=d288b77';
-import { Icon } from '../ui/icons.js?v=d288b77';
+} from '../ui/components.js?v=c11e2d1';
+import { Icon } from '../ui/icons.js?v=c11e2d1';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by shopping.js and import.js)

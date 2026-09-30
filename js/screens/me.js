@@ -5,16 +5,16 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=d288b77';
-import { cleanPhone } from '../ui/account.js?v=d288b77';
-import { navigate } from '../router.js?v=d288b77';
+import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=c11e2d1';
+import { cleanPhone } from '../ui/account.js?v=c11e2d1';
+import { navigate } from '../router.js?v=c11e2d1';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
   ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=d288b77';
-import { Icon } from '../ui/icons.js?v=d288b77';
-import { disablePush, enablePush, pushState } from '../lib/device.js?v=d288b77';
-import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js?v=d288b77';
+} from '../ui/components.js?v=c11e2d1';
+import { Icon } from '../ui/icons.js?v=c11e2d1';
+import { disablePush, enablePush, pushState } from '../lib/device.js?v=c11e2d1';
+import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js?v=c11e2d1';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 

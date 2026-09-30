@@ -3,11 +3,12 @@
 // so balances, "📥 מחכה לך" and the morning reminders follow). Lives on the money screen.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { actions, store } from '../store.js?v=d288b77';
-import { balances, displayName, formatMoney, headcountTotal, hebrewCount, whatsappChatUrl } from '../lib/logic.js?v=d288b77';
+import { actions, store } from '../store.js?v=c11e2d1';
+import { href } from '../router.js?v=c11e2d1';
+import { balances, displayName, formatMoney, headcountTotal, hebrewCount, whatsappChatUrl } from '../lib/logic.js?v=c11e2d1';
 import {
   Avatar, Button, Card, Chip, CopyButton, Field, MemberPicker, MoneyInput, Segmented, Sheet, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=d288b77';
+} from '../ui/components.js?v=c11e2d1';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const METHOD = { bit: '📱 ביט', paybox: '📦 פייבוקס', bank: '🏦 העברה בנקאית', cash: '💵 מזומן' };
@@ -192,7 +193,14 @@ function RequestSheet({ open, snap, me, onClose }) {
         : null}
       <${Toggle} checked=${paid} onChange=${setPaid} label="כבר שילמתי על זה"
         hint=${paid ? 'נרשם כהוצאה שלך — וכשמשלמים לך, החשבון מתאזן' : 'איסוף לפני קנייה: אחרי שקונים, רושמים את הקנייה כהוצאה'} />
-      <${Field} label="ממי?"><${MemberPicker} members=${others} value=${who} onChange=${setWho} multi label="ממי מבקשים?" /></${Field}>
+      <${Field} label="ממי?">
+        ${others.length
+          ? html`<${MemberPicker} members=${others} value=${who} onChange=${setWho} multi label="ממי מבקשים?" />`
+          : html`<div class="mreq-nobody" data-testid="mreq-nobody">
+              <p class="small">עוד אין בטיול אף אחד חוץ ממך 🙂 קודם מזמינים את החבר׳ה (או מוסיפים להם פרופילים) — ואז מבקשים.</p>
+              <${Button} size="sm" variant="secondary" href=${href(`/t/${snap.trip.id}/people`)} onClick=${onClose}>👥 למסך החבר׳ה</${Button}>
+            </div>`}
+      </${Field}>
       <${Field} label="עד מתי? (לא חובה)" hint="כולל תזכורת עדינה בבוקר למי שעוד לא שילם"><${TextInput} type="date" value=${due} onInput=${(e) => setDue(e.target.value)} /></${Field}>
       <p class="field__label">איך נוח לך לקבל?</p>
       <div class="mreq-form__methods">

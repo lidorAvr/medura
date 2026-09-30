@@ -632,3 +632,6 @@ ul.list { list-style: none; margin: 0; padding: 0; }
 .mreq-closed { font-weight: 700; margin-top: 8px; }
 .mreq-form__methods { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 12px; background: var(--surface-2); }
 .mreq__who-acts { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+
+.mreq-nobody { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.mreq-nobody p { margin: 0; }

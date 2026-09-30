@@ -3,17 +3,17 @@
 // demote), the invite link, and admin tools (add a placeholder profile, remove a member).
 import { html } from 'htm/preact';
 import { useState, useMemo, useEffect } from 'preact/hooks';
-import { useTrip, actions } from '../store.js?v=d288b77';
+import { useTrip, actions } from '../store.js?v=c11e2d1';
 import {
   Avatar, AvatarStack, Button, Card, CopyButton, Field, Pill, Sheet, ShareButton, Skeleton,
   TextArea, TextInput, confirmDialog,
-} from '../ui/components.js?v=d288b77';
-import { Icon } from '../ui/icons.js?v=d288b77';
+} from '../ui/components.js?v=c11e2d1';
+import { Icon } from '../ui/icons.js?v=c11e2d1';
 import {
   adminVoteCounts, balances, buildInviteText, displayName, formatMoney, formatQty, headcountTotal,
   hebrewCount, inviteUrl, isAdmin, membersById, rideModel, timeAgo, whatsappChatUrl,
-} from '../lib/logic.js?v=d288b77';
-import { ProfileForm } from './me.js?v=d288b77';
+} from '../lib/logic.js?v=c11e2d1';
+import { ProfileForm } from './me.js?v=c11e2d1';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 

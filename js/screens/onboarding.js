@@ -1,20 +1,20 @@
 // Onboarding (SPEC §8.1): landing / new trip / join ("מי אתם?") / link device.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, useStore } from '../store.js?v=d288b77';
-import { navigate, href } from '../router.js?v=d288b77';
-import { hebrewError, toApiError } from '../api/errors.js?v=d288b77';
+import { actions, useStore } from '../store.js?v=c11e2d1';
+import { navigate, href } from '../router.js?v=c11e2d1';
+import { hebrewError, toApiError } from '../api/errors.js?v=c11e2d1';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
-} from '../lib/logic.js?v=d288b77';
+} from '../lib/logic.js?v=c11e2d1';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
   fireConfetti,
-} from '../ui/components.js?v=d288b77';
-import { Icon } from '../ui/icons.js?v=d288b77';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=d288b77';
-import { Entry, cleanPhone } from '../ui/account.js?v=d288b77';
-import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js?v=d288b77';
+} from '../ui/components.js?v=c11e2d1';
+import { Icon } from '../ui/icons.js?v=c11e2d1';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=c11e2d1';
+import { Entry, cleanPhone } from '../ui/account.js?v=c11e2d1';
+import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js?v=c11e2d1';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];
