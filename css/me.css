@@ -24,7 +24,7 @@
   position: absolute;
   inset-inline-end: -8px;
   bottom: -18px;
-  font-size: 84px;
+  font-size: 5.25rem;
   opacity: 0.08;
   z-index: -1;
   transform: rotate(-12deg);
@@ -33,11 +33,17 @@
 .me-hero__avatar { flex: none; animation: pop 420ms var(--spring) both; }
 .me-hero__avatar .avatar { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px color-mix(in srgb, var(--accent) 45%, transparent), 0 6px 16px rgba(60, 30, 0, 0.18); }
 .me-hero__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.me-hero__name { font-size: 23px; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
-.me-hero__people { font-size: 14px; color: var(--muted); font-weight: 600; }
+.me-hero__name { font-size: 1.4375rem; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
+.me-hero__people { font-size: 0.875rem; color: var(--muted); font-weight: 600; }
 .me-hero__pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .me-hero__pills .pill .icon { width: 12px; height: 12px; }
 .me-hero__edit { flex: none; }
+/* a very narrow screen (or large text): the name gets its own row instead of a column one letter wide */
+@media (max-width: 340px) {
+  .me-hero { flex-wrap: wrap; }
+  .me-hero__text { order: 3; flex: 1 1 100%; }
+  .me-hero__edit { margin-inline-start: auto; }
+}
 
 .me-card__lead { margin-top: -4px; margin-bottom: 12px; }
 
@@ -60,7 +66,7 @@
   align-items: center;
   gap: 4px;
   min-height: 24px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: var(--success-text);
   animation: fade-in 200ms var(--ease);
@@ -75,7 +81,7 @@
   border-top: 1px dashed var(--line);
   animation: fade-in 200ms var(--ease);
 }
-.me-sub__title { font-size: 14px; font-weight: 800; color: var(--muted); margin-bottom: 4px; }
+.me-sub__title { font-size: 0.875rem; font-weight: 800; color: var(--muted); margin-bottom: 4px; }
 .me-quiet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 6px; }
 .me-quiet .input { text-align: center; direction: ltr; }
 
@@ -92,7 +98,7 @@
 .me-push--granted { background: var(--success-soft); }
 .me-push--denied { background: var(--warning-soft); }
 .me-push .me-sub__title { margin-bottom: 0; color: var(--ink); }
-.me-push__text { font-size: 14px; line-height: 1.5; }
+.me-push__text { font-size: 0.875rem; line-height: 1.5; }
 .me-push__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
 /* ---------- device link ---------- */
@@ -101,7 +107,7 @@
   border-radius: 12px;
   background: var(--surface-2);
   border: 1px dashed var(--line);
-  font-size: 13.5px;
+  font-size: 0.84375rem;
   font-weight: 600;
   color: var(--muted);
   text-align: left; /* RTL box + LTR run: long links lose their start, the code at the end stays visible */
@@ -147,14 +153,14 @@
   flex: none;
   display: grid;
   place-items: center;
-  font-size: 22px;
+  font-size: 1.375rem;
   border-radius: 13px;
   background: var(--sunset);
   box-shadow: var(--shadow-accent);
 }
 .me-trip__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .me-trip__name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.me-trip__date { font-size: 13px; color: var(--muted); }
+.me-trip__date { font-size: 0.8125rem; color: var(--muted); }
 .me-trip > .icon { color: var(--muted); }
 .me-trips__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
@@ -187,7 +193,8 @@
 .me-demo__opt[aria-busy="true"] { opacity: 1; border-color: var(--accent); }
 .me-demo__opt:focus-visible { border-radius: 14px; }
 .me-demo__name { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.me-demo__role { flex: none; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.me-demo__role { flex: none; font-size: 0.78125rem; color: var(--muted); font-weight: 600; }
+.me-demo__sub { font-weight: 500; color: var(--muted); }
 
 /* ---------- leave ---------- */
 .me-leave { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 4px; text-align: center; }
@@ -207,7 +214,7 @@
 }
 .pf-preview .avatar { transition: background-color 240ms var(--ease); }
 .pf-preview__text { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.pf-preview__name { font-size: 19px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+.pf-preview__name { font-size: 1.1875rem; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
 .pf-preview__name.is-empty { color: var(--muted); }
 
 .pf-kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -230,8 +237,8 @@
 }
 .pf-kind:active { transform: scale(0.96); }
 .pf-kind:focus-visible { border-radius: 18px; }
-.pf-kind__emoji { font-size: 32px; line-height: 1; transition: transform 260ms var(--spring); }
-.pf-kind__label { font-size: 15.5px; font-weight: 800; }
+.pf-kind__emoji { font-size: 2rem; line-height: 1; transition: transform 260ms var(--spring); }
+.pf-kind__label { font-size: 0.96875rem; font-weight: 800; }
 .pf-kind[aria-checked="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -252,7 +259,7 @@
 
 @media (max-width: 370px) {
   .me-hero { padding: 16px 14px; gap: 12px; }
-  .me-hero__name { font-size: 21px; }
+  .me-hero__name { font-size: 1.3125rem; }
   .me-linkbox__actions { grid-template-columns: 1fr; }
   .pf-names--two { grid-template-columns: 1fr; }
 }
@@ -264,5 +271,18 @@
 .me-email__others { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent); }
 .me-email__others > .btn { align-self: flex-start; }
 .me-together__people { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.me-together__person { padding: 4px 12px; border-radius: 999px; background: var(--surface-2); font-size: 14px; }
+.me-together__person { padding: 4px 12px; border-radius: 999px; background: var(--surface-2); font-size: 0.875rem; }
 .me-together__actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+/* ---------- simplified "אני" (ux ME1) ---------- */
+.me-notify .me-push { margin: 0 0 8px; }
+.me-notify__more { border: 0; background: var(--surface-2); }
+.me-fold .card { box-shadow: none; border: 0; padding-inline: 0; background: transparent; }
+.me-links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.me-links .link { min-height: 44px; display: inline-flex; align-items: center; }
+/* ---------- "💑 הזוג שלנו" (SPEC §19) ---------- */
+.me-couple__people { white-space: nowrap; }
+.me-couple__row { display: flex; flex-direction: column; gap: 6px; }
+.me-couple__row + .me-couple__row { margin-top: 14px; }
+.me-couple__label { font-weight: 700; font-size: 0.90625rem; }
+.me-couple__seg .segmented__opt { flex: 1 1 0; white-space: normal; text-align: center; line-height: 1.25; padding: 6px 8px; }
+.me-couple__hint { padding-inline: 4px; }

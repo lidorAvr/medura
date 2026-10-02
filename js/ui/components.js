@@ -3,8 +3,8 @@
 import { html } from 'htm/preact';
 import { render, cloneElement, isValidElement, toChildArray } from 'preact';
 import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
-import { Icon } from './icons.js?v=65baf9b';
-import { whatsappShareUrl, displayName } from '../lib/logic.js?v=65baf9b';
+import { Icon } from './icons.js?v=56bbb9a';
+import { whatsappShareUrl, displayName, tripOver } from '../lib/logic.js?v=56bbb9a';
 
 // ---------------------------------------------------------------------------
 // helpers (module-private)
@@ -619,8 +619,13 @@ const moneyParse = (t) => {
 /** Shekel amount input. `onChange(number|null)`. */
 export function MoneyInput({ value, onChange, placeholder = '0', symbol = '₪', class: klass, ...rest }) {
   const [text, setText] = useState(moneyText(value));
+  // values we told the parent while typing: a late re-render with one of them (even an older one) must not
+  // rewrite what's being typed; any other value comes from outside (reset, a picked expense) and is shown
+  const sent = useRef(new Set());
   useEffect(() => {
-    const incoming = value === '' || value === undefined ? null : Number(value);
+    const incoming = value === '' || value === undefined || value === null ? null : Number(value);
+    if (sent.current.has(incoming)) return;
+    sent.current.clear();
     if (moneyParse(text) !== incoming) setText(moneyText(value));
   }, [value]);
   const onInput = (e) => {
@@ -631,7 +636,10 @@ export function MoneyInput({ value, onChange, placeholder = '0', symbol = '₪',
     if (t.length > 12) t = t.slice(0, 12);
     if (t !== e.target.value) e.target.value = t;
     setText(t);
-    onChange?.(moneyParse(t));
+    const n = moneyParse(t);
+    if (sent.current.size > 50) sent.current.clear();
+    sent.current.add(n);
+    onChange?.(n);
   };
   return html`<div class=${cx('money-input', klass)}>
     <span class="money-input__sym" aria-hidden="true">${symbol}</span>
@@ -794,6 +802,33 @@ export function MemberPicker({ members = [], value, onChange, multi, label = 'ב
 // ---------------------------------------------------------------------------
 
 /** Floating action button (portalled so it never scrolls with content). */
+/** tripOver lives in logic.js; re-exported for the screens that take their UI helpers from here. */
+export { tripOver };
+
+/** One line on every tab once the trip ended: "🏁 הטיול הסתיים · לקריאה בלבד". */
+export function OverBanner({ trip, text = 'לקריאה בלבד' }) {
+  if (!trip || !tripOver(trip)) return null;
+  return html`<p class="over-banner" data-testid="over-banner" role="status">
+    <span aria-hidden="true">🏁</span> הטיול הסתיים · ${text}
+  </p>`;
+}
+
+/**
+ * Summary first, details on tap: a native <details> whose closed state is one row —
+ * "🧾 הוצאות (3) · 940₪ ‹". `meta` sits at the row's end.
+ */
+export function Fold({ emoji, title, count, meta, open = false, children, class: klass, ...rest }) {
+  return html`<details class=${cx('fold', klass)} open=${open || undefined} ...${rest}>
+    <summary class="fold__row">
+      ${emoji ? html`<span class="fold__emoji" aria-hidden="true">${emoji}</span>` : null}
+      <span class="fold__title">${title}${count !== undefined && count !== null && count !== '' ? html` <span class="fold__count num">(${count})</span>` : null}</span>
+      ${meta ? html`<span class="fold__meta">${meta}</span>` : null}
+      <${Icon} name="chevron-down" size=${18} class="fold__chev" />
+    </summary>
+    <div class="fold__body">${children}</div>
+  </details>`;
+}
+
 export function Fab({ icon = 'plus', label, onClick }) {
   return html`<${Portal}>
     <button type="button" class=${cx('fab', label && 'fab--extended')} aria-label=${label || 'הוספה'} onClick=${onClick}>

@@ -1,28 +1,17 @@
 // Import (SPEC §8.6): paste a WhatsApp list → live preview grouped by detected category
-// (parseListText) → per-row include / type / category edits → add_items_bulk → back to lists.
+// (parseListText with the trip's names) → every field of every row editable in place (DraftRows) →
+// add_items_bulk (with who takes what) → back to lists.
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=65baf9b';
-import { navigate, href } from '../router.js?v=65baf9b';
-import { formatQty, hebrewCount, parseListText, similarItems, titleSimilarity } from '../lib/logic.js?v=65baf9b';
-import { Button, Chip, Field, IconButton, Pill, Sheet, Skeleton, TextArea, fireConfetti } from '../ui/components.js?v=65baf9b';
-import { Icon } from '../ui/icons.js?v=65baf9b';
-import { cx, emojiKey, matchCategory, normText, sortedCategories } from './lists.js?v=65baf9b';
-
-const BULK_MAX = 150; // add_items_bulk limit per call (SPEC §4)
-
-const DUP_LABEL = {
-  same: () => 'כבר ברשימה',
-  similar: (title) => `דומה ל: ${title}`,
-  pasted: () => 'מופיע פעמיים ברשימה',
-};
-
-const TYPES = [
-  { value: 'buy', emoji: '🛒', label: 'קנייה' },
-  { value: 'bring', emoji: '🎒', label: 'מהבית' },
-  { value: 'each', emoji: '🙋', label: 'כל אחד' },
-  { value: 'task', emoji: '✅', label: 'משימה' },
-];
+import { actions, useTrip } from '../store.js?v=56bbb9a';
+import { navigate, href } from '../router.js?v=56bbb9a';
+import { hebrewCount, parseListText } from '../lib/logic.js?v=56bbb9a';
+import { itemTypeOn } from '../lib/templates.js?v=56bbb9a';
+import { Button, Field, IconButton, Skeleton, TextArea, fireConfetti } from '../ui/components.js?v=56bbb9a';
+import {
+  DraftRows, assignMode, isTasksCategory, markDups, resolveWho, saveDrafts, tripNames,
+} from '../ui/draft-rows.js?v=56bbb9a';
+import { matchCategory, sortedCategories } from './lists.js?v=56bbb9a';
 
 const SAMPLE = `🥩 בשרים
 פרגיות - פר אדם 300 גרם
@@ -54,6 +43,25 @@ function writeDraft(tripId, text) {
   }
 }
 
+// Row edits (incl. rows already saved by a save that failed half-way) are kept with the text.
+const editsKey = (tripId) => `medura:import-edits:${tripId}`;
+function readEdits(tripId) {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(editsKey(tripId)) || 'null');
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+function writeEdits(tripId, edits) {
+  try {
+    if (Object.keys(edits).length) sessionStorage.setItem(editsKey(tripId), JSON.stringify(edits));
+    else sessionStorage.removeItem(editsKey(tripId));
+  } catch {
+    /* storage unavailable — the edits just aren't kept */
+  }
+}
+
 function useDebounced(value, ms) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -63,64 +71,36 @@ function useDebounced(value, ms) {
   return v;
 }
 
-const isTasksCategory = (c) => !!c && (emojiKey(c.emoji) === '📋' || normText(c.name) === 'משימות');
-const MEASURES = new Set(['ק"ג', 'גרם', 'ליטר', 'מ"ל']);
-
-function rowQtyText(r) {
-  if (r.type === 'buy' && r.qty > 0) return `${formatQty(r.qty, r.unit)}${r.per_person ? ' לאדם' : ''}`;
-  if (r.type === 'bring' && r.qty > 0) return MEASURES.has(r.unit) ? formatQty(r.qty, r.unit) : `צריך ${Math.min(200, Math.round(r.qty))}`;
-  return '';
-}
-
-function toPayload(r, newCats) {
-  const p = { title: r.title.trim().slice(0, 120), type: r.type, note: r.note ? String(r.note).trim().slice(0, 500) || null : null };
-  if (r.cat.startsWith('id:')) p.category_id = r.cat.slice(3);
-  else if (r.cat.startsWith('new:')) {
-    const name = r.cat.slice(4);
-    p.category_name = name.slice(0, 40);
-    p.category_emoji = newCats.get(name) || '📦';
-  }
-  if (r.type === 'buy' && r.qty > 0) {
-    p.qty = r.qty;
-    p.unit = r.unit || null;
-    p.per_person = !!r.per_person;
-  } else if (r.type === 'bring' && r.qty > 0) {
-    if (MEASURES.has(r.unit)) {
-      p.qty = r.qty;
-      p.unit = r.unit;
-    } else {
-      p.needed = Math.max(1, Math.min(200, Math.round(r.qty))); // "2 מלקחיים" → needed 2
-    }
-  }
-  return p;
-}
-
 export default function ImportScreen({ route }) {
-  const { snap, isAdmin } = useTrip();
+  const { snap, me, isAdmin } = useTrip();
   const tripId = route.params.tripId;
   const ready = !!snap && snap.trip?.id === tripId;
   const [text, setText] = useState(() => readDraft(tripId));
-  const [edits, setEdits] = useState({}); // row key → {include, type, cat}
-  const [picker, setPicker] = useState(null); // {keys, title, current}
+  const [edits, setEdits] = useState(() => readEdits(tripId)); // row key → {include, removed, title, qty, unit, per_person, type, cat, who}
   const [saving, setSaving] = useState(false);
   const debounced = useDebounced(text, 160);
 
   useEffect(() => writeDraft(tripId, text), [text]);
+  useEffect(() => writeEdits(tripId, edits), [edits]);
+
+  const who = useMemo(() => (ready ? tripNames(snap) : { names: [], byName: new Map() }), [ready, snap?.members]);
 
   const parsed = useMemo(() => {
     const seen = new Map();
-    return parseListText(debounced).map((r) => {
+    return parseListText(debounced, { names: who.names }).map((r) => {
       const n = (seen.get(r.raw) || 0) + 1;
       seen.set(r.raw, n);
       return { ...r, key: `${r.raw}#${n}` };
     });
-  }, [debounced]);
+  }, [debounced, who]);
 
   const model = useMemo(() => {
     if (!ready) return null;
+    const trip = snap.trip;
     const cats = sortedCategories(snap);
     const catById = new Map(cats.map((c) => [c.id, c]));
     const newCats = new Map(); // name → emoji (admins create unknown categories)
+    const canAssign = assignMode(snap, isAdmin, me?.id);
     const autoCat = (r) => {
       if (!r.category) return 'none';
       const c = matchCategory(cats, r.category);
@@ -129,40 +109,48 @@ export default function ImportScreen({ route }) {
       if (!newCats.has(r.category.name)) newCats.set(r.category.name, r.category.emoji || '📦');
       return `new:${r.category.name}`;
     };
-    const rows = parsed.map((r, i) => {
+    const has = (e, k) => Object.prototype.hasOwnProperty.call(e, k);
+    const base = [];
+    for (const r of parsed) {
       const e = edits[r.key] || {};
-      // Already in the trip (same or look-alike title), or pasted twice in this list.
-      const like = similarItems(r.title, snap.items, { limit: 1 })[0] || null;
-      const twiceAt = like ? -1 : parsed.findIndex((o, j) => j < i && titleSimilarity(o.title, r.title) === 'same');
-      const dup = like
-        ? { kind: like.match, title: like.item.title }
-        : twiceAt >= 0 ? { kind: 'pasted', title: parsed[twiceAt].title } : null;
+      if (e.removed) continue;
       const cat = e.cat ?? autoCat(r);
       // A row moved into a new category that no longer has auto rows keeps that category visible.
       if (cat.startsWith('new:') && !newCats.has(cat.slice(4))) newCats.set(cat.slice(4), '📦');
       const inTasks = cat.startsWith('id:') && isTasksCategory(catById.get(cat.slice(3)));
-      // Same item → left out by default; a mere look-alike stays in (flagged) so nothing needed gets dropped silently.
-      const include = e.include ?? (!dup || dup.kind === 'similar');
-      return { ...r, cat, dup, type: e.type ?? (inTasks ? 'task' : r.type), include };
-    });
-    // groups: trip categories in order → new categories → uncategorised
-    const order = [...cats.map((c) => `id:${c.id}`), ...[...newCats.keys()].map((n) => `new:${n}`), 'none'];
-    const groups = order
-      .map((key) => ({ key, rows: rows.filter((r) => r.cat === key) }))
-      .filter((g) => g.rows.length)
-      .map((g) => {
-        if (g.key.startsWith('id:')) {
-          const c = catById.get(g.key.slice(3));
-          return { ...g, emoji: c.emoji || '📦', name: c.name, isNew: false };
-        }
-        if (g.key.startsWith('new:')) {
-          const name = g.key.slice(4);
-          return { ...g, emoji: newCats.get(name), name, isNew: true };
-        }
-        return { ...g, emoji: '📦', name: 'בלי קטגוריה', isNew: false };
+      let type = e.type ?? (inTasks ? 'task' : r.type);
+      if (!itemTypeOn(trip, type)) type = itemTypeOn(trip, 'task') ? 'task' : 'buy';
+      base.push({
+        key: r.key,
+        title: e.title ?? r.title,
+        qty: has(e, 'qty') ? e.qty : r.qty,
+        unit: has(e, 'unit') ? e.unit : r.unit,
+        per_person: e.per_person ?? !!r.per_person,
+        note: r.note,
+        type,
+        cat,
+        who: has(e, 'who') ? e.who : resolveWho(r.who, who.byName, me?.id, canAssign),
+        done: !!r.done,
+        include: e.include,
       });
-    return { cats, catById, newCats, rows, groups };
-  }, [ready, snap, parsed, edits, isAdmin]);
+    }
+    // Same item → left out by default; a mere look-alike stays in (flagged) so nothing needed gets dropped silently.
+    // … unless the line says who takes it ("משחק קופסה - רותם", "גיל: אני מביא בירות"): then it isn't a duplicate to
+    // drop — that person goes on the item that's already there (admins: anyone; everyone: themselves).
+    const itemById = new Map((snap.items || []).map((i) => [i.id, i]));
+    const saidBy = new Map(parsed.map((r) => [r.key, r.who]));
+    const rows = markDups(base, snap.items).map((r) => {
+      const item = r.dup?.kind === 'same' ? itemById.get(r.dup.id) : null;
+      const said = saidBy.get(r.key);
+      const saidId = said === '__me__' ? me?.id : said ? who.byName.get(said) || null : null;
+      const target = r.who || (saidId && saidId === me?.id ? saidId : null);
+      const link = item && item.status === 'active' && item.type !== 'each' && target
+        && !(snap.pledges || []).some((p) => p.item_id === item.id && p.member_id === target)
+        ? { itemId: item.id, who: target, type: item.type } : null;
+      return { ...r, link, include: r.include ?? (link ? true : !r.dup || r.dup.kind === 'similar') };
+    });
+    return { trip, cats, newCats, rows, canAssign, groups: new Set(rows.map((r) => r.cat)).size };
+  }, [ready, snap, parsed, edits, isAdmin, me?.id, who]);
 
   if (!model) {
     return html`<div class="screen imp-screen" aria-busy="true">
@@ -177,16 +165,11 @@ export default function ImportScreen({ route }) {
     return next;
   });
 
-  const chosen = model.rows.filter((r) => r.include);
+  const chosen = model.rows.filter((r) => r.include && r.title.trim());
+  const links = chosen.filter((r) => r.link);          // people to put on items that are already in the list
+  const fresh = chosen.filter((r) => !r.link);
   const proposal = !isAdmin && snap.trip?.settings?.require_approval !== false;
-  const catLabel = (key) => {
-    if (key.startsWith('id:')) {
-      const c = model.catById.get(key.slice(3));
-      return c ? `${c.emoji || '📦'} ${c.name}` : '📦 בלי קטגוריה';
-    }
-    if (key.startsWith('new:')) return `${model.newCats.get(key.slice(4)) || '📦'} ${key.slice(4)}`;
-    return '📦 בלי קטגוריה';
-  };
+  const linksText = (n) => (n === 1 ? 'שיבוץ אחד' : `${n} שיבוצים`);
 
   const paste = async () => {
     try {
@@ -201,24 +184,37 @@ export default function ImportScreen({ route }) {
   const submit = async () => {
     if (!chosen.length || saving) return;
     setSaving(true);
-    const payload = chosen.map((r) => toPayload(r, model.newCats));
-    const count = await actions.run(async (api) => {
-      let n = 0;
-      for (let i = 0; i < payload.length; i += BULK_MAX) n += Number(await api.addItemsBulk(tripId, payload.slice(i, i + BULK_MAX))) || 0;
-      return n;
-    });
+    // rows of each chunk that saved leave the draft right away, so a retry after a failure sends only the rest
+    const count = fresh.length ? await saveDrafts(tripId, fresh, model.newCats, (keys) => setEdit(keys, { removed: true })) : 0;
+    if (count === undefined) {
+      setSaving(false);
+      return;
+    }
+    // "X - name" on an item that's already in the list: the name goes on that item (never a second copy)
+    const linked = links.length
+      ? await actions.run(async (api) => {
+        let n = 0;
+        for (const r of links) {
+          const qty = r.link.type === 'bring' ? Math.max(1, Math.min(200, Math.round(Number(r.qty) || 1))) : 1;
+          if (r.link.who === me.id) await api.pledge(r.link.itemId, qty);
+          else await api.assign(r.link.itemId, r.link.who, qty);
+          n += 1;
+          setEdit([r.key], { removed: true });
+        }
+        return n;
+      })
+      : 0;
     setSaving(false);
-    if (count === undefined) return;
+    if (linked === undefined) return;
     writeDraft(tripId, '');
+    writeEdits(tripId, {});
     setText('');
     setEdits({});
     fireConfetti();
-    actions.toast(
-      proposal ? `${hebrewCount(count, 'הצעה נשלחה', 'הצעות נשלחו')} לאישור ⏳` : `נוספו ${hebrewCount(count, 'פריט', 'פריטים')} לרשימה 🎉`,
-      'success',
-      3600,
-    );
-    navigate(`/t/${tripId}/lists${proposal ? '?tab=pending' : ''}`);
+    const added = count ? (proposal ? `${hebrewCount(count, 'הצעה נשלחה', 'הצעות נשלחו')} לאישור ⏳` : `נוספו ${hebrewCount(count, 'פריט', 'פריטים')} לרשימה 🎉`) : '';
+    const tied = linked ? `🔗 ${linksText(linked)} לפריטים שכבר ברשימה` : '';
+    actions.toast([added, tied].filter(Boolean).join(' · '), 'success', 3600);
+    navigate(`/t/${tripId}/lists${proposal && count ? '?tab=pending' : ''}`);
   };
 
   const hasText = !!text.trim();
@@ -243,7 +239,7 @@ export default function ImportScreen({ route }) {
       </${Field}>
       <div class="imp-input__actions">
         ${typeof navigator !== 'undefined' && navigator.clipboard?.readText
-          ? html`<${Button} size="sm" variant="secondary" icon="copy" onClick=${paste}>הדבקה מהלוח</${Button}>`
+          ? html`<${Button} variant=${hasText ? 'secondary' : 'primary'} size=${hasText ? 'sm' : 'md'} icon="copy" onClick=${paste}>הדבקה מהלוח</${Button}>`
           : null}
         ${hasText
           ? html`<${Button} size="sm" variant="ghost" icon="x" onClick=${() => { setText(''); setEdits({}); }}>ניקוי</${Button}>`
@@ -255,12 +251,12 @@ export default function ImportScreen({ route }) {
       ? html`<div class="card imp-tips">
           <h2 class="imp-tips__title">💡 איך זה עובד?</h2>
           <ul class="imp-tips__list">
-            <li><span aria-hidden="true">📝</span> כל שורה הופכת לפריט</li>
+            <li><span aria-hidden="true">📝</span> כל שורה הופכת לפריט — ואפשר לתקן כל שדה אחרי ההדבקה</li>
             <li><span aria-hidden="true">🥩</span> כותרת עם אימוג׳י ("🥩 בשרים") = קטגוריה</li>
             <li><span aria-hidden="true">🔢</span> "3 חבילות פחמים" → כמות ויחידה</li>
             <li><span aria-hidden="true">👥</span> "פר אדם 300 גרם" → כמות לכל אחד</li>
+            <li><span aria-hidden="true">🙋</span> "שם - פחמים" או "אני מביא/ה…" → כבר משובץ</li>
             <li><span aria-hidden="true">🎒</span> "חלוקה של כל אחד מהבית" → פריטים שמביאים מהבית</li>
-            <li><span aria-hidden="true">🙋</span> "כל זוג" → כל אחד מביא משלו</li>
           </ul>
         </div>`
       : null}
@@ -276,7 +272,7 @@ export default function ImportScreen({ route }) {
       ? html`<div class="imp-summary">
           <p class="imp-summary__text">
             זיהינו <strong class="num">${hebrewCount(model.rows.length, 'פריט', 'פריטים')}</strong>
-            ${model.groups.length > 1 ? html` ב־<span class="num">${model.groups.length}</span> קבוצות` : null}
+            ${model.groups > 1 ? html` ב־<span class="num">${model.groups}</span> קבוצות` : null}
           </p>
           <div class="imp-summary__links">
             <button type="button" class="link small" onClick=${() => setEdit(model.rows.map((r) => r.key), { include: true })}>סמן הכל</button>
@@ -287,103 +283,39 @@ export default function ImportScreen({ route }) {
     ${model.rows.length && proposal
       ? html`<p class="ls-approval-hint" role="note">⏳ הפריטים יישלחו לאישור מנהל לפני שייכנסו לרשימה.</p>`
       : null}
-    ${model.rows.some((r) => r.dup && r.dup.kind !== 'similar')
+    ${model.rows.some((r) => r.link)
+      ? html`<p class="ls-hint" data-testid="imp-link-hint">🔗 פריט שכבר ברשימה ויש שם לידו — לא מתווסף שוב: מי שכתוב לידו משובץ לפריט הקיים.</p>`
+      : null}
+    ${model.rows.some((r) => r.dup && r.dup.kind !== 'similar' && !r.link)
       ? html`<p class="ls-hint">🔁 פריטים שכבר ברשימה לא סומנו, כדי שלא יגיעו פעמיים — אפשר לסמן אותם בכל זאת.</p>`
       : null}
     ${model.rows.some((r) => r.dup?.kind === 'similar')
       ? html`<p class="ls-hint">👀 פריטים שמסומנים "דומה ל…" — כדאי לבדוק שזה לא אותו דבר לפני הייבוא.</p>`
       : null}
 
-    ${model.groups.map((g) => html`<section key=${g.key} class="imp-group" aria-label=${g.name}>
-      <div class="imp-group__head">
-        <span class="imp-group__emoji" aria-hidden="true">${g.emoji}</span>
-        <h2 class="imp-group__name">${g.name}</h2>
-        ${g.isNew ? html`<${Pill} tone="info">קטגוריה חדשה</${Pill}>` : null}
-        <span class="imp-group__count num">${g.rows.filter((r) => r.include).length}/${g.rows.length}</span>
-        <button type="button" class="link small imp-group__change"
-          onClick=${() => setPicker({ keys: g.rows.map((r) => r.key), title: `קטגוריה ל"${g.name}"`, current: g.key })}>שינוי</button>
-      </div>
-      <div class="list imp-list">
-        ${g.rows.map((r) => {
-          const qty = rowQtyText(r);
-          return html`<div key=${r.key} class=${cx('imp-row', !r.include && 'is-off')}>
-            <button
-              type="button"
-              class="check"
-              role="checkbox"
-              aria-checked=${r.include ? 'true' : 'false'}
-              aria-label=${`לייבא: ${r.title}`}
-              onClick=${() => setEdit([r.key], { include: !r.include })}
-            ><${Icon} name="check" /></button>
-            <div class="imp-row__main">
-              <div class="imp-row__title">
-                <span class="imp-row__name">${r.title}</span>
-                ${qty ? html`<span class="ls-qty num">${qty}</span>` : null}
-                ${r.dup ? html`<${Pill} tone="warning">${DUP_LABEL[r.dup.kind](r.dup.title)}</${Pill}>` : null}
-              </div>
-              ${r.note ? html`<div class="imp-row__note">${r.note}</div>` : null}
-              <div class="imp-row__controls">
-                <div class="imp-types" role="radiogroup" aria-label=${`סוג: ${r.title}`}>
-                  ${TYPES.map((t) => html`<button
-                    key=${t.value}
-                    type="button"
-                    role="radio"
-                    class=${cx('imp-type', r.type === t.value && 'is-on')}
-                    aria-checked=${r.type === t.value ? 'true' : 'false'}
-                    aria-label=${t.label}
-                    title=${t.label}
-                    onClick=${() => setEdit([r.key], { type: t.value })}
-                  ><span aria-hidden="true">${t.emoji}</span>${r.type === t.value ? html`<span class="imp-type__label">${t.label}</span>` : null}</button>`)}
-                </div>
-                <button type="button" class="imp-cat" aria-label=${`קטגוריה: ${catLabel(r.cat)} — שינוי`}
-                  onClick=${() => setPicker({ keys: [r.key], title: `קטגוריה ל"${r.title}"`, current: r.cat })}>
-                  <span class="truncate">${catLabel(r.cat)}</span><span aria-hidden="true" class="imp-cat__chev">▾</span>
-                </button>
-              </div>
-            </div>
-          </div>`;
-        })}
-      </div>
-    </section>`)}
+    ${model.rows.length
+      ? html`<${DraftRows}
+          rows=${model.rows}
+          cats=${model.cats}
+          newCats=${model.newCats}
+          trip=${model.trip}
+          members=${snap.members || []}
+          meId=${me?.id}
+          canAssign=${model.canAssign}
+          includable
+          onPatch=${setEdit}
+          onRemove=${(keys) => setEdit(keys, { removed: true })}
+        />`
+      : null}
 
     ${model.rows.length
       ? html`<div class="imp-footer">
           <${Button} variant="accent" size="lg" block icon=${proposal ? 'send' : 'download'} loading=${saving} disabled=${!chosen.length} onClick=${submit}>
-            ${chosen.length
-              ? proposal ? `שליחת ${hebrewCount(chosen.length, 'הצעה', 'הצעות')}` : `ייבוא ${hebrewCount(chosen.length, 'פריט', 'פריטים')}`
-              : 'לא נבחרו פריטים'}
+            ${fresh.length
+              ? `${proposal ? `שליחת ${hebrewCount(fresh.length, 'הצעה', 'הצעות')}` : `ייבוא ${hebrewCount(fresh.length, 'פריט', 'פריטים')}`}${links.length ? ` + ${linksText(links.length)}` : ''}`
+              : links.length ? `${linksText(links.length)} לפריטים שכבר ברשימה` : 'לא נבחרו פריטים'}
           </${Button}>
         </div>`
       : null}
-
-    <${CategoryPicker}
-      picker=${picker}
-      model=${model}
-      onPick=${(key) => {
-        setEdit(picker.keys, { cat: key });
-        setPicker(null);
-      }}
-      onClose=${() => setPicker(null)}
-    />
   </div>`;
-}
-
-function CategoryPicker({ picker, model, onPick, onClose }) {
-  const [last, setLast] = useState(picker);
-  useEffect(() => {
-    if (picker) setLast(picker);
-  }, [picker]);
-  const p = picker || last;
-  const newKeys = [...model.newCats.keys()].map((n) => `new:${n}`);
-  return html`<${Sheet} open=${!!picker} onClose=${onClose} title=${p ? p.title : 'קטגוריה'}>
-    <div class="ls-chips imp-picker" role="group" aria-label="בחירת קטגוריה">
-      ${model.cats.map((c) => html`<${Chip} key=${c.id} active=${p?.current === `id:${c.id}`} onClick=${() => onPick(`id:${c.id}`)}>
-        <span aria-hidden="true">${c.emoji || '📦'}</span> ${c.name}
-      </${Chip}>`)}
-      ${newKeys.map((k) => html`<${Chip} key=${k} tone="info" active=${p?.current === k} onClick=${() => onPick(k)}>
-        <span aria-hidden="true">${model.newCats.get(k.slice(4))}</span> ${k.slice(4)} (חדשה)
-      </${Chip}>`)}
-      <${Chip} tone="muted" active=${p?.current === 'none'} onClick=${() => onPick('none')}>📦 בלי קטגוריה</${Chip}>
-    </div>
-  </${Sheet}>`;
 }

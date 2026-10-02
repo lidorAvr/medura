@@ -2,9 +2,23 @@
 // Every method is a thin camelCase wrapper around one RPC from SPEC §4 with the exact
 // `p_*` parameter names. All failures are normalized to ApiError via toApiError.
 
-import { ApiError, toApiError } from './errors.js?v=65baf9b';
+import { ApiError, FLIGHT_ERROR_CODES, flightFailure, flightInput, toApiError } from './errors.js?v=56bbb9a';
 
 const POLL_MS = 45000;
+
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** The JSON body of a non-2xx edge-function answer ({ ok:false, error }), when there is one. */
+async function functionBody(error) {
+  const ctx = error && error.context;
+  if (!ctx || typeof ctx.json !== 'function') return null;
+  try {
+    const body = await (typeof ctx.clone === 'function' ? ctx.clone() : ctx).json();
+    return isObj(body) ? body : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * @param {object} opts
@@ -183,6 +197,10 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     updateMember: (memberId, patch) => rpc('update_member', { p_member: memberId, p_patch: patch }),
     createMember: (tripId, profile) => rpc('create_member', { p_trip: tripId, p_profile: profile }),
     setRole: (memberId, role) => rpc('set_role', { p_member: memberId, p_role: role }),
+    setPersonAdmin: (memberId, person, admin) =>
+      rpc('set_person_admin', { p_member: memberId, p_person: person, p_admin: Boolean(admin) }),
+    touchPresence: (tripId) => rpc('touch_presence', { p_trip: tripId }),
+    nudgeMembers: (tripId, module) => rpc('nudge_members', { p_trip: tripId, p_module: module }),
     removeMember: (memberId) => rpc('remove_member', { p_member: memberId }),
     leaveTrip: (tripId) => rpc('leave_trip', { p_trip: tripId }),
     voteAdmin: (candidateId, on) => rpc('vote_admin', { p_candidate: candidateId, p_on: Boolean(on) }),
@@ -200,6 +218,7 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     pledge: (itemId, qty) => rpc('pledge', { p_item: itemId, p_qty: qty ?? 1 }),
     assign: (itemId, memberId, qty) => rpc('assign', { p_item: itemId, p_member: memberId, p_qty: qty ?? 1 }),
     setPledgeDone: (itemId, done) => rpc('set_pledge_done', { p_item: itemId, p_done: Boolean(done) }),
+    setEachPart: (itemId, patch) => rpc('set_each_part', { p_item: itemId, p_patch: patch }),
     setItemDone: (itemId, done) => rpc('set_item_done', { p_item: itemId, p_done: Boolean(done) }),
 
     addPersonal: (tripId, title) => rpc('add_personal', { p_trip: tripId, p_title: title }),
@@ -215,7 +234,11 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     createMoneyRequest: (tripId, req) => rpc('create_money_request', { p_trip: tripId, p_req: req }),
     payMoneyRequest: (requestId, method) => rpc('pay_money_request', { p_request: requestId, p_method: method ?? null }),
     cancelMoneyRequest: (requestId) => rpc('cancel_money_request', { p_request: requestId }),
-    settleMoneyRequestShare: (requestId, memberId) => rpc('settle_money_request_share', { p_request: requestId, p_member: memberId }),
+    settleMoneyRequestShare: (requestId, memberId, person) =>
+      rpc('settle_money_request_share', { p_request: requestId, p_member: memberId, p_person: person ?? null }),
+    recordMoneyRequestExpense: (requestId, amount) => rpc('record_money_request_expense', { p_request: requestId, p_amount: amount ?? null }),
+    addMoneyRequestMember: (requestId, memberId, amount) =>
+      rpc('add_money_request_member', { p_request: requestId, p_member: memberId, p_amount: amount ?? null }),
     confirmPayment: (id) => rpc('confirm_payment', { p_payment: id }),
     deletePayment: (id) => rpc('delete_payment', { p_payment: id }),
 
@@ -266,6 +289,59 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     respondSeat: (rideId, memberId, approve) => rpc('respond_seat', { p_ride: rideId, p_member: memberId, p_approve: Boolean(approve) }),
     respondAssignment: (itemId, accept, reason = null) =>
       rpc('respond_assignment', { p_item: itemId, p_accept: Boolean(accept), p_reason: reason ?? null }),
+
+    // "הבית שלי" + invites from past trips (SPEC §16.1)
+    myOverview: () => rpc('my_overview', {}).then((r) => r || []),
+    myInvites: () => rpc('my_invites', {}).then((r) => r || []),
+    tripContacts: (tripId) => rpc('trip_contacts', { p_trip: tripId }).then((r) => r || []),
+    inviteContacts: (tripId, keys, { memberId } = {}) =>
+      rpc('invite_contacts', { p_trip: tripId, p_keys: keys || [], p_member: memberId ?? null }),
+    respondInvite: (inviteId, accept, { with: names, person } = {}) =>
+      rpc('respond_invite', {
+        p_invite: inviteId, p_accept: Boolean(accept), p_with: names?.length ? names : null, p_person: person ?? null,
+      }),
+    cancelInvite: (inviteId) => rpc('cancel_invite', { p_invite: inviteId }),
+
+    /**
+     * Live flight details (design §4.4): the `flight` edge function with this user's JWT.
+     * Never rejects — resolves { ok: true, cached, flight } or { ok: false, error, message }
+     * (error ∈ FLIGHT_ERROR_CODES) so the UI falls back to manual fields.
+     */
+    async lookupFlight(tripId, number, date) {
+      const input = flightInput(number, date);
+      if (!input || typeof tripId !== 'string' || !tripId) return flightFailure('bad_input');
+      let res;
+      try {
+        const c = getClient();
+        if (!c.functions || typeof c.functions.invoke !== 'function') return flightFailure('upstream');
+        res = await c.functions.invoke('flight', { body: { trip_id: tripId, number: input.number, date: input.date }, timeout: 20000 });
+      } catch (err) {
+        return flightFailure(toApiError(err).code === 'network' ? 'network' : 'upstream');
+      }
+      let data = res ? res.data : null;
+      const error = res ? res.error : null;
+      if (error) {
+        data = await functionBody(error);
+        if (!isObj(data)) {
+          const netErr = error.name === 'FunctionsFetchError' || toApiError(error.context || error).code === 'network';
+          return flightFailure(netErr ? 'network' : 'upstream');
+        }
+      }
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          data = null;
+        }
+      }
+      if (isObj(data) && data.ok === true && isObj(data.flight)) {
+        return { ok: true, cached: data.cached === true, flight: data.flight };
+      }
+      if (isObj(data) && data.ok === false) {
+        return flightFailure(FLIGHT_ERROR_CODES.includes(data.error) ? data.error : 'upstream');
+      }
+      return flightFailure('upstream');
+    },
   };
 
   return api;

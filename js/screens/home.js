@@ -3,26 +3,32 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=65baf9b';
-import { href, navigate } from '../router.js?v=65baf9b';
+import { actions, useTrip } from '../store.js?v=56bbb9a';
+import { href, navigate } from '../router.js?v=56bbb9a';
 import {
+  actorName,
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
   hebrewCount, itemEffectiveQty, itemProgress, membersById, missingItems, myAgenda, similarItems, timeAgo, tripReadiness,
-  visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats,
-} from '../lib/logic.js?v=65baf9b';
+  visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats, adminPersons, personsOf,
+  departureOf, myRideText, pinnedNotices, myInbox, settlePlan, moneyPots, myNet, openMoneyRequests, partyBalances,
+  partyName, partyOf, splitsMoney,
+} from '../lib/logic.js?v=56bbb9a';
 import {
-  Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
+  Avatar, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js?v=65baf9b';
-import { Icon } from '../ui/icons.js?v=65baf9b';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=65baf9b';
-import { InboxCard } from '../ui/inbox.js?v=65baf9b';
-import { hebrewError } from '../api/errors.js?v=65baf9b';
-import { hasModule, tripSetupGaps } from '../lib/templates.js?v=65baf9b';
+} from '../ui/components.js?v=56bbb9a';
+import { Icon } from '../ui/icons.js?v=56bbb9a';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=56bbb9a';
+import { InboxCard } from '../ui/inbox.js?v=56bbb9a';
+import { payMethodsOf } from './money-requests.js?v=56bbb9a';
+import { AlbumSheet } from './trip-extras.js?v=56bbb9a';
+import { hebrewError } from '../api/errors.js?v=56bbb9a';
+import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=56bbb9a';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
-const MISSING_SHOWN = 6;
-const APPROVALS_SHOWN = 5;
+const MISSING_SHOWN = 3;
+const MINE_SHOWN = 3;
+const APPROVALS_SHOWN = 1;
 const UNITS = ['יח׳', 'ק"ג', 'גרם', 'חבילות', 'בקבוקים', 'שישיות', 'ליטר'];
 const TYPE_OPTIONS = [
   { value: 'buy', label: '🛒 לקנות' },
@@ -120,7 +126,7 @@ export default function HomeScreen({ route }) {
   const { snap, me, isAdmin } = useTrip();
   const now = useNow();
   const { run, busy } = useBusy();
-  const [sheet, setSheet] = useState(null); // 'item' | 'expense' | 'announce' | null
+  const [sheet, setSheet] = useState(null); // 'item' | 'expense' | 'album' | null
   const [rejecting, setRejecting] = useState(null); // item being rejected
   const [optimistic, setOptimistic] = useState({}); // itemId → done (until the snapshot catches up)
 
@@ -165,51 +171,63 @@ export default function HomeScreen({ route }) {
 
   const phase = tripPhase(trip, now);
   const after = phase === 'after' || phase === 'past';
+  const prep = phase === 'before' || phase === 'eve';          // the planning weeks (+ the evening before)
+  const lists = hasModule(trip, 'lists') || hasModule(trip, 'tasks');
+  // after the trip a request for an expense's shares is already inside the net ("כולל …" in the closing card)
+  const inboxSnap = after ? { ...snap, money_requests: (snap.money_requests || []).filter((q) => !q.expense_id) } : snap;
+  const moneyAsked = me ? myInbox(snap, me.id).some((e) => e.kind === 'money_request') : false;
+  // an old announcement is history once the trip is over (an urgent one after the end still shows)
+  const news = model.news && (!after || !trip.ends_at || String(model.news.created_at) > String(trip.ends_at)) ? model.news : null;
 
   return html`<div class=${`screen home home--${phase}`}>
     <${Hero} model=${model} me=${me} now=${now} isAdmin=${isAdmin} />
-    <${PhaseStrip} phase=${phase} />
 
     ${phase === 'during'
       ? html`<${RestCard} snap=${snap} /><${InboxCard} snap=${snap} me=${me} only=${['profile_request']} />`
-      : html`
-        ${after ? html`<${AfterCard} snap=${snap} me=${me} isAdmin=${isAdmin} />` : html`<${TripDayCard} snap=${snap} me=${me} now=${now} />`}
-        <${InboxCard} snap=${snap} me=${me} skip=${['proposals']} />
-        ${isAdmin && (phase === 'before' || phase === 'eve') ? html`<${SetupCard} snap=${snap} />` : null}
-        ${phase === 'before' || phase === 'eve' ? html`<${ChecklistCard} snap=${snap} me=${me} />` : null}
+      : after
+        ? html`
+          <${AfterCard} snap=${snap} me=${me} isAdmin=${isAdmin} onAlbum=${() => setSheet('album')} />
+          <${InboxCard} snap=${inboxSnap} me=${me} skip=${['proposals']} />
+          ${news ? html`<${LatestNews} model=${{ ...model, news }} />` : null}`
+        : html`
+          <${TripDayCard} snap=${snap} me=${me} now=${now} />
+          <${InboxCard} snap=${snap} me=${me} skip=${['proposals']} />
+          ${isAdmin && model.pending.length
+            ? html`<${Approvals} model=${model} busy=${busy} onApprove=${approve} onReject=${(item) => setRejecting(item)} />`
+            : null}
 
-        ${after
-          ? null
-          : html`<div class="stack-sm">
-              <${Readiness} model=${model} />
-              ${hasModule(trip, 'money') ? html`<${MoneyRow} model=${model} />` : null}
-            </div>`}
+          ${lists
+            ? html`<${StillMissing} model=${model} busy=${busy} onTake=${take} onAdd=${() => setSheet('item')}
+                canImport=${hasModule(trip, 'lists')} />`
+            : null}
+          <${MyList} model=${model} optimistic=${optimistic} busy=${busy} onToggle=${toggleMine} />
 
-        <${QuickActions}
-          isAdmin=${isAdmin}
-          proposes=${!isAdmin && trip.settings?.require_approval !== false}
-          summary=${model.summary}
-          onItem=${() => setSheet('item')}
-          onExpense=${hasModule(trip, 'money') ? () => setSheet('expense') : null}
-          onAnnounce=${() => setSheet('announce')}
-        />
+          ${prep ? html`<${ChecklistCard} snap=${snap} me=${me} />` : null}
+          ${isAdmin && phase === 'before' ? html`<${SetupCard} snap=${snap} />` : null}
+          ${isAdmin && phase === 'before' ? html`<${CrewCard} snap=${snap} />` : null}
 
-        ${model.news ? html`<${LatestNews} model=${model} />` : null}
+          <div class="stack-sm">
+            ${lists ? html`<${Readiness} model=${model} />` : null}
+            ${hasModule(trip, 'money') && !moneyAsked ? html`<${MoneyRow} model=${model} />` : null}
+          </div>
 
-        ${isAdmin && model.pending.length && !after
-          ? html`<${Approvals} model=${model} busy=${busy} onApprove=${approve} onReject=${(item) => setRejecting(item)} />`
-          : null}
+          ${phase === 'before'
+            ? html`<${QuickActions}
+                proposes=${!isAdmin && trip.settings?.require_approval !== false}
+                summary=${model.summary}
+                onItem=${lists ? () => setSheet('item') : null}
+                onExpense=${hasModule(trip, 'money') ? () => setSheet('expense') : null}
+              />`
+            : null}
 
-        ${after ? null : html`<${MyList} model=${model} optimistic=${optimistic} busy=${busy} onToggle=${toggleMine} />`}
-
-        ${after ? null : html`<${StillMissing} model=${model} busy=${busy} onTake=${take} onAdd=${() => setSheet('item')} />`}
-      `}
+          ${news ? html`<${LatestNews} model=${model} />` : null}
+        `}
 
     <${WhoAmI} snap=${snap} me=${me} phase=${phase} />
     <${ItemSheet} open=${sheet === 'item'} onClose=${() => setSheet(null)} snap=${snap} isAdmin=${isAdmin} tripId=${tripId} />
     <${ExpenseSheet} open=${sheet === 'expense'} onClose=${() => setSheet(null)} snap=${snap} me=${me} tripId=${tripId} />
     ${isAdmin
-      ? html`<${AnnounceSheet} open=${sheet === 'announce'} onClose=${() => setSheet(null)} snap=${snap} me=${me} tripId=${tripId} />`
+      ? html`<${AlbumSheet} open=${sheet === 'album'} onClose=${() => setSheet(null)} trip=${trip} />`
       : null}
     ${isAdmin ? html`<${RejectSheet} item=${rejecting} model=${model} onClose=${() => setRejecting(null)} />` : null}
   </div>`;
@@ -231,8 +249,10 @@ function buildModel(snap, me) {
   const pending = (snap.items || [])
     .filter((i) => i.status === 'proposed')
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-  const myBalance = me ? balances(snap).find((b) => b.member_id === me.id) : null;
-  const news = visibleNotifications(snap).find((n) => n.kind === 'announcement') || null;
+  // an urgent announcement I haven't seen stays the home card's news (3 days), even when newer ones came after it
+  const readIds = new Set((snap.reads || []).filter((r) => r.member_id === me?.id).map((r) => r.notification_id));
+  const news = pinnedNotices(snap).find((n) => n.author_member !== me?.id && !readIds.has(n.id))
+    || visibleNotifications(snap).find((n) => n.kind === 'announcement') || null;
   const newsRead = news
     ? news.author_member === me?.id || (snap.reads || []).some((r) => r.notification_id === news.id && r.member_id === me?.id)
     : true;
@@ -241,6 +261,7 @@ function buildModel(snap, me) {
     trip: snap.trip,
     tripId: snap.trip.id,
     me,
+    person: (typeof snap.me?.person === 'string' && snap.me.person.trim()) || null,
     members,
     byId,
     cats,
@@ -250,7 +271,7 @@ function buildModel(snap, me) {
     missing,
     agenda,
     pending,
-    balance: myBalance ? myBalance.balance : 0,
+    balance: me ? myNet(snap) : 0,                 // the settle-up's own whole-shekel number
     hasExpenses: (snap.expenses || []).length > 0,
     news,
     newsUnread: !newsRead,
@@ -292,57 +313,43 @@ function HomeSkeleton() {
 // hero + countdown
 // ---------------------------------------------------------------------------
 
-function CountTile({ value, one, many }) {
-  return html`<span class="home-cd__tile">
-    <span class="home-cd__num num">${value}</span>
-    <span class="home-cd__unit">${value === 1 ? one : many}</span>
-  </span>`;
-}
-
 function Hero({ model, me, now, isAdmin }) {
-  const { trip, members, heads } = model;
+  const { trip, heads } = model;
   const cd = trip.starts_at ? countdown(trip.starts_at, now, trip.ends_at) : null;
   const when = trip.starts_at ? `${formatDate(trip.starts_at)} · ${formatTime(trip.starts_at)}` : '';
-  const names = me ? (me.people?.length ? me.people.join(' ו') : displayName(me)) : '';
+  // greet the person holding this phone ("בוקר טוב, נועה"), not the whole family profile
+  const names = me ? (model.person || (me.people?.length ? me.people.join(' ו') : displayName(me))) : '';
   const tripHref = href(`/t/${trip.id}/trip`);
+  // compact (ux H1): one countdown line, no tiles, no phase strip, no CTA pill — the cards below carry the actions
   return html`<section class="hero home-hero" aria-labelledby="home-trip-name">
-    ${names ? html`<p class="home-hero__hello">${greeting(now)}, ${names} 👋</p>` : null}
     <div class="home-hero__top">
       <span class="home-hero__emoji" aria-hidden="true">${trip.emoji || '⛺'}</span>
       <div class="home-hero__titles">
         <h1 class="home-hero__name" id="home-trip-name">${trip.name}</h1>
-        ${when
-          ? html`<p class="home-hero__when">${when}</p>`
-          : isAdmin
-            ? html`<a class="home-hero__when home-hero__when--link" href=${`${tripHref}?edit=1`}>עוד לא נקבע תאריך — לקבוע ←</a>`
-            : html`<p class="home-hero__when">התאריך עוד לא נקבע 🗓️</p>`}
+        ${cd?.label
+          ? html`<p class=${cx('home-cd', cd.past && 'home-cd--past')} role="timer" aria-live="off">
+              <span class="home-cd__label">${cd.label}</span>${trip.starts_at && !cd.past
+                ? html`<span class="home-cd__when"> · ${formatDate(trip.starts_at, { weekday: 'short', day: 'numeric', month: 'numeric' })} ${formatTime(trip.starts_at)}</span>`
+                : null}
+            </p>`
+          : when
+            ? html`<p class="home-hero__when">${when}</p>`
+            : isAdmin
+              ? html`<a class="home-hero__when home-hero__when--link" href=${`${tripHref}?edit=1`}>עוד לא נקבע תאריך — לקבוע ←</a>`
+              : html`<p class="home-hero__when">התאריך עוד לא נקבע 🗓️</p>`}
       </div>
     </div>
 
-    ${cd?.label
-      ? html`<div class=${cx('home-cd', cd.past && 'home-cd--past')} role="timer" aria-live="off">
-          <span class="home-cd__label">${cd.label}</span>
-          ${!cd.past
-            ? html`<span class="home-cd__tiles" aria-hidden="true">
-                <${CountTile} value=${cd.days} one="יום" many="ימים" />
-                <${CountTile} value=${cd.hours} one="שעה" many="שעות" />
-                <${CountTile} value=${cd.minutes} one="דקה" many="דק׳" />
-              </span>`
-            : cd.label === 'הטיול הסתיים' && hasModule(trip, 'money')
-              ? html`<a class="home-cd__cta" href=${href(`/t/${trip.id}/money`)}>💸 סוגרים חשבון</a>`
-              : null}
-        </div>`
-      : null}
-
     <div class="home-hero__foot">
+      ${names && !cd?.past ? html`<span class="sr-only home-hero__hello">${greeting(now)}, ${names} 👋</span>` : null}
       <a class="home-hero__chip" href=${tripHref}>
         <${Icon} name="map-pin" size=${16} />
         <span class="home-hero__chip-text">${trip.location || 'פרטי הטיול'}</span>
         <${Icon} name="chevron-left" size=${16} />
       </a>
       <a class="home-hero__people" href=${href(`/t/${trip.id}/people`)} aria-label=${`${hebrewCount(heads, 'משתתף', 'משתתפים')} — לרשימת החבר'ה`}>
-        <${AvatarStack} members=${members} max=${3} size=${26} />
         <span class="home-hero__heads"><${Icon} name="users" size=${15} /><span class="num">${heads}</span></span>
+        <${Icon} name="chevron-left" size=${16} />
       </a>
     </div>
   </section>`;
@@ -362,13 +369,14 @@ function TripDayCard({ snap, me, now }) {
   if (!phase) return null;
   const rides = rideModel(snap, me.id);
   const ride = rides.myRide || rides.mySeat;
-  const depart = rides.mySeat?.depart_at || rides.myRide?.depart_at || trip.starts_at;
+  // my car's time, else the schedule's first row when it's before the start ("03:30 יוצאים לשדה")
+  const leave = departureOf(trip);
+  const depart = rides.mySeat?.depart_at || rides.myRide?.depart_at || leave.at;
+  const firstRow = !rides.mySeat?.depart_at && !rides.myRide?.depart_at ? leave.row : null;
   const open = snap.pledges.filter((p) => p.member_id === me.id && !p.done).length
     + (snap.personal_items || []).filter((p) => !p.done).length;
-  const waze = wazeUrl(trip);
-  const rideText = rides.myRide
-    ? `את/ה נוהג/ת${rides.myRide.taken ? ` · ${hebrewCount(rides.myRide.taken, 'נוסע/ת', 'נוסעים')} איתך` : ''}`
-    : rides.mySeat ? `נוסע/ת עם ${displayName(rides.mySeat.driver)}` : null;
+  const waze = trip.settings?.where === 'abroad' ? null : wazeUrl(trip);   // abroad: no Waze from home to "רומא"
+  const rideText = myRideText(rides);
 
   return html`<section class=${`tripday tripday--${phase}`} aria-labelledby="tripday-title" data-testid="trip-day">
     <div class="tripday__top">
@@ -376,7 +384,7 @@ function TripDayCard({ snap, me, now }) {
       <div class="tripday__text">
         <h2 class="tripday__title" id="tripday-title">${phase === 'day' ? 'יוצאים היום!' : 'מחר יוצאים!'}</h2>
         <p class="tripday__sub">
-          ${[depart && `יציאה ב-${formatTime(depart)}`, trip.location].filter(Boolean).join(' · ')}
+          ${[depart && (firstRow ? `${firstRow.emoji ? `${firstRow.emoji} ` : ''}${formatTime(depart)} ${firstRow.label}`.trim() : `יציאה ב-${formatTime(depart)}`), trip.location].filter(Boolean).join(' · ')}
         </p>
       </div>
     </div>
@@ -395,22 +403,6 @@ function TripDayCard({ snap, me, now }) {
   </section>`;
 }
 
-// ---------------------------------------------------------------------------
-// trip phases: before → eve → departure → during → after
-// ---------------------------------------------------------------------------
-
-const PHASES = [
-  ['before', 'לפני'], ['eve', 'ערב לפני'], ['departure', 'יוצאים'], ['during', 'בטיול'], ['after', 'אחרי'],
-];
-
-function PhaseStrip({ phase }) {
-  const at = PHASES.findIndex(([k]) => k === (phase === 'past' ? 'after' : phase));
-  return html`<ol class="phase-strip" aria-label="איפה אנחנו בטיול" data-testid="phase-strip">
-    ${PHASES.map(([k, label], i) => html`<li key=${k} class=${i === at ? 'is-now' : i < at ? 'is-past' : ''}
-      aria-current=${i === at ? 'step' : undefined}>${label}</li>`)}
-  </ol>`;
-}
-
 /** Once, for a device that joined a shared profile before profiles knew their people: "מי את/ה ב״הדס ועידו״?" */
 function WhoAmI({ snap, me, phase }) {
   const tripId = snap.trip.id;
@@ -424,8 +416,18 @@ function WhoAmI({ snap, me, phase }) {
     }
   });
   const people = (me?.people || []).filter(Boolean);
-  const open = Boolean(me && people.length > 1 && snap.me && !snap.me.person && !dismissed && phase !== 'during');
+  // per person (a newer server): someone else's device (another e-mail) already is that person → the server
+  // would refuse it; "mine" = my e-mail on another device → fine. Older server: every name stays tappable.
+  const rows = Array.isArray(me?.persons) ? new Map(personsOf(me).map((p) => [p.name, p])) : null;
+  const takenBy = (p) => Boolean(rows?.get(p)?.joined && !rows.get(p).mine);
+  const choosable = people.filter((p) => !takenBy(p));
+  const open = Boolean(me && people.length > 1 && choosable.length && snap.me && !snap.me.person && !dismissed && phase !== 'during');
   const joined = new Set(me?.joined || []);
+  const hint = (p) => {
+    if (busy === p) return 'רגע…';
+    if (rows) return rows.get(p)?.mine ? 'זה את/ה — כבר נכנסת ממכשיר אחר 👍' : takenBy(p) ? `${p} כבר נכנס/ה מטלפון משלו/ה` : 'זה אני';
+    return joined.has(p) ? 'נכנס/ה גם ממכשיר אחר — אם זה את/ה, מצוין' : 'זה אני';
+  };
   const later = () => {
     try {
       localStorage.setItem(snoozeKey, String(Date.now() + 24 * 3600e3));   // ask again tomorrow
@@ -443,15 +445,15 @@ function WhoAmI({ snap, me, phase }) {
     setBusy(null);
     if (ok) setDismissed(true);
   };
-  // every name stays tappable — the server knows whether "the other device" is you (same e-mail)
+  // "אחר כך" always closes it; a name someone else's phone already is can't be picked (the server says so too)
   return html`<${Sheet} open=${open} onClose=${later} title=${`מי את/ה ב״${me ? displayName(me) : ''}״? 🙋`}>
     <div class="stack" data-testid="who-am-i">
       <p class="muted">פעם אחת — ככה כולם רואים מי מביא ומי ראה, בלי בלבול.</p>
       <div class="welcome-opts" role="radiogroup" aria-label="מי את/ה">
         ${people.map((p) => html`<button type="button" role="radio" key=${p} aria-checked="false" class="welcome-opt"
-          disabled=${Boolean(busy)} onClick=${() => choose(p)}>
-          <span class="welcome-opt__emoji" aria-hidden="true">🙋</span>
-          <span class="welcome-opt__text"><b>אני ${p}</b><span>${busy === p ? 'רגע…' : joined.has(p) ? 'נכנס/ה גם ממכשיר אחר — אם זה את/ה, מצוין' : 'זה אני'}</span></span>
+          disabled=${Boolean(busy) || takenBy(p)} onClick=${() => choose(p)}>
+          <span class="welcome-opt__emoji" aria-hidden="true">${takenBy(p) ? '📱' : '🙋'}</span>
+          <span class="welcome-opt__text"><b>אני ${p}</b><span>${hint(p)}</span></span>
         </button>`)}
       </div>
       <${Button} variant="ghost" disabled=${Boolean(busy)} onClick=${later}>אחר כך</${Button}>
@@ -465,7 +467,6 @@ function SetupCard({ snap }) {
   if (!gaps.length) return null;
   return html`<${Card} emoji="🧭" title="מה חסר בטיול" class="checklist setup"
     action=${html`<span class="checklist__count">${gaps.length}</span>`}>
-    <p class="muted small">רק מנהלים רואים את זה. ממלאים פעם אחת — וכולם יודעים.</p>
     <ul class="checklist__list" data-testid="setup-gaps">
       ${gaps.map((g) => html`<li key=${g.key}>
         <a href=${g.href}>
@@ -479,8 +480,62 @@ function SetupCard({ snap }) {
   </${Card}>`;
 }
 
+const CREW = {
+  rides: { emoji: '🚗', done: 'סימנו איך מגיעים', missing: 'עוד לא סימנו', nudge: true },
+  flights: { emoji: '✈️', done: 'הזינו טיסה', missing: 'עוד בלי טיסה', nudge: true },
+  polls: { emoji: '📊', done: 'הצביעו בסקרים', missing: 'עוד לא הצביעו', nudge: true },
+  lists: { emoji: '🤲', done: 'לקחו משהו מהרשימה', missing: 'עוד לא לקחו כלום', nudge: true },
+  money: { emoji: '💸', done: 'שילמו את הבקשות', missing: 'עוד לא שילמו', nudge: true },
+  rooms: { emoji: '🛏️', done: 'משובצים לחדר', missing: 'עוד בלי חדר', nudge: false },
+};
+
+/** Admins: who's still missing in each feature that's on — names, and a gentle nudge (once a day). */
+function CrewCard({ snap }) {
+  const [busy, setBusy] = useState(null);
+  const rows = (Array.isArray(snap.status) ? snap.status : []).filter((g) => CREW[g.key] && g.done < g.total);
+  if (!rows.length) return null;
+  const byId = membersById(snap.members || []);
+  const nudge = async (key) => {
+    setBusy(key);
+    const n = await actions.run((api) => api.nudgeMembers(snap.trip.id, key));
+    setBusy(null);
+    if (n == null) return;
+    actions.toast(n ? `נשלחה תזכורת עדינה ל-${hebrewCount(n, 'משתתף/ת', 'משתתפים')} 🙂` : 'כולם כבר קיבלו תזכורת היום 🙂', 'success', 3200);
+  };
+  const nudgeable = rows.filter((g) => CREW[g.key].nudge);
+  return html`<${Card} emoji="👥" title="אצל החבר׳ה" class="checklist crew" data-testid="crew-card">
+    <ul class="crew__list">
+      ${rows.map((g) => {
+        const c = CREW[g.key];
+        const names = g.missing.map((id) => displayName(byId.get(id))).join(', ');
+        return html`<li key=${g.key} class="crew__row" data-module=${g.key}>
+          <div class="crew__head">
+            <span class="crew__emoji" aria-hidden="true">${c.emoji}</span>
+            <span class="crew__text"><b class="num">${g.done}/${g.total}</b> ${c.done}</span>
+          </div>
+          <p class="crew__who small"><span class="muted">${c.missing}:</span> ${names}</p>
+        </li>`;
+      })}
+    </ul>
+    ${nudgeable.length
+      ? html`<p class="crew__nudge small" data-testid="crew-nudge">
+          <span class="muted">🔔 תזכורת עדינה:</span>
+          ${nudgeable.map((g, i) => html`${i ? html`<span aria-hidden="true"> · </span>` : null}<button type="button" class="link crew__link"
+            key=${g.key} data-module=${g.key} disabled=${busy === g.key} aria-label=${`תזכורת עדינה — ${CREW[g.key].missing}`}
+            onClick=${() => nudge(g.key)}>${CREW[g.key].emoji} ${CREW_LABEL[g.key]}</button>`)}
+        </p>`
+      : null}
+  </${Card}>`;
+}
+
+const CREW_LABEL = { rides: 'הגעה', flights: 'טיסות', polls: 'סקרים', lists: 'רשימה', money: 'תשלום', rooms: 'חדרים' };
+
 function ChecklistCard({ snap, me }) {
-  const { items, done, total } = myChecklist(snap, me.id, { hasEmail: Boolean(me.prefs?.has_email) });
+  // "מה אני מביא/ה" is the my-list card's job (ux H2) — the checklist keeps the rest
+  const all0 = myChecklist(snap, me.id, { hasEmail: Boolean(me.prefs?.has_email) });
+  const items = all0.items.filter((it) => it.key !== 'bring');
+  const total = items.length;
+  const done = items.filter((it) => it.done).length;
   if (!total) return null;
   const all = done === total;
   return html`<${Card} emoji=${all ? '🎉' : '✅'} title="הצ׳קליסט שלי לפני הטיול" class="checklist"
@@ -506,7 +561,14 @@ function ChecklistCard({ snap, me }) {
 function RestCard({ snap }) {
   const trip = snap.trip;
   const waze = wazeUrl(trip);
-  const admins = (snap.members || []).filter((m) => (m.role === 'owner' || m.role === 'admin') && m.phone);
+  // the admins' phones, per person (their own phone, else their profile's) — each number once
+  const seen = new Set();
+  const admins = adminPersons(snap).filter((a) => {
+    const digits = String(a.phone || '').replace(/[^\d+]/g, '');
+    if (!digits || seen.has(digits)) return false;
+    seen.add(digits);
+    return true;
+  });
   return html`<section class="rest" data-testid="rest">
     <p class="rest__emoji" aria-hidden="true">🔥</p>
     <h2 class="rest__title">תהנו!</h2>
@@ -517,17 +579,75 @@ function RestCard({ snap }) {
     </ul>
     <div class="rest__actions">
       ${waze ? html`<${Button} variant="secondary" icon="map-pin" href=${waze} target="_blank" rel="noopener">ניווט ב-Waze</${Button}>` : null}
-      ${admins.map((m) => html`<${Button} key=${m.id} variant="ghost" href=${`tel:${m.phone.replace(/[^\d+]/g, '')}`}>📞 ${displayName(m)}</${Button}>`)}
+      ${admins.map((a) => html`<${Button} key=${`${a.member.id}:${a.name}`} variant="ghost" href=${`tel:${a.phone.replace(/[^\d+]/g, '')}`}>📞 ${a.name}</${Button}>`)}
     </div>
     <a class="rest__more" href=${href(`/t/${trip.id}/lists`)}>צריך בכל זאת לבדוק משהו? לרשימות ←</a>
   </section>`;
 }
 
-/** After the trip: settle up, photos, the trip in numbers. */
-function AfterCard({ snap, me, isAdmin }) {
+/** Israeli mobile → '050-123-4567'; anything else as typed. */
+const prettyPhone = (phone) => {
+  const d = String(phone || '').replace(/\D/g, '');
+  return /^05\d{8}$/.test(d) ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}` : String(phone || '').trim();
+};
+
+/**
+ * After the trip — one closing card (ux A1): the ONE net number with its one action, the album, the trip in
+ * numbers with one share. Requests for an expense's shares are part of the net → "כולל …", not a second debt.
+ */
+function AfterCard({ snap, me, isAdmin, onAlbum }) {
   const trip = snap.trip;
-  const mine = balances(snap).find((b) => b.member_id === me.id);
-  const bal = mine ? mine.balance : 0;
+  const money = hasModule(trip, 'money');
+  const bals = money ? balances(snap) : [];
+  // the same plan the money screen shows (a couple that pays each their own part settles per person)
+  const plan = money ? settlePlan(partyBalances(snap)) : [];
+  const byId = membersById(snap.members || []);
+  const person = (me.people || []).includes(snap.me?.person) ? snap.me.person : null;
+  const myKey = person && splitsMoney(me) ? `${me.id}::${person}` : me.id;
+  const isMine = (key) => key === myKey || (myKey === me.id && partyOf(key).member_id === me.id);
+  const out = plan.filter((t) => isMine(t.from) && !isMine(t.to));
+  const inn = plan.filter((t) => isMine(t.to) && !isMine(t.from));
+  const names = (keys) => [...new Set(keys.map((k) => partyName(snap, k)))].join(', ');
+  const outSum = out.reduce((n, t) => n + t.amount, 0);
+  const inSum = inn.reduce((n, t) => n + t.amount, 0);
+  const payee = out.length ? partyOf(out[0].to).member_id : null;
+  const toPay = payee ? payMethodsOf(snap, payee) : null;
+  const bit = toPay?.bit || (payee ? byId.get(payee)?.phone : null) || null;
+  // what else keeps the money open: requests with a share to pay / to confirm, transfers waiting for "קיבלתי"
+  const openReqs = money ? openMoneyRequests(snap) : [];
+  const mineOf = (rows) => rows.filter((o) => o.member_id === me.id && (!o.person || myKey === me.id || o.person === person));
+  // requests for an expense's shares that I still owe — already inside the net
+  const included = openReqs.filter((r) => r.request.expense_id)
+    .flatMap((r) => mineOf(r.owes).map((o) => `${formatMoney(o.amount)} ${r.request.title}`));
+  // money asked before buying isn't in the balances: a share of mine there is a debt of its own
+  const asked = openReqs.filter((r) => !r.request.expense_id)
+    .flatMap((r) => mineOf(r.owes).map((o) => ({ ...o, request: r.request })));
+  // … and the other way round: what people still haven't paid on a collection I asked for
+  const awaited = openReqs.filter((r) => !r.request.expense_id && r.request.requested_by === me.id && r.owes.length);
+  const awaitedSum = awaited.reduce((n, r) => n + r.owes.reduce((k, o) => k + Math.round(o.amount * 100), 0), 0) / 100;
+  const sentRows = money ? (snap.payments || []).filter((p) => p.status === 'sent') : [];
+  // waiting for MY "קיבלתי" (inside a couple: only the partner who got it) / my own, waiting for theirs
+  const toConfirm = sentRows.filter((p) => p.to_member === me.id && (p.from_member !== me.id || p.to_person === person));
+  const myWaiting = sentRows.filter((p) => p.from_member === me.id && !toConfirm.includes(p)
+    && (!p.from_person || myKey === me.id || p.from_person === person));
+  const sumOf = (rows) => rows.reduce((n, p) => n + Math.round(Number(p.amount) * 100), 0) / 100;
+  const payName = (memberId, who) => (who && splitsMoney(byId.get(memberId)) ? who : displayName(byId.get(memberId)));
+  // admins: how far the trip is from closed — what was moved, out of everything there is to move (the plan and
+  // what's still asked before buying)
+  const sentCents = bals.reduce((n, b) => n + Math.round((b.sent || 0) * 100), 0)
+    + moneyPots(snap).reduce((n, p) => n + Math.round(p.collected * 100), 0);
+  const leftCents = plan.reduce((n, t) => n + Math.round(t.amount * 100), 0)
+    + openReqs.filter((r) => !r.request.expense_id).reduce((n, r) => n + r.owes.reduce((k, o) => k + Math.round(o.amount * 100), 0), 0);
+  const pct = sentCents + leftCents > 0 ? Math.round((sentCents / (sentCents + leftCents)) * 100) : 100;
+  const openFrom = new Set(plan.map((t) => partyOf(t.from).member_id)).size;
+  const reqOpen = openReqs.filter((r) => r.owes.length).length;
+  const adminParts = [
+    openFrom ? (openFrom === 1 ? 'אחד עוד לא סגר' : `${openFrom} עוד לא סגרו`) : null,
+    reqOpen ? (reqOpen === 1 ? 'בקשה אחת פתוחה' : `${reqOpen} בקשות פתוחות`) : null,
+    sentRows.length ? (sentRows.length === 1 ? 'העברה אחת מחכה לאישור' : `${sentRows.length} העברות מחכות לאישור`) : null,
+  ].filter(Boolean);
+  const moneyHref = href(`/t/${trip.id}/money`);
+
   const stats = tripStats(snap);
   const album = trip.info?.album_url || null;
   const share = [
@@ -539,29 +659,72 @@ function AfterCard({ snap, me, isAdmin }) {
     album ? `📸 האלבום: ${album}` : null,
     'נתראה בטיול הבא 🔥',
   ].filter(Boolean).join('\n');
+
+  let moneyBody = null;
+  if (money) {
+    let line;
+    let action = null;
+    let state = 'closed';
+    if (out.length) {
+      state = 'pay';
+      line = html`עליך להעביר <b class="num" data-testid="after-amount">${formatMoney(outSum)}</b> ל${names(out.map((t) => t.to))}`;
+      action = html`<${Button} block href=${`${moneyHref}?pay=me`} data-testid="after-pay">✓ שילמתי${out.length === 1 ? ` ${formatMoney(outSum)}` : ''}</${Button}>`;
+    } else if (asked.length) {
+      // a request I haven't paid (money asked before buying): still open, whatever the settle-up says
+      state = 'asked';
+      const a = asked[0];
+      line = html`עליך <b class="num" data-testid="after-amount">${formatMoney(sumOf(asked))}</b> ל${actorName(byId.get(a.request.requested_by), a.request.by_person)} · ${a.request.title}${asked.length > 1 ? ` ועוד ${asked.length - 1}` : ''}`;
+      action = html`<${Button} block href=${moneyHref} data-testid="after-request">לבקשה ולתשלום</${Button}>`;
+    } else if (inn.length) {
+      state = 'get';
+      line = html`${names(inn.map((t) => t.from))} ${inn.length > 1 ? 'מעבירים' : 'מעביר/ה'} לך <b class="num" data-testid="after-amount">${formatMoney(inSum)}</b>`;
+    } else if (awaited.length) {
+      state = 'awaited';
+      const n = awaited.reduce((k, r) => k + r.owes.length, 0);
+      line = html`עוד לא שילמו לך <b class="num" data-testid="after-amount">${formatMoney(awaitedSum)}</b> על ${awaited.map((r) => `״${r.request.title}״`).join(', ')} · ${n === 1 ? 'אחד עוד לא שילם' : `${n} עוד לא שילמו`}`;
+    } else if (toConfirm.length) {
+      // the money is marked as sent to me: closed only once I say it arrived
+      state = 'confirm';
+      line = html`נשאר רק לאשר שקיבלת <b class="num" data-testid="after-amount">${formatMoney(sumOf(toConfirm))}</b> מ${[...new Set(toConfirm.map((p) => payName(p.from_member, p.from_person)))].join(', ')}`;
+    } else if (myWaiting.length) {
+      state = 'waiting';
+      line = html`שילמת <b class="num" data-testid="after-amount">${formatMoney(sumOf(myWaiting))}</b> ✓ · מחכה לאישור של ${[...new Set(myWaiting.map((p) => payName(p.to_member, p.to_person)))].join(', ')}`;
+    } else {
+      line = html`הכול סגור ✓ תודה! 🔥`;
+    }
+    moneyBody = html`<div class="after__money" data-testid="after-money" data-state=${state}>
+      <h2 class="after__title">💸 סוגרים חשבון</h2>
+      <p class="after__line">${line}</p>
+      ${included.length && out.length ? html`<p class="after__incl small muted" data-testid="after-included">כולל ${included.join(' · ')}</p>` : null}
+      ${action}
+      ${state === 'pay' && bit ? html`<p class="after__bit small muted">ביט <bdi dir="ltr" class="num">${prettyPhone(bit)}</bdi></p>` : null}
+      ${isAdmin
+        ? html`<a class="after__row" href=${moneyHref} data-testid="after-admin">
+            <span>👑 ${pct >= 100 && adminParts.length ? 'כמעט סגור' : html`נסגר <b class="num">${pct}%</b>`}${adminParts.length ? ` · ${adminParts.join(' · ')}` : ''}</span>
+            <${Icon} name="chevron-left" size=${16} />
+          </a>`
+        : !action
+          ? html`<a class="after__row" href=${moneyHref}><span>לפרטים במסך הכסף</span><${Icon} name="chevron-left" size=${16} /></a>`
+          : null}
+    </div>`;
+  }
+
   return html`<section class="after" data-testid="after">
-    <h2 class="after__title">איך היה? 🔥</h2>
-    ${hasModule(trip, 'money') ? html`<div class="after__money">
-      ${Math.abs(bal) < 1
-        ? html`<p>💸 הכול מאוזן אצלך ✅</p>`
-        : html`<p>💸 ${bal > 0 ? 'מגיע לך' : 'עליך להעביר'} <b>${formatMoney(Math.abs(bal))}</b></p>`}
-      <${Button} size="sm" variant=${Math.abs(bal) < 1 ? 'ghost' : 'accent'} href=${href(`/t/${trip.id}/money`)}>
-        ${Math.abs(bal) < 1 ? 'למסך הכסף' : bal > 0 ? 'מי מעביר לי' : 'למי להעביר'}
-      </${Button}>
-    </div>` : null}
+    ${moneyBody}
     <div class="after__photos">
       ${album
-        ? html`<${Button} variant="secondary" href=${album} target="_blank" rel="noopener">📸 לאלבום התמונות</${Button}>`
+        ? html`<a class="after__row" href=${album} target="_blank" rel="noopener"><span>📸 לאלבום התמונות</span><${Icon} name="chevron-left" size=${16} /></a>`
         : isAdmin
-          ? html`<${Button} variant="ghost" href=${href(`/t/${trip.id}/trip?edit=1`)}>📸 הוספת קישור לאלבום משותף</${Button}>`
+          ? html`<${Button} variant="secondary" block onClick=${onAlbum}>📸 הוספת אלבום משותף</${Button}>`
           : html`<p class="muted small">📸 אלבום משותף — המנהלים יוסיפו קישור</p>`}
     </div>
-    <div class="after__stats" aria-label="הטיול במספרים">
-      <span><b>${stats.people}</b> משתתפים</span>
-      <span><b>${stats.items}</b> פריטים ברשימה</span>
-      ${stats.spent ? html`<span><b>${formatMoney(stats.perPerson)}</b> לאדם</span>` : null}
+    <div class="after__numbers">
+      <p class="after__stats" aria-label="הטיול במספרים">${[
+        hebrewCount(stats.people, 'משתתף', 'משתתפים'),
+        stats.spent ? `${formatMoney(stats.perPerson)} לאדם` : null,
+      ].filter(Boolean).join(' · ')}</p>
+      <${ShareButton} text=${share} label="שיתוף ״הטיול במספרים״" variant="secondary" block />
     </div>
-    <${ShareButton} text=${share} label="שיתוף ״הטיול במספרים״" />
   </section>`;
 }
 
@@ -578,7 +741,7 @@ function Readiness({ model }) {
   if (ready.proposed) parts.push(hebrewCount(ready.proposed, 'ממתין לאישור', 'ממתינים לאישור'));
   if (!parts.length) parts.push('מוסיפים פריטים ומתחילים');
   return html`<${Card} class="home-ready" onClick=${() => navigate(`/t/${tripId}/lists`)}>
-    <${ProgressRing} value=${pct} size=${84} stroke=${9} label="מוכנות הטיול">
+    <${ProgressRing} value=${pct} size=${60} stroke=${7} label="מוכנות הטיול">
       <span class="home-ready__pct num">${pct}<small>%</small></span>
     </${ProgressRing}>
     <div class="home-ready__text">
@@ -598,7 +761,7 @@ function MoneyRow({ model }) {
   if (hasExpenses && balance >= 1) {
     tone = 'success';
     emoji = '💚';
-    text = `מגיע לך ${formatMoney(balance)}`;
+    text = `מגיע לך ${formatMoney(balance)}`;                 // balance = myNet: whole shekels, as the money screen
   } else if (hasExpenses && balance <= -1) {
     tone = 'warning';
     emoji = '💸';
@@ -620,27 +783,27 @@ function MoneyRow({ model }) {
 // quick actions
 // ---------------------------------------------------------------------------
 
-function QuickActions({ isAdmin, proposes, summary, onItem, onExpense, onAnnounce }) {
-  return html`<nav class=${cx('home-qa', isAdmin && onExpense && 'home-qa--4')} aria-label="פעולות מהירות">
-    <button type="button" class="qa-tile" onClick=${onItem}>
-      <span class="qa-tile__emoji" aria-hidden="true">➕</span>
-      <span class="qa-tile__label">${proposes ? 'הצע פריט' : 'הוסף פריט'}</span>
-    </button>
+function QuickActions({ proposes, summary, onItem, onExpense }) {
+  // two labelled actions; "הודעה לכולם" lives on the messages tab, the WhatsApp summary is a text link (ux H2)
+  const tiles = [onItem, onExpense].filter(Boolean).length;
+  return html`<nav class=${cx('home-qa', tiles === 2 ? 'home-qa--2' : 'home-qa--1')} aria-label="פעולות מהירות">
+    ${onItem
+      ? html`<button type="button" class="qa-tile" onClick=${onItem}>
+          <span class="qa-tile__emoji" aria-hidden="true">➕</span>
+          <span class="qa-tile__label">${proposes ? 'הצע פריט' : 'הוסף פריט'}</span>
+        </button>`
+      : null}
     ${onExpense
       ? html`<button type="button" class="qa-tile" onClick=${onExpense}>
           <span class="qa-tile__emoji" aria-hidden="true">🧾</span>
           <span class="qa-tile__label">הוצאה חדשה</span>
         </button>`
       : null}
-    ${isAdmin
-      ? html`<button type="button" class="qa-tile" onClick=${onAnnounce}>
-          <span class="qa-tile__emoji" aria-hidden="true">📣</span>
-          <span class="qa-tile__label">הודעה לכולם</span>
-        </button>`
+    ${summary
+      ? html`<div class="qa-share" data-testid="qa-share">
+          <${ShareButton} text=${summary} label="סיכום לוואטסאפ" variant="ghost" size="sm" />
+        </div>`
       : null}
-    <div class="qa-share" data-testid="qa-share">
-      <${ShareButton} text=${summary} label="סיכום לוואטסאפ" block />
-    </div>
   </nav>`;
 }
 
@@ -666,7 +829,7 @@ function LatestNews({ model }) {
     ${news.body ? html`<p class="home-news__body">${news.body}</p>` : null}
     <div class="home-news__foot">
       ${author
-        ? html`<${Avatar} member=${author} size=${24} /><span class="home-news__author">${displayName(author)}</span>`
+        ? html`<${Avatar} member=${author} size=${24} /><span class="home-news__author">${actorName(author, news.by_person)}</span>`
         : html`<span class="home-news__author">🔥 מדורה</span>`}
       <span class="spacer"></span>
       <span class="home-news__more">לכל ההודעות</span>
@@ -798,7 +961,10 @@ function agendaGroups(agenda, heads) {
       rows: agenda.buy.map(({ item }) => ({ item, kind: 'buy', done: !!item.done, meta: itemEffectiveQty(item, heads).text })),
     },
     { key: 'tasks', title: '✅ משימות', rows: agenda.tasks.map(({ item }) => ({ item, kind: 'task', done: !!item.done, meta: '' })) },
-    { key: 'each', title: '🙋 כל אחד מביא', rows: agenda.each.map(({ item, done }) => ({ item, kind: 'each', done, meta: '' })) },
+    // a couple that brings it each their own (§19): my share, or an open one nobody took yet
+    { key: 'each', title: '🙋 כל אחד מביא', rows: agenda.each.map(({ item, done, split, qty, open }) => ({
+      item, kind: 'each', done, meta: split ? (qty > 0 ? (qty > 1 ? `${qty} שלי` : '') : `עוד ${open} — מי מביא?`) : '',
+    })) },
   ].filter((g) => g.rows.length);
 }
 
@@ -821,47 +987,47 @@ function MyList({ model, optimistic, busy, onToggle }) {
     prevPct.current = pct;
   }, [pct, total]);
 
+  // summary first (ux H2): the next 3 open things; done ones and the rest live in "my list"
+  const open = rows.filter((row) => !row.done);
+  const shown = open.slice(0, MINE_SHOWN);
+  const more = open.length - shown.length;
+  const groupOf = new Map(groups.flatMap((g) => g.rows.map((r) => [r, g.title])));
+  const listHref = href(`/t/${tripId}/lists?tab=mine`);
+
   return html`<${Card}
     class="home-mine"
     emoji="🎒"
     title="המשימות שלי"
-    action=${total ? html`<a class="home-card-link" href=${href(`/t/${tripId}/lists?tab=mine`)}>לרשימה שלי</a>` : null}
+    action=${total ? html`<span class="mine-progress__text"><b class="num">${doneCount}/${total}</b> ${pct === 100 ? 'הכל מוכן 🎉' : 'מוכנים'}</span>` : null}
   >
     ${total
-      ? html`<div class="mine-progress">
-          <${ProgressBar} value=${pct} tone="accent" label="כמה מהרשימה שלי מוכן" />
-          <span class="mine-progress__text"><b class="num">${doneCount}/${total}</b> ${pct === 100 ? 'הכל מוכן 🎉' : 'מוכנים'}</span>
-        </div>
-        ${groups.map((g) => html`<div class="mine-group" key=${g.key}>
-          <h3 class="mine-group__title">${g.title}</h3>
-          <ul class="mine-list">
-            ${g.rows.map((row) => {
-              const checked = isDone(row);
-              const cat = cats.get(row.item.category_id);
-              const sub = [row.meta, cat ? `${cat.emoji} ${cat.name}` : ''].filter(Boolean).join(' · ');
-              return html`<li class=${cx('mine-row', checked && 'is-done')} key=${row.item.id}>
-                <button
-                  type="button"
-                  class=${cx('check', busy(`done:${row.item.id}`) && 'is-busy')}
-                  role="checkbox"
-                  aria-checked=${checked ? 'true' : 'false'}
-                  aria-label=${row.item.title}
-                  onClick=${() => !busy(`done:${row.item.id}`) && onToggle({ ...row, done: checked })}
-                ><${Icon} name="check" /></button>
-                <span class="mine-row__main">
-                  <span class="mine-row__title">${row.item.title}</span>
-                  ${sub ? html`<span class="mine-row__sub">${sub}</span>` : null}
-                </span>
-                ${row.item.status === 'proposed' ? html`<${Pill} tone="warning">ממתין לאישור</${Pill}>` : null}
-              </li>`;
-            })}
-          </ul>
-        </div>`)}`
-      : html`<${EmptyState}
-          emoji="🎒"
-          title="עוד לא לקחת כלום"
-          text="בחרו משהו מ״עדיין חסר״ למטה — בלחיצה אחת ✋"
-        />`}
+      ? html`<${ProgressBar} value=${pct} tone="accent" label="כמה מהרשימה שלי מוכן" />
+        ${shown.length
+          ? html`<ul class="mine-list">
+              ${shown.map((row) => {
+                const checked = isDone(row);
+                const cat = cats.get(row.item.category_id);
+                const sub = [row.meta, cat ? `${cat.emoji} ${cat.name}` : groupOf.get(row)].filter(Boolean).join(' · ');
+                return html`<li class=${cx('mine-row', checked && 'is-done')} key=${row.item.id}>
+                  <button
+                    type="button"
+                    class=${cx('check', busy(`done:${row.item.id}`) && 'is-busy')}
+                    role="checkbox"
+                    aria-checked=${checked ? 'true' : 'false'}
+                    aria-label=${row.item.title}
+                    onClick=${() => !busy(`done:${row.item.id}`) && onToggle({ ...row, done: checked })}
+                  ><${Icon} name="check" /></button>
+                  <span class="mine-row__main">
+                    <span class="mine-row__title">${row.item.title}</span>
+                    ${sub ? html`<span class="mine-row__sub">${sub}</span>` : null}
+                  </span>
+                  ${row.item.status === 'proposed' ? html`<${Pill} tone="warning">ממתין לאישור</${Pill}>` : null}
+                </li>`;
+              })}
+            </ul>`
+          : html`<p class="checklist__all">הכל מוכן אצלך 🎉</p>`}
+        <a class="home-card-link home-mine__all" href=${listHref}>לרשימה שלי${more > 0 ? ` (עוד ${more})` : ''} ‹</a>`
+      : html`<p class="muted small">עוד לא לקחת כלום — בוחרים משהו מ״עדיין חסר״ ✋</p>`}
   </${Card}>`;
 }
 
@@ -885,7 +1051,7 @@ function missingDetail(item, prog, heads) {
   return itemMeta(item, heads);
 }
 
-function StillMissing({ model, busy, onTake, onAdd }) {
+function StillMissing({ model, busy, onTake, onAdd, canImport = true }) {
   const { missing, ready, cats, members, pledgesByItem, heads, me, tripId } = model;
   const shown = missing.slice(0, MISSING_SHOWN);
   const more = missing.length - shown.length;
@@ -896,10 +1062,11 @@ function StillMissing({ model, busy, onTake, onAdd }) {
     body = html`<${EmptyState}
       emoji="📝"
       title="הרשימות עוד ריקות"
-      text="מדביקים רשימה מהוואטסאפ או מוסיפים פריט ראשון"
+      text="בונים רשימה קטגוריה אחרי קטגוריה, מדביקים מהוואטסאפ או מוסיפים פריט ראשון"
       action=${html`<div class="row row--center wrap">
         <${Button} size="sm" icon="➕" onClick=${onAdd}>הוספת פריט</${Button}>
-        <${Button} size="sm" variant="secondary" icon="📥" href=${href(`/t/${tripId}/import`)}>ייבוא מוואטסאפ</${Button}>
+        <${Button} size="sm" variant="secondary" icon="✨" href=${href(`/t/${tripId}/build`)}>בניית רשימה מהירה</${Button}>
+        ${canImport ? html`<${Button} size="sm" variant="secondary" icon="📥" href=${href(`/t/${tripId}/import`)}>ייבוא מוואטסאפ</${Button}>` : null}
       </div>`}
     />`;
   } else if (!missing.length) {
@@ -967,7 +1134,8 @@ function ItemSheet({ open, onClose, snap, isAdmin, tripId }) {
   const typeTouched = useRef(false);
   useLayoutEffect(() => {
     if (open) {
-      setF(blankItem());
+      const b = blankItem();
+      setF(itemTypeOn(snap.trip, b.type) ? b : { ...b, type: 'task' });   // "מי מביא מה" off: tasks only
       setError('');
       setSaving(false);
       typeTouched.current = false;
@@ -983,7 +1151,8 @@ function ItemSheet({ open, onClose, snap, isAdmin, tripId }) {
   const pickCategory = (cat) => {
     const next = f.category_id === cat.id ? null : cat.id;
     const patch = { category_id: next };
-    if (next && !typeTouched.current) patch.type = TYPE_BY_CATEGORY_EMOJI[cat.emoji] || 'buy';
+    const guess = TYPE_BY_CATEGORY_EMOJI[cat.emoji] || 'buy';
+    if (next && !typeTouched.current && itemTypeOn(snap.trip, guess)) patch.type = guess;
     set(patch);
   };
 
@@ -1048,7 +1217,7 @@ function ItemSheet({ open, onClose, snap, isAdmin, tripId }) {
       <${Field} label="סוג">
         <${Segmented}
           label="סוג הפריט"
-          options=${TYPE_OPTIONS}
+          options=${TYPE_OPTIONS.filter((o) => o.value === f.type || itemTypeOn(snap.trip, o.value))}
           value=${f.type}
           onChange=${(type) => {
             typeTouched.current = true;
@@ -1171,88 +1340,6 @@ function ExpenseSheet({ open, onClose, snap, me, tripId }) {
       <p class="qsheet__note">
         שילמת רק על חלק מהחבר'ה? <a href=${href(`/t/${tripId}/money`)} onClick=${onClose}>חלוקה מתקדמת במסך הכסף ←</a>
       </p>
-    </form>
-  </${Sheet}>`;
-}
-
-function AnnounceSheet({ open, onClose, snap, me, tripId }) {
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [mode, setMode] = useState('all');
-  const [audience, setAudience] = useState([]);
-  const [urgent, setUrgent] = useState(false);
-  const [when, setWhen] = useState('now');
-  const [errors, setErrors] = useState({});
-  const [saving, setSaving] = useState(false);
-  useLayoutEffect(() => {
-    if (open) {
-      setTitle('');
-      setBody('');
-      setMode('all');
-      setAudience([]);
-      setUrgent(false);
-      setWhen('now');
-      setErrors({});
-      setSaving(false);
-    }
-  }, [open]);
-  const others = (snap.members || []).filter((m) => m.id !== me?.id);
-
-  const submit = async (e) => {
-    e?.preventDefault();
-    if (saving) return;
-    const t = title.trim();
-    const errs = {};
-    if (!t) errs.title = 'מה הכותרת?';
-    if (mode === 'some' && !audience.length) errs.audience = 'בחרו לפחות חבר/ה אחד/ת';
-    setErrors(errs);
-    if (Object.keys(errs).length) {
-      focusInvalid('.home-announce-form');
-      return;
-    }
-    setSaving(true);
-    const res = await actions.run(
-      (api) => api.sendAnnouncement(tripId, { title: t, body: body.trim() || null, audience: mode === 'some' ? audience : null, urgent, digest: !urgent && when === 'digest' }),
-      { success: !urgent && when === 'digest' ? 'ההודעה באפליקציה עכשיו, ובמייל ובהתראה — בסיכום של 09:30 ☀️' : 'ההודעה נשלחה 📣' },
-    );
-    setSaving(false);
-    if (res !== undefined) onClose();
-  };
-
-  return html`<${Sheet}
-    open=${open}
-    onClose=${onClose}
-    title="הודעה לחבר'ה 📣"
-    footer=${html`<${Button} type="submit" form="home-announce-form" size="lg" variant=${urgent ? 'accent' : 'primary'} loading=${saving} icon="send">
-      ${urgent ? 'שליחה דחופה 🔴' : 'שליחה'}
-    </${Button}>`}
-  >
-    <form id="home-announce-form" class="qsheet home-announce-form" onSubmit=${submit} noValidate>
-      <${Field} label="כותרת" error=${errors.title}>
-        <${TextInput} value=${title} maxlength="80" placeholder="למשל: יוצאים ב-09:00 מהחניון 🚗" data-autofocus
-          onInput=${(e) => setTitle(e.target.value)} />
-      </${Field}>
-      <${Field} label="פרטים (לא חובה)">
-        <${TextArea} value=${body} maxlength="2000" rows=${3} placeholder="כל מה שחשוב לדעת" onInput=${(e) => setBody(e.target.value)} />
-      </${Field}>
-      <${Field} label="למי?" error=${errors.audience}>
-        <${Segmented}
-          label="קהל ההודעה"
-          options=${[{ value: 'all', label: '👥 לכולם' }, { value: 'some', label: '🎯 לבחור' }]}
-          value=${mode}
-          onChange=${setMode}
-        />
-      </${Field}>
-      ${mode === 'some'
-        ? html`<${MemberPicker} members=${others} value=${audience} onChange=${setAudience} multi label="למי לשלוח" />`
-        : null}
-      <${Toggle} checked=${urgent} onChange=${setUrgent} label="🔴 דחוף" hint="מודגש אצל כולם, עם רטט בטלפון" />
-      ${!urgent
-        ? html`<${Field} label="מתי להתריע?" hint=${when === 'digest' ? 'באפליקציה זה מופיע מיד; התראה ומייל — פעם ביום ב-09:30, מרוכז, בלי להציף' : 'התראה ומייל עכשיו'}>
-            <${Segmented} label="מתי להתריע" value=${when} onChange=${setWhen}
-              options=${[{ value: 'now', label: '⚡ עכשיו' }, { value: 'digest', label: '☀️ בסיכום היומי' }]} />
-          </${Field}>`
-        : null}
     </form>
   </${Sheet}>`;
 }

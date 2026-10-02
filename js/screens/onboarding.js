@@ -1,24 +1,27 @@
 // Onboarding (SPEC §8.1): landing / new trip / join ("מי אתם?") / link device.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, useStore } from '../store.js?v=65baf9b';
-import { navigate, href } from '../router.js?v=65baf9b';
-import { hebrewError, toApiError } from '../api/errors.js?v=65baf9b';
+import { actions, store, useStore } from '../store.js?v=56bbb9a';
+import { navigate, href } from '../router.js?v=56bbb9a';
+import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=56bbb9a';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
-} from '../lib/logic.js?v=65baf9b';
+} from '../lib/logic.js?v=56bbb9a';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
-  fireConfetti,
-} from '../ui/components.js?v=65baf9b';
-import { Icon } from '../ui/icons.js?v=65baf9b';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=65baf9b';
-import { Entry, cleanPhone } from '../ui/account.js?v=65baf9b';
-import { MODULES, TRIP_TYPES, tripSeed } from '../lib/templates.js?v=65baf9b';
+  confirmDialog, fireConfetti,
+} from '../ui/components.js?v=56bbb9a';
+import { Icon } from '../ui/icons.js?v=56bbb9a';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=56bbb9a';
+import { Entry, cleanPhone } from '../ui/account.js?v=56bbb9a';
+import {
+  AIRPORTS, FAMILIES, MODULES, composeType, tripSeed, typeModules, wizardCopy,
+} from '../lib/templates.js?v=56bbb9a';
+import { PlaceInput } from '../ui/place-input.js?v=56bbb9a';
+import { flightFit, hmOf } from '../lib/flights.js?v=56bbb9a';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];
-const TRIP_EMOJIS = ['✈️', '🥂', '🏡', '👨‍👩‍👧', '💼', '🥾', '⛺', '🏕️', '🔥', '🌲', '🏖️', '🌊', '⛰️', '🏜️', '🚐', '🎒', '🌄', '🛶', '🎉', '🌙'];
 const COLORS = ['#2F6B4F', '#F28C28', '#E4572E', '#3A86FF', '#8E44AD', '#16A085', '#D4A017', '#C0392B', '#2C3E50', '#FF6B9A'];
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const baseUrl = () => `${location.origin}${location.pathname}`;
@@ -26,7 +29,7 @@ const baseUrl = () => `${location.origin}${location.pathname}`;
 export default function OnboardingScreen({ route }) {
   switch (route.name) {
     case 'join':
-      return html`<${Entry} requireVerified><${Join} code=${route.params.code} switchMode=${route.query?.switch === '1'} /></${Entry}>`;
+      return html`<${Entry} requireVerified code=${route.params.code}><${Join} code=${route.params.code} switchMode=${route.query?.switch === '1'} /></${Entry}>`;
     case 'link':
       return html`<${LinkDevice} code=${route.params.code} />`;
     case 'new':
@@ -67,7 +70,7 @@ function addDays(date, n) {
   return dt.toISOString().slice(0, 10);
 }
 
-function dateRange(trip) {
+export function dateRange(trip) {
   if (!trip?.starts_at) return '';
   const opts = { weekday: 'short', day: 'numeric', month: 'numeric' };
   const start = formatDate(trip.starts_at, opts);
@@ -159,7 +162,7 @@ function Scene() {
   </svg>`;
 }
 
-function Hero({ compact, children }) {
+export function Hero({ compact, children }) {
   return html`<header class=${cx('onb-hero', compact && 'onb-hero--compact')}>
     <${Scene} />
     <div class="onb-hero__content">${children}</div>
@@ -178,7 +181,7 @@ function BackBar({ to = '/', label = 'חזרה', onClick }) {
 // Landing
 // ---------------------------------------------------------------------------
 
-function TripCard({ entry }) {
+export function TripCard({ entry }) {
   const { trip, member } = entry;
   const cd = trip.starts_at ? countdown(trip.starts_at, new Date(), trip.ends_at) : null;
   const meta = [dateRange(trip), trip.location].filter(Boolean).join(' · ');
@@ -197,7 +200,7 @@ function TripCard({ entry }) {
   </a>`;
 }
 
-function CodeEntry({ startOpen }) {
+export function CodeEntry({ startOpen }) {
   const [open, setOpen] = useState(!!startOpen);
   const [text, setText] = useState('');
   const [error, setError] = useState('');
@@ -256,11 +259,16 @@ function Intro() {
   </div>`;
 }
 
-function Landing({ openCode }) {
+/**
+ * The door (ux E6): two equal choices first, "קיבלתי הזמנה" and "אני מארגן/ת טיול", a text link to sign in, and only
+ * then what מדורה is.
+ */
+export function Landing({ openCode }) {
   const trips = useStore((s) => s.trips);
   const has = trips.length > 0;
+  const [code, setCode] = useState(!!openCode);
   return html`<div class="onb onb--landing">
-    <${Hero}>
+    <${Hero} compact=${!has}>
       <div class="onb-brand">
         <h1 class="onb-brand__name">מדורה</h1>
         <p class="onb-brand__tag">כל החבר'ה סביב המדורה</p>
@@ -272,12 +280,15 @@ function Landing({ openCode }) {
             <h2 class="onb__h" id="my-trips">הטיולים שלי <span class="onb__count num">${trips.length}</span></h2>
             ${trips.map((t) => html`<${TripCard} key=${t.trip.id} entry=${t} />`)}
           </section>`
-        : html`<${Intro} />`}
-      <div class="stack">
-        <${Button} variant="accent" size="lg" block icon="plus" href="#/new">צור טיול חדש</${Button}>
-        <${CodeEntry} startOpen=${openCode} />
-        <${Button} variant="ghost" block href="#/signin">🔑 כבר הצטרפתי ממכשיר אחר — התחברות עם המייל</${Button}>
+        : null}
+      <div class="stack" data-testid="landing-choices">
+        ${code
+          ? html`<${CodeEntry} startOpen />`
+          : html`<${Button} variant="secondary" size="lg" block onClick=${() => setCode(true)}>✉️ קיבלתי הזמנה</${Button}>`}
+        <${Button} variant="secondary" size="lg" block href="#/new">🔥 אני מארגן/ת טיול</${Button}>
+        <a class="link center" href="#/signin">🔑 כבר הצטרפתי ממכשיר אחר? התחברות עם המייל</a>
       </div>
+      ${has ? null : html`<${Intro} />`}
       <p class="onb__foot muted tiny center">עושים סדר בבלגן — כדי שיהיה זמן לשבת ליד המדורה 🌲</p>
     </div>
   </div>`;
@@ -295,6 +306,9 @@ function autoName(names) {
 }
 
 const MAX_PEOPLE = 8;
+/** The form's one action stays in reach while the page scrolls (ux W3/E3) — no css file of its own needed. */
+const STICKY = 'position:sticky;bottom:0;z-index:2;padding:10px 0 calc(10px + env(safe-area-inset-bottom, 0px));'
+  + 'margin-bottom:-10px;background:linear-gradient(to bottom, transparent, var(--bg) 14px)';
 
 /**
  * Profile: single or couple by default, "➕ עוד משתתף/ת" for 3+ (up to 8). For everyone but the
@@ -321,6 +335,7 @@ function ProfileForm({ initial, submitLabel, busy, onSubmit, children }) {
   const display = ((editName && custom.trim()) || auto).trim();
   const [emoji, setEmoji] = useState(init.emoji || pick(PROFILE_EMOJIS));
   const [color, setColor] = useState(init.color || pick(COLORS));
+  const [look, setLook] = useState(false); // emoji + colour come random; "שינוי מראה" opens the pickers (ux W3/E3)
   const [errors, setErrors] = useState({});
 
   const clear = (key) => errors[key] && setErrors({ ...errors, [key]: undefined });
@@ -357,16 +372,6 @@ function ProfileForm({ initial, submitLabel, busy, onSubmit, children }) {
 
   return html`<form class="profile-form stack-lg" onSubmit=${submit} noValidate>
     ${children}
-    <div class="profile-preview" aria-live="polite">
-      <${Avatar} member=${preview} size=${72} />
-      <div class="profile-preview__text">
-        <div class=${cx('profile-preview__name', !display && 'is-placeholder')}>${preview.display_name}</div>
-        <div class="profile-preview__meta">
-          <${Pill} tone="primary">${couple ? (headcount > 2 ? `👨‍👩‍👧 ${headcount} אנשים` : '👫 זוג · 2 אנשים') : '🧍 מגיע/ה לבד'}</${Pill}>
-        </div>
-      </div>
-    </div>
-
     <div class="kind-toggle" role="radiogroup" aria-label="מגיעים לבד או בזוג?">
       <button type="button" role="radio" aria-checked=${couple ? 'false' : 'true'} class="kind-opt" onClick=${() => resize(1)}>
         <span class="kind-opt__emoji" aria-hidden="true">🧍</span>
@@ -416,20 +421,34 @@ function ProfileForm({ initial, submitLabel, busy, onSubmit, children }) {
             }}
           />
         </${Field}>`
-      : html`<button type="button" class="link onb-rename" onClick=${() => {
-          setCustom(auto);
-          setEditName(true);
-        }}>✏️ רוצים שם תצוגה אחר?</button>`}
+      : couple
+        ? html`<button type="button" class="link onb-rename" onClick=${() => {
+            setCustom(auto);
+            setEditName(true);
+          }}>✏️ רוצים שם תצוגה אחר?</button>`
+        : null}
 
-    <${Field} label="האימוג׳י שלכם">
-      <${EmojiPicker} value=${emoji} onChange=${setEmoji} label="האימוג׳י שלכם" />
-    </${Field}>
+    <div class="profile-preview" aria-live="polite">
+      <${Avatar} member=${preview} size=${44} />
+      <div class="profile-preview__text">
+        <div class=${cx('profile-preview__name', !display && 'is-placeholder')}>${preview.display_name}</div>
+        <button type="button" class="link small" aria-expanded=${look ? 'true' : 'false'} onClick=${() => setLook(!look)}>
+          🎨 ${look ? 'סגירת המראה' : 'שינוי מראה (אימוג׳י וצבע)'}
+        </button>
+      </div>
+    </div>
+    ${look
+      ? html`<${Field} label="האימוג׳י שלכם">
+          <${EmojiPicker} value=${emoji} onChange=${setEmoji} label="האימוג׳י שלכם" />
+        </${Field}>
+        <${Field} label="הצבע שלכם">
+          <${ColorPicker} value=${color} onChange=${setColor} label="הצבע שלכם" />
+        </${Field}>`
+      : null}
 
-    <${Field} label="הצבע שלכם">
-      <${ColorPicker} value=${color} onChange=${setColor} label="הצבע שלכם" />
-    </${Field}>
-
-    <${Button} type="submit" variant="accent" size="lg" block loading=${busy}>${submitLabel}</${Button}>
+    <div class="profile-form__submit" style=${STICKY}>
+      <${Button} type="submit" variant="accent" size="lg" block loading=${busy}>${submitLabel}</${Button}>
+    </div>
   </form>`;
 }
 // ---------------------------------------------------------------------------
@@ -449,19 +468,6 @@ function StepDots({ step, labels }) {
   </ol>`;
 }
 
-function TripTicket({ trip }) {
-  const when = trip.startDate
-    ? dateRange({ starts_at: jerusalemIso(trip.startDate, trip.startTime), ends_at: jerusalemIso(trip.endDate, trip.endTime) })
-    : 'מתי? עוד נחליט 🙂';
-  return html`<div class="ticket" aria-hidden="true">
-    <span class="ticket__emoji">${trip.emoji}</span>
-    <span class="ticket__main">
-      <span class="ticket__name">${trip.name.trim() || 'הטיול שלכם'}</span>
-      <span class="ticket__meta">${[when, trip.location.trim()].filter(Boolean).join(' · ')}</span>
-    </span>
-  </div>`;
-}
-
 function InviteStep({ tripId }) {
   const snap = useStore((s) => (s.tripId === tripId ? s.snap : null));
   const trip = snap?.trip;
@@ -476,79 +482,484 @@ function InviteStep({ tripId }) {
       <h2 class="h1">הטיול מוכן!</h2>
       <p class="muted">עכשיו מזמינים את החבר'ה — שלחו להם את הקישור בקבוצת הוואטסאפ, וכל אחד יבחר את הפרופיל שלו.</p>
     </div>
-    <div class="card invite-card">
+    <div class="card invite-card" data-invite=${url}>
       <div class="invite-card__head">
         <span class="kbd-emoji" aria-hidden="true">${trip.emoji || '⛺'}</span>
         <div class="invite-card__title">
           <strong>${trip.name}</strong>
-          <span class="muted small">קישור ההזמנה</span>
+          <span class="muted small">קישור ההזמנה מוכן</span>
         </div>
       </div>
-      <div class="invite-card__link" dir="ltr"><bdi>${url}</bdi></div>
       <div class="stack-sm">
         <${ShareButton} text=${text} label="שלחו הזמנה בוואטסאפ" size="lg" block />
-        <${CopyButton} text=${url} label="העתקת הקישור" block />
+        <${CopyButton} text=${url} label="העתקת הקישור" variant="ghost" block />
       </div>
     </div>
     <p class="muted small invite-step__tip">💡 טיפ: אפשר להוסיף מראש פרופילים לחברים במסך חבר'ה — ככה הם רק לוחצים "זה אנחנו!"</p>
-    <${Button} size="lg" block icon="arrow-left" onClick=${() => navigate(`/t/${trip.id}`)}>יאללה, לטיול</${Button}>
+    <${Button} variant="ghost" size="lg" block icon="arrow-left" onClick=${() => navigate(`/t/${trip.id}`)}>יאללה, לטיול</${Button}>
   </div>`;
 }
 
+/** "מה יש בטיול?" — the type's features, each on/off; what's on comes ready and is followed up. */
+function FeaturePicker({ type, modules, onChange }) {
+  // what shows up ready (a feature that's off keeps its part hidden until it's switched on)
+  const shared = modules.lists ? type.items.filter((x) => x.k !== 'task').length : 0;
+  const tasks = modules.tasks ? type.items.filter((x) => x.k === 'task').length : 0;
+  const ready = [
+    shared ? hebrewCount(shared, 'פריט ברשימות', 'פריטים ברשימות') : null,
+    tasks ? hebrewCount(tasks, 'משימה', 'משימות') : null,
+    modules.packing ? `רשימת אריזה (${type.packing.length})` : null,
+    modules.schedule ? 'לו״ז בלחיצה' : null,
+  ].filter(Boolean);
+  return html`<div class="features" data-testid="type-gets">
+    <h3 class="features__title">מה יש בטיול? <span class="muted small">— לחיצה מדליקה / מכבה</span></h3>
+    <div class="features__grid" role="group" aria-label="מה יש בטיול">
+      ${MODULES.map((m) => html`<button type="button" key=${m.key} data-module=${m.key} aria-pressed=${modules[m.key] ? 'true' : 'false'}
+        class=${cx('feature', modules[m.key] && 'is-on')} onClick=${() => onChange({ ...modules, [m.key]: !modules[m.key] })}>
+        <span class="feature__emoji" aria-hidden="true">${m.emoji}</span>
+        <span class="feature__text"><b>${m.label}</b><span>${m.hint}</span></span>
+        <span class="feature__check" aria-hidden="true">${modules[m.key] ? '✓' : ''}</span>
+      </button>`)}
+    </div>
+    <p class="features__note muted small">
+      ${ready.length ? html`מקבלים מוכן: ${ready.join(' · ')}. ` : null}
+      🔔 על מה שדלוק נזכיר למי שעוד לא מילא — ותראו מי חסר. אפשר לשנות הכל אחר כך.
+    </p>
+  </div>`;
+}
+
+/** Short names for the one-line "בטיול הזה: …" (ux W1). */
+const MODULE_SHORT = {
+  rides: 'הסעות', money: 'כסף', lists: 'רשימות', packing: 'אריזה', tasks: 'משימות', polls: 'סקרים', schedule: 'לו״ז',
+  rooms: 'חדרים', bookings: 'הזמנות',
+};
+const CUSTOM_EMOJIS = ['⛳', '🎭', '🏄', '🚴', '🎿', '🧘', '🎣', '🍷', '🎤', '📸', '🏝️', '🚤'];
+const FLIGHT_RE = /^[A-Z0-9]{2}[0-9]{1,4}[A-Z]?$/;
+const normFlight = (s) => String(s || '').toUpperCase().replace(/[\s-]/g, '');
+
+/** Default hours for a type's step 2: abroad — none (they come from the flight); one evening; one work day. */
+function defaultTimes(copy, composed) {
+  if (!copy) return ['09:00', '12:00'];
+  if (copy.hoursOptional) return ['', ''];
+  if (copy.dates === 'single') return composed.family === 'work' ? ['09:00', '17:00'] : ['19:00', '23:00'];
+  return ['09:00', '12:00'];
+}
+
+/** {starts_at, ends_at} of the wizard's dates (Israel time). One day: "until" before "from" ⇒ past midnight. */
+function tripRange(trip, single) {
+  if (!trip.startDate) return { starts_at: null, ends_at: null };
+  if (single) {
+    const starts = jerusalemIso(trip.startDate, trip.startTime || '00:00');
+    if (!trip.endTime) return { starts_at: starts, ends_at: null };
+    const endDay = trip.startTime && trip.endTime <= trip.startTime ? addDays(trip.startDate, 1) : trip.startDate;
+    return { starts_at: starts, ends_at: jerusalemIso(endDay, trip.endTime) };
+  }
+  return {
+    starts_at: jerusalemIso(trip.startDate, trip.startTime || '00:00'),
+    ends_at: trip.endDate ? jerusalemIso(trip.endDate, trip.endTime || '23:59') : null,
+  };
+}
+
+/** The group's flights typed in step 2 → info.bookings rows (details filled after the trip exists). */
+function flightBookings(trip) {
+  const legs = [
+    ['out', normFlight(trip.flightOut), trip.startDate, trip.startTime],
+    ['back', normFlight(trip.flightBack), trip.endDate || trip.startDate, trip.endTime],
+  ];
+  return legs.filter(([, n, d]) => n && d).map(([leg, flight, date, time]) => ({
+    kind: 'flight', leg, flight, date, at: time ? `${date}T${time}` : date,
+  }));
+}
+
+/** A found flight (design §4.3) on top of its booking row. Wall clocks at each airport, never converted. */
+function withFlight(b, f) {
+  const wallOf = (iso) => (typeof iso === 'string' && iso.length >= 16 ? iso.slice(0, 16) : null);
+  const at = wallOf(f.dep?.sched);
+  const arr = wallOf(f.arr?.sched);
+  return {
+    ...b,
+    ...(f.airline?.name ? { airline: f.airline.name } : {}),
+    ...(at ? { at, date: at.slice(0, 10) } : {}),
+    ...(arr ? { arr_at: arr } : {}),
+    ...(f.dep?.iata ? { from: f.dep.iata, from_iata: f.dep.iata } : {}),
+    ...(f.arr?.iata ? { to: f.arr.iata, to_iata: f.arr.iata } : {}),
+    ...(f.dep?.terminal ? { terminal: String(f.dep.terminal) } : {}),
+  };
+}
+
+/**
+ * After create: look the typed flights up (the `flight` function needs a member of the trip) and fill the
+ * bookings; hours left empty take the flights' times; an empty "לאן" takes the out flight's city.
+ * Never fatal — a flight that isn't found stays as typed (the admin fixes it on the trip screen).
+ */
+async function fillFlights(tripId, trip, bookings) {
+  const api = store.get().api;
+  if (!api?.lookupFlight || !bookings.length) return;
+  const found = {};
+  const next = [];
+  for (const b of bookings) {
+    let r = null;
+    try {
+      r = await api.lookupFlight(tripId, b.flight, b.date);
+    } catch {
+      r = { ok: false, error: 'upstream' };
+    }
+    if (r?.ok && r.flight) {
+      found[b.leg] = r.flight;
+      next.push(withFlight(b, r.flight));
+    } else {
+      next.push(b);
+      actions.toast(`✈️ ${b.flight}: ${r?.message || flightErrorText(r?.error)}`, 'warning', 5200);
+    }
+  }
+  if (!Object.keys(found).length) return;
+  const patch = { info: { bookings: next } };
+  const toIso = (s) => {
+    const t = Date.parse(s || '');
+    return Number.isFinite(t) ? new Date(t).toISOString() : null;
+  };
+  // a flying trip starts when its flight takes off: the found flight's hour wins over a typed guess (and says so)
+  if (found.out) {
+    patch.starts_at = toIso(found.out.dep?.sched);
+    const real = hmOf(found.out.dep?.sched);
+    if (patch.starts_at && trip.startTime && real && real !== trip.startTime) {
+      actions.toast(`✈️ ${found.out.number || 'הטיסה'} ממריאה ב-${real} — שעת היציאה עודכנה לפי הטיסה`, 'info', 5200);
+    }
+  }
+  if (found.back) patch.ends_at = toIso(found.back.arr?.best || found.back.arr?.sched);
+  // … and a flight that lands far from where the trip is, is probably the wrong number
+  const where = { lat: trip.place?.lat, lon: trip.place?.lon, location: trip.place?.name || trip.location.trim() };
+  for (const w of found.out ? flightFit({ flight: found.out, trip: where, leg: 'out' }) : []) {
+    actions.toast(`⚠️ ${w.text} — אפשר לתקן במסך הטיול`, 'warning', 6400);
+  }
+  if (!(trip.place?.name || trip.location.trim()) && found.out?.arr?.city) patch.location = found.out.arr.city;
+  for (const k of ['starts_at', 'ends_at']) if (patch[k] === null) delete patch[k];
+  try {
+    await api.updateTrip(tripId, patch);
+  } catch {
+    /* the flights are a nicety — the trip is already there */
+  }
+}
+
+/** Step 1: family → sub-type (→ בארץ / בחו״ל, custom name) + the collapsed features. */
+function TypeStep({ trip, composed, errors, onFamily, onSubtype, onWhere, onCustom, onModules, onNext }) {
+  const family = FAMILIES.find((f) => f.key === trip.family) || null;
+  const sub = family?.subtypes.find((x) => x.key === trip.subtype) || null;
+  const modules = trip.modules || (composed ? typeModules(composed.family, composed.subtype, composed.where) : null);
+  const onCount = modules ? MODULES.filter((m) => modules[m.key]).length : 0;
+  return html`<form class="stack-lg" onSubmit=${onNext} noValidate>
+    <div class="onb-flow__title">
+      <h1>טיול חדש 🔥</h1>
+      <p class="muted">בוחרים סוג — ומקבלים רשימות, לו״ז ואריזה מוכנים. אפשר לשנות הכל אחר כך.</p>
+    </div>
+    <section class="trip-types" aria-labelledby="trip-type-h">
+      <h2 class="field__label" id="trip-type-h">איזה טיול?</h2>
+      <div class="trip-types__grid" role="radiogroup" aria-label="סוג הטיול">
+        ${FAMILIES.map((f) => html`<button type="button" role="radio" key=${f.key} aria-checked=${trip.family === f.key ? 'true' : 'false'}
+          class=${cx('trip-type', trip.family === f.key && 'is-on')} onClick=${() => onFamily(f)} data-type=${f.key}>
+          <span class="trip-type__emoji" aria-hidden="true">${f.emoji}</span>
+          <span class="trip-type__label">${f.label}</span>
+          <span class="trip-type__hint">${f.hint}</span>
+        </button>`)}
+      </div>
+      ${errors.type ? html`<p class="field__error" role="alert">${errors.type}</p>` : null}
+    </section>
+
+    ${family
+      ? html`<section class="nt-more" key=${family.key}>
+          <h2 class="nt-sep"><span>ואיזה סוג?</span></h2>
+          <div class="nt-subs" role="radiogroup" aria-label="איזה סוג">
+            ${family.subtypes.map((x) => html`<button type="button" role="radio" key=${x.key} data-subtype=${x.key}
+              aria-checked=${trip.subtype === x.key ? 'true' : 'false'} title=${x.hint || undefined}
+              class=${cx('nt-sub', trip.subtype === x.key && 'is-on')} onClick=${() => onSubtype(x)}>
+              <span aria-hidden="true">${x.emoji}</span> ${x.label}
+            </button>`)}
+          </div>
+          ${sub?.hint ? html`<p class="muted small nt-sub-hint">${sub.hint}</p>` : null}
+
+          ${sub?.where === 'ask'
+            ? html`<div class="nt-where">
+                <h2 class="nt-sep"><span>איפה?</span></h2>
+                <div class="nt-where__opts" role="radiogroup" aria-label="איפה">
+                  ${[['il', '🇮🇱 בארץ'], ['abroad', '✈️ בחו״ל']].map(([k, label]) => html`<button type="button" role="radio" key=${k}
+                    data-where=${k} aria-checked=${trip.where === k ? 'true' : 'false'}
+                    class=${cx('nt-where__opt', trip.where === k && 'is-on')} onClick=${() => onWhere(k)}>${label}</button>`)}
+                </div>
+              </div>`
+            : null}
+
+          ${trip.subtype === 'custom'
+            ? html`<div class="nt-custom stack">
+                <${Field} label="איך תקראו לזה?" error=${errors.customLabel}>
+                  <${TextInput} value=${trip.customLabel} maxlength="30" placeholder="למשל: סופ״ש גולף"
+                    onInput=${(e) => onCustom({ customLabel: e.target.value })} />
+                </${Field}>
+                <${Field} label="ואימוג׳י">
+                  <${EmojiPicker} value=${trip.customEmoji} options=${CUSTOM_EMOJIS} label="אימוג׳י לסוג"
+                    onChange=${(v) => onCustom({ customEmoji: v })} />
+                </${Field}>
+              </div>`
+            : null}
+
+          ${composed && modules
+            ? html`<details class="nt-fold" data-testid="features-fold">
+                <summary>
+                  <span>בטיול הזה: <span class="nt-fold__count">${onCount
+                    ? MODULES.filter((m) => modules[m.key]).map((m) => MODULE_SHORT[m.key] || m.label).join(' · ')
+                    : 'בלי תוספות'}</span></span>
+                  <span class="link small nt-fold__change">שינוי</span>
+                </summary>
+                <${FeaturePicker} type=${composed} modules=${modules} onChange=${onModules} />
+              </details>`
+            : null}
+        </section>`
+      : null}
+
+    <${Button} type="submit" size="lg" block icon="arrow-left">המשך</${Button}>
+  </form>`;
+}
+
+/** Step 2: name, place, dates — every word by the type (wizardCopy); abroad: airport + optional flights. */
+function DetailsStep({ trip, composed, copy, single, errors, set, setPatch, onNext, onBack }) {
+  const airports = AIRPORTS || [];
+  const otherAirport = !airports.some((a) => a.iata === trip.airport);
+  const hourLabel = (l) => (copy.hoursOptional ? `${l} (לא חובה)` : l);
+  return html`<form class="stack-lg" onSubmit=${onNext} noValidate>
+    <div class="onb-flow__title">
+      <h1>פרטים קטנים ✍️</h1>
+      <p class="muted">
+        <button type="button" class="nt-kind" onClick=${onBack} aria-label=${`${composed.label} — לשנות סוג`}>
+          <span aria-hidden="true" class="nt-kind__emoji">${trip.emoji || composed.emoji}</span> ${composed.label}${composed.where === 'abroad' ? ' · ✈️ בחו״ל' : ''}
+          <span class="nt-kind__edit">שינוי</span>
+        </button>
+      </p>
+    </div>
+    <${Field} label="איך קוראים לטיול?" error=${errors.name}>
+      <${TextInput} value=${trip.name} maxlength="60" placeholder=${copy.namePlaceholder || 'למשל: טיול לפארק החבשושיות'}
+        onInput=${(e) => set('name', e.target.value)} />
+    </${Field}>
+    <${PlaceInput} label=${copy.placeLabel} where=${copy.placeWhere} placeholder=${copy.placePlaceholder} testid="trip-place" maxlength=${120}
+      value=${trip.place} text=${trip.location} hint=${copy.placeWhere === 'il' ? 'בוחרים מהרשימה — בשביל ניווט ותחזית' : undefined}
+      onChange=${(place, text) => setPatch({ place, location: text ?? '' })} />
+
+    ${single
+      ? html`<div class="stack">
+          <${Field} label=${copy.startLabel} error=${errors.startDate}>
+            <${TextInput} type="date" value=${trip.startDate} onInput=${(e) => set('startDate', e.target.value)} />
+          </${Field}>
+          <div class="date-pair date-pair--even">
+            <${Field} label=${copy.startHourLabel}>
+              <${TextInput} type="time" value=${trip.startTime} onInput=${(e) => set('startTime', e.target.value)} />
+            </${Field}>
+            <${Field} label=${copy.endHourLabel}>
+              <${TextInput} type="time" value=${trip.endTime} onInput=${(e) => set('endTime', e.target.value)} />
+            </${Field}>
+          </div>
+          ${copy.moreDaysLabel
+            ? html`<button type="button" class="link nt-days" onClick=${() => setPatch({ multiDay: true, endDate: trip.endDate || (trip.startDate ? addDays(trip.startDate, 1) : '') })}>📅 ${copy.moreDaysLabel}</button>`
+            : null}
+        </div>`
+      : html`<div class="stack">
+          <div class="date-pair">
+            <${Field} label=${copy.dates === 'single' ? 'מתחילים' : copy.startLabel} error=${errors.startDate}>
+              <${TextInput} type="date" value=${trip.startDate} onInput=${(e) => set('startDate', e.target.value)} />
+            </${Field}>
+            <${Field} label=${hourLabel(copy.startHourLabel === 'משעה' ? 'בשעה' : copy.startHourLabel)}>
+              <${TextInput} type="time" value=${trip.startTime} onInput=${(e) => set('startTime', e.target.value)} />
+            </${Field}>
+          </div>
+          <div class="date-pair">
+            <${Field} label=${copy.dates === 'single' ? 'מסיימים' : copy.endLabel} error=${errors.endDate}>
+              <${TextInput} type="date" value=${trip.endDate} min=${trip.startDate || undefined} onInput=${(e) => set('endDate', e.target.value)} />
+            </${Field}>
+            <${Field} label=${hourLabel(copy.endHourLabel === 'עד שעה' ? 'בשעה' : copy.endHourLabel)}>
+              <${TextInput} type="time" value=${trip.endTime} onInput=${(e) => set('endTime', e.target.value)} />
+            </${Field}>
+          </div>
+          ${copy.dates === 'single'
+            ? html`<button type="button" class="link nt-days" onClick=${() => setPatch({ multiDay: false })}>📅 רק יום אחד</button>`
+            : null}
+        </div>`}
+
+    ${copy.askAirport
+      ? html`<div class="nt-airport" data-testid="nt-airport">
+          <p class="field__label" id="nt-airport-h">${copy.airportLabel}</p>
+          <div class="nt-chips" role="radiogroup" aria-labelledby="nt-airport-h">
+            ${airports.map((a) => html`<button type="button" role="radio" key=${a.iata} data-airport=${a.iata}
+              aria-checked=${trip.airport === a.iata ? 'true' : 'false'} class=${cx('chip', trip.airport === a.iata && 'is-active')}
+              onClick=${() => setPatch({ airport: a.iata })}>${a.label} <bdi class="nt-iata">${a.iata}</bdi></button>`)}
+            <button type="button" role="radio" data-airport="other" aria-checked=${otherAirport ? 'true' : 'false'}
+              class=${cx('chip', otherAirport && 'is-active')} onClick=${() => !otherAirport && setPatch({ airport: '' })}>שדה אחר</button>
+          </div>
+          ${otherAirport
+            ? html`<${Field} label="קוד השדה (3 אותיות)" error=${errors.airport}>
+                <${TextInput} dir="ltr" value=${trip.airport} maxlength="3" placeholder="ETM" autocapitalize="characters"
+                  onInput=${(e) => set('airport', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} />
+              </${Field}>`
+            : null}
+        </div>`
+      : null}
+
+    ${copy.askFlight
+      ? html`<details class="nt-fold nt-flights" data-testid="nt-flights" open=${Boolean(trip.flightOut || trip.flightBack || errors.flightOut || errors.flightBack)}>
+          <summary><span aria-hidden="true">🛫</span> ${copy.flightLabel}</summary>
+          <div class="stack nt-fold__body">
+            <div class="date-pair date-pair--even">
+              <${Field} label="טיסת הלוך" error=${errors.flightOut}>
+                <${TextInput} dir="ltr" value=${trip.flightOut} maxlength="10" placeholder="LY315" autocapitalize="characters"
+                  onInput=${(e) => set('flightOut', e.target.value)} />
+              </${Field}>
+              <${Field} label="טיסת חזור" error=${errors.flightBack}>
+                <${TextInput} dir="ltr" value=${trip.flightBack} maxlength="10" placeholder="LY316" autocapitalize="characters"
+                  onInput=${(e) => set('flightBack', e.target.value)} />
+              </${Field}>
+            </div>
+            <p class="muted small">אחרי שהטיול נוצר נמלא לבד חברה, שעות וטרמינל — ונעדכן אם משהו משתנה. אפשר גם לערוך.</p>
+          </div>
+        </details>`
+      : null}
+
+    <${Button} type="submit" size="lg" block icon="arrow-left">המשך</${Button}>
+  </form>`;
+}
+
+const EMPTY_TRIP = {
+  family: '', subtype: '', where: 'il', customLabel: '', customEmoji: '', modules: null,
+  name: '', emoji: '⛺', location: '', place: null,
+  startDate: '', startTime: '09:00', endDate: '', endTime: '12:00', timesTouched: false, multiDay: false,
+  airport: 'TLV', flightOut: '', flightBack: '',
+};
+
 function NewTrip() {
   const [step, setStep] = useState(1);
-  const [trip, setTrip] = useState({ type: '', name: '', emoji: '⛺', location: '', startDate: '', startTime: '09:00', endDate: '', endTime: '12:00' });
-  const type = TRIP_TYPES.find((x) => x.key === trip.type) || null;
-  const pickType = (x) => {
-    setTrip((t) => ({ ...t, type: x.key, emoji: x.emoji }));
-    if (errors.type) setErrors({ ...errors, type: undefined });
-  };
+  const [trip, setTrip] = useState(EMPTY_TRIP);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [createdId, setCreatedId] = useState(null);
 
+  const custom = trip.subtype === 'custom' ? { label: trip.customLabel.trim(), emoji: trip.customEmoji || null } : null;
+  const composed = trip.family ? composeType(trip.family, trip.subtype, trip.where, custom) : null;
+  const copy = composed ? wizardCopy(composed) : null;
+  const single = copy?.dates === 'single' && !trip.multiDay;
+
+  const clearErr = (...keys) => {
+    if (keys.some((k) => errors[k])) setErrors((e) => ({ ...e, ...Object.fromEntries(keys.map((k) => [k, undefined])) }));
+  };
+
+  /** A new family / sub-type / where re-seeds the features (and the hours, while untouched). */
+  const retype = (t, patch) => {
+    const n = { ...t, ...patch };
+    const c = composeType(n.family, n.subtype, n.where, null);
+    n.where = c.where;
+    n.modules = typeModules(n.family, n.subtype, n.where);
+    if (!t.timesTouched) [n.startTime, n.endTime] = defaultTimes(wizardCopy(c), c);
+    return n;
+  };
+  const pickFamily = (f) => {
+    if (trip.family === f.key) return;
+    const s = f.subtypes[0];
+    setTrip((t) => retype(t, { family: f.key, subtype: s.key, where: f.where === 'abroad' ? 'abroad' : 'il', multiDay: false, emoji: s.key === 'custom' ? f.emoji : s.emoji }));
+    clearErr('type', 'customLabel');
+  };
+  const pickSubtype = (s) => {
+    if (trip.subtype === s.key) return;
+    setTrip((t) => retype(t, { subtype: s.key, emoji: s.key === 'custom' ? t.customEmoji || FAMILIES.find((f) => f.key === t.family)?.emoji || t.emoji : s.emoji }));
+    clearErr('customLabel');
+  };
+  const pickWhere = (w) => {
+    if (trip.where === w) return;
+    setTrip((t) => retype(t, { where: w, place: null }));
+  };
+  const setCustom = (patch) => {
+    setTrip((t) => ({ ...t, ...patch, ...(patch.customEmoji ? { emoji: patch.customEmoji } : {}) }));
+    if (patch.customLabel !== undefined) clearErr('customLabel');
+  };
+
   const set = (key, value) => {
     setTrip((t) => {
       const next = { ...t, [key]: value };
-      if (key === 'startDate' && value && (!t.endDate || t.endDate < value)) next.endDate = addDays(value, 1);
+      if (key === 'startDate' && value && !single && (!t.endDate || t.endDate < value)) next.endDate = addDays(value, 1);
+      if (key === 'startTime' || key === 'endTime') next.timesTouched = true;
       return next;
     });
-    if (errors[key]) setErrors({ ...errors, [key]: undefined });
+    clearErr(key);
+  };
+  const setPatch = (patch) => {
+    setTrip((t) => ({ ...t, ...patch }));
+    clearErr(...Object.keys(patch));
   };
 
-  const next = (e) => {
-    e.preventDefault();
-    const errs = {};
-    const name = trip.name.trim();
-    if (!trip.type) errs.type = 'איזה טיול? בחרו אחד — אפשר לשנות הכל אחר כך';
-    if (!name) errs.name = 'איך נקרא לטיול? 🙂';
-    else if (name.length > 60) errs.name = 'עד 60 תווים';
-    if (trip.endDate && !trip.startDate) errs.startDate = 'מתי יוצאים?';
-    if (trip.startDate && trip.endDate) {
-      const s = jerusalemIso(trip.startDate, trip.startTime);
-      const en = jerusalemIso(trip.endDate, trip.endTime);
-      if (en < s) errs.endDate = 'החזרה לפני היציאה? 🙃';
-    }
+  const fail = (errs) => {
     setErrors(errs);
     if (Object.values(errs).some(Boolean)) {
       focusFirstInvalid();
-      return;
+      return true;
     }
-    setStep(2);
+    return false;
+  };
+  const go = (n) => {
+    setStep(n);
     window.scrollTo(0, 0);
+  };
+
+  const nextFromType = (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!trip.family) errs.type = 'איזה טיול? בחרו אחד — אפשר לשנות הכל אחר כך';
+    if (trip.subtype === 'custom') {
+      const n = [...trip.customLabel.trim()].length;
+      if (!n) errs.customLabel = 'איך תקראו לזה? 🙂';
+      else if (n > 30) errs.customLabel = 'עד 30 תווים';
+    }
+    if (fail(errs)) return;
+    go(2);
+  };
+
+  const nextFromDetails = (e) => {
+    e.preventDefault();
+    const errs = {};
+    const name = trip.name.trim();
+    if (!name) errs.name = 'איך נקרא לטיול? 🙂';
+    else if ([...name].length > 60) errs.name = 'עד 60 תווים';
+    if (!single) {
+      if (trip.endDate && !trip.startDate) errs.startDate = composed.where === 'abroad' ? 'מתי טסים?' : 'מתי יוצאים?';
+      if (trip.startDate && trip.endDate) {
+        const r = tripRange(trip, false);
+        if (r.ends_at < r.starts_at) errs.endDate = 'החזרה לפני היציאה? 🙃';
+      }
+    }
+    if (copy.askAirport && !/^[A-Z]{3}$/.test(trip.airport)) errs.airport = '3 אותיות באנגלית, למשל ETM';
+    if (copy.askFlight) {
+      const out = normFlight(trip.flightOut);
+      const back = normFlight(trip.flightBack);
+      if (out && !FLIGHT_RE.test(out)) errs.flightOut = 'מספר טיסה כמו LY315';
+      else if (out && !trip.startDate) errs.flightOut = 'צריך תאריך טיסה (למעלה) כדי למצוא אותה';
+      if (back && !FLIGHT_RE.test(back)) errs.flightBack = 'מספר טיסה כמו LY316';
+      else if (back && !(trip.endDate || trip.startDate)) errs.flightBack = 'צריך תאריך חזרה (למעלה) כדי למצוא אותה';
+    }
+    if (fail(errs)) return;
+    go(3);
   };
 
   const create = async (profile) => {
     setBusy(true);
-    const seed = tripSeed(trip.type);
+    const seed = tripSeed({
+      family: trip.family, subtype: trip.subtype, where: trip.where, custom, modules: trip.modules,
+      airport: copy.askAirport ? trip.airport : undefined,
+    });
+    const range = tripRange(trip, single);
+    const bookings = copy.askFlight ? flightBookings(trip) : [];
+    const place = trip.place;
     const payload = {
       name: trip.name.trim(),
       emoji: trip.emoji,
-      location: trip.location.trim() || null,
-      starts_at: jerusalemIso(trip.startDate, trip.startTime),
-      ends_at: jerusalemIso(trip.endDate, trip.endTime),
+      location: (place?.name || trip.location).trim() || null,
+      ...(place && Number.isFinite(place.lat) && Number.isFinite(place.lon) ? { lat: place.lat, lon: place.lon } : {}),
+      ...(place?.address ? { address: String(place.address).slice(0, 200) } : {}),
+      starts_at: range.starts_at,
+      ends_at: range.ends_at,
       settings: seed.settings,
-      info: seed.info,
+      info: bookings.length ? { ...seed.info, bookings } : seed.info,
       categories: seed.categories,
     };
     const res = await actions.run((api) => api.createTrip(payload, profile), { refresh: false });
@@ -561,99 +972,46 @@ function NewTrip() {
       await actions.run(async (api) => { await api.addItemsBulk(res.trip_id, seed.items); return true; }, { refresh: false })
         .catch(() => null);
     }
+    if (bookings.length) await fillFlights(res.trip_id, trip, bookings);
     await actions.loadTrips();
     await actions.openTrip(res.trip_id, { force: true });
     setBusy(false);
     setCreatedId(res.trip_id);
-    setStep(3);
-    window.scrollTo(0, 0);
+    go(4);
     fireConfetti();
   };
 
-  return html`<div class="onb onb--flow">
+  return html`<div class="onb onb--flow onb--newtrip" data-step=${step}>
     <div class="onb-flow__top">
       ${step === 1 ? html`<${BackBar} to="/" label="חזרה למסך הראשי" />` : null}
-      ${step === 2 ? html`<${BackBar} label="חזרה לפרטי הטיול" onClick=${() => setStep(1)} />` : null}
-      <${StepDots} step=${step} labels=${['הטיול', 'הפרופיל שלך', 'הזמנה']} />
+      ${step === 2 ? html`<${BackBar} label="חזרה לסוג הטיול" onClick=${() => go(1)} />` : null}
+      ${step === 3 ? html`<${BackBar} label="חזרה לפרטי הטיול" onClick=${() => go(2)} />` : null}
+      <${StepDots} step=${step} labels=${['סוג', 'פרטים', 'הפרופיל שלך', 'הזמנה']} />
     </div>
     <div class="onb__body">
     ${step === 1
-      ? html`<form class="stack-lg" onSubmit=${next} noValidate>
-          <div class="onb-flow__title">
-            <h1>טיול חדש ⛺</h1>
-            <p class="muted">כמה פרטים קטנים וממשיכים. אפשר לשנות הכל אחר כך.</p>
-          </div>
-          <section class="trip-types" aria-labelledby="trip-type-h">
-            <h2 class="field__label" id="trip-type-h">איזה טיול?</h2>
-            <div class="trip-types__grid" role="radiogroup" aria-label="סוג הטיול">
-              ${TRIP_TYPES.map((x) => html`<button type="button" role="radio" key=${x.key} aria-checked=${trip.type === x.key ? 'true' : 'false'}
-                class=${cx('trip-type', trip.type === x.key && 'is-on')} onClick=${() => pickType(x)} data-type=${x.key}>
-                <span class="trip-type__emoji" aria-hidden="true">${x.emoji}</span>
-                <span class="trip-type__label">${x.label}</span>
-                <span class="trip-type__hint">${x.hint}</span>
-              </button>`)}
-            </div>
-            ${errors.type ? html`<p class="field__error" role="alert">${errors.type}</p>` : null}
-            ${type
-              ? html`<p class="trip-types__gets" data-testid="type-gets">
-                  מקבלים מוכן: ${hebrewCount(type.items.length, 'פריט ברשימות', 'פריטים ברשימות')} · רשימת אריזה אישית (${type.packing.length}) · לו״ז בלחיצה
-                  ${MODULES.filter((m) => type.modules[m.key] !== false).map((m) => ` · ${m.emoji} ${m.label}`).join('')}
-                  <span class="muted"> — הכל ניתן לשינוי.</span>
-                </p>`
-              : null}
-          </section>
-          <${TripTicket} trip=${trip} />
-          <${Field} label="איך קוראים לטיול?" error=${errors.name}>
-            <${TextInput}
-              value=${trip.name}
-              maxlength="60"
-              placeholder=${type ? type.placeholder : 'למשל: טיול לפארק החבשושיות'}
-              onInput=${(e) => set('name', e.target.value)}
-            />
-          </${Field}>
-          <${Field} label="אימוג׳י לטיול">
-            <${EmojiPicker} value=${trip.emoji} options=${TRIP_EMOJIS} onChange=${(v) => set('emoji', v)} label="אימוג׳י לטיול" />
-          </${Field}>
-          <${Field} label="לאן?" hint="שם המקום — נשתמש בו גם לניווט">
-            <${TextInput}
-              value=${trip.location}
-              maxlength="80"
-              placeholder="למשל: פארק החבשושיות"
-              onInput=${(e) => set('location', e.target.value)}
-            />
-          </${Field}>
-          <div class="date-pair">
-            <${Field} label="יוצאים" error=${errors.startDate}>
-              <${TextInput} type="date" value=${trip.startDate} onInput=${(e) => set('startDate', e.target.value)} />
-            </${Field}>
-            <${Field} label="בשעה">
-              <${TextInput} type="time" value=${trip.startTime} onInput=${(e) => set('startTime', e.target.value)} />
-            </${Field}>
-          </div>
-          <div class="date-pair">
-            <${Field} label="חוזרים" error=${errors.endDate}>
-              <${TextInput} type="date" value=${trip.endDate} min=${trip.startDate || undefined} onInput=${(e) => set('endDate', e.target.value)} />
-            </${Field}>
-            <${Field} label="בשעה">
-              <${TextInput} type="time" value=${trip.endTime} onInput=${(e) => set('endTime', e.target.value)} />
-            </${Field}>
-          </div>
-          <${Button} type="submit" size="lg" block icon="arrow-left">המשך</${Button}>
-        </form>`
+      ? html`<${TypeStep} trip=${trip} composed=${composed} errors=${errors}
+          onFamily=${pickFamily} onSubtype=${pickSubtype} onWhere=${pickWhere} onCustom=${setCustom}
+          onModules=${(modules) => setTrip((t) => ({ ...t, modules }))} onNext=${nextFromType} />`
       : null}
 
-    ${step === 2
+    ${step === 2 && composed
+      ? html`<${DetailsStep} trip=${trip} composed=${composed} copy=${copy} single=${single} errors=${errors}
+          set=${set} setPatch=${setPatch} onNext=${nextFromDetails} onBack=${() => go(1)} />`
+      : null}
+
+    ${step === 3
       ? html`<div class="stack-lg">
           <div class="onb-flow__title">
             <h1>ומי את/ה? 🙂</h1>
             <p class="muted">הפרופיל שלך בטיול. מגיעים בזוג? בחרו "זוג" — ההתחשבנות תספור אתכם כשניים.</p>
           </div>
           <${ProfileForm} submitLabel="צור את הטיול 🔥" busy=${busy} onSubmit=${create} />
-          <button type="button" class="link onb-back-link" onClick=${() => setStep(1)}><${Icon} name="arrow-right" size=${18} /> חזרה לפרטי הטיול</button>
+          <button type="button" class="link onb-back-link" onClick=${() => go(2)}><${Icon} name="arrow-right" size=${18} /> חזרה לפרטי הטיול</button>
         </div>`
       : null}
 
-    ${step === 3 && createdId ? html`<${InviteStep} tripId=${createdId} />` : null}
+    ${step === 4 && createdId ? html`<${InviteStep} tripId=${createdId} />` : null}
     </div>
   </div>`;
 }
@@ -683,6 +1041,10 @@ function JoinTicket({ preview }) {
   </div>`;
 }
 
+/** Three tiles to a row on a phone (ux E2) — the grid's own css keeps two. */
+const GRID3 = 'grid-template-columns:repeat(3, minmax(0, 1fr));gap:8px';
+const TILE = 'min-height:0;padding:10px 6px;gap:4px';
+
 /** Everyone on the trip, one card per person ("עידו", small: "בפרופיל הדס ועידו") — pick yourself, you're in. */
 function PeopleGrid({ unclaimed, claimed, busy, onPickPerson, onAsk, onNew }) {
   const tiles = [];
@@ -698,31 +1060,48 @@ function PeopleGrid({ unclaimed, claimed, busy, onPickPerson, onAsk, onNew }) {
       tiles.push({ key: `${m.id}:${p}`, m, person: people.length ? p : null, name: p, taken, ask, multi: names.length > 1 });
     }
   }
-  tiles.sort((a, b) => Number(a.taken) - Number(b.taken));
+  // those already in are one text line (ux E2), not tiles
+  const inside = tiles.filter((x) => x.taken);
+  const open = tiles.filter((x) => !x.taken);
   return html`<section class="stack" aria-labelledby="who-are-you">
     <div>
       <h2 class="h2" id="who-are-you">מי את/ה? 👀</h2>
       <p class="muted small">מוצאים את השם שלך ולוחצים — וזהו, בפנים.</p>
     </div>
-    <div class="claim-grid" data-testid="people-grid">
-      ${tiles.map((x) => html`<button type="button" key=${x.key} class=${x.taken ? 'claim-tile claim-tile--taken is-in' : 'claim-tile'}
-        disabled=${x.taken || busy} data-person=${x.name} onClick=${() => (x.ask ? onAsk(x.m, x.person) : onPickPerson(x.m, x.person))}>
-        <${Avatar} member=${{ ...x.m, headcount: 1, claimed: true, display_name: x.name }} size=${54} />
+    <div class="claim-grid" data-testid="people-grid" style=${GRID3}>
+      ${open.map((x) => html`<button type="button" key=${x.key} class="claim-tile" style=${TILE}
+        disabled=${busy} data-person=${x.name} onClick=${() => (x.ask ? onAsk(x.m, x.person) : onPickPerson(x.m, x.person))}>
+        <${Avatar} member=${{ ...x.m, headcount: 1, claimed: true, display_name: x.name }} size=${40} />
         <span class="claim-tile__name">${x.name}</span>
         ${x.multi ? html`<span class="claim-tile__people">בפרופיל ${displayName(x.m)}</span>` : null}
-        <span class="claim-tile__cta">${x.taken ? '✓ כבר בפנים' : x.ask ? 'זה אני — לבקש 🤝' : 'זה אני!'}</span>
+        <span class="claim-tile__cta">${x.ask ? 'זה אני — לבקש 🤝' : 'זה אני!'}</span>
       </button>`)}
-      <button type="button" class="claim-tile claim-tile--new" disabled=${busy} onClick=${onNew}>
-        <span class="claim-tile__plus" aria-hidden="true">✨</span>
-        <span class="claim-tile__name">אני לא ברשימה</span>
-        <span class="claim-tile__cta">יצירת פרופיל</span>
-      </button>
     </div>
-    <div class="claim-signin" data-testid="claim-signin">
-      <p><b>כתוב "כבר בפנים" ליד השם שלך?</b> כנראה נכנסת ממכשיר אחר.</p>
-      <${Button} variant="secondary" icon="link" href="#/signin">🔑 התחברות עם המייל</${Button}>
-    </div>
+    ${inside.length
+      ? html`<p class="small muted" data-testid="people-inside">✓ כבר בפנים: ${inside.map((x, i) => html`${i ? ', ' : ''}<span data-person=${x.name}>${x.name}</span>`)}</p>`
+      : null}
+    <button type="button" class="claim-tile claim-tile--new" disabled=${busy} onClick=${onNew}
+      style="width:100%;min-height:56px;flex-direction:row;justify-content:center;gap:10px;padding:10px 14px">
+      <span class="claim-tile__name">✨ אני לא ברשימה</span>
+      <span class="claim-tile__cta">יצירת פרופיל</span>
+    </button>
+    ${claimed.length
+      ? html`<p class="small muted center" data-testid="claim-signin">כתוב "כבר בפנים" ליד השם שלך?
+          <a class="link" href="#/signin">🔑 התחברות עם המייל</a></p>`
+      : null}
   </section>`;
+}
+
+/** A new profile whose name matches a person on a profile nobody claimed yet: {m, person} | null. */
+function waitingTwin(unclaimed, profile) {
+  const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const names = new Set([profile.display_name, ...(profile.people || [])].map(norm).filter(Boolean));
+  for (const m of unclaimed || []) {
+    const people = m.people?.length ? m.people : [m.display_name];
+    const person = people.find((p) => names.has(norm(p)));
+    if (person) return { m, person };
+  }
+  return null;
 }
 
 /** Taken profiles on the invite: "גם אני בפרופיל הזה 🤝" → ask to join (verified e-mail, answered by its people). */
@@ -776,6 +1155,9 @@ function JoinExisting({ code, tripId, target, onBack }) {
     e?.preventDefault();
     if (!who) return setError('מי את/ה בפרופיל? 🙂');
     if (who === '__new' && !name.trim()) return setError('איך קוראים לך?');
+    if (who === '__new' && people.includes(name.trim())) {
+      return setError(`${name.trim()} כבר ברשימה — אם זה את/ה בחרו ״אני ${name.trim()}״, ואם לא הוסיפו אות או כינוי ✏️`);
+    }
     setBusy(true);
     const opts = who === '__new' ? { name: name.trim() } : { person: who };
     const id = await actions.run((api) => api.requestProfileJoin(code, target.id, opts), { refresh: false });
@@ -929,9 +1311,9 @@ function Join({ code, switchMode = false }) {
 
   const { preview } = state;
   const unclaimed = preview.unclaimed || [];
-  return html`<div class="onb onb--flow">
-    ${header}
-    <div class="onb__body onb__body--lift">
+  // no hero here (ux E2): the trip's own ticket is the header, the people start high on the screen
+  return html`<div class="onb onb--flow onb--join">
+    <div class="onb__body" style="padding-top:calc(16px + env(safe-area-inset-top, 0px))">
       <${JoinTicket} preview=${preview} />
       ${target
         ? html`<${JoinExisting} code=${cleanCode} tripId=${preview.trip.id} target=${target} onBack=${() => setTarget(null)} />`
@@ -952,12 +1334,25 @@ function Join({ code, switchMode = false }) {
         : html`<div class="stack-lg">
             <div>
               <h2 class="h2">${choice ? 'רק מוודאים שהכל נכון 👌' : 'ספרו לנו עליכם 🙂'}</h2>
-              <p class="muted small">${choice ? 'אפשר לתקן שמות, אימוג׳י וצבע. טלפון ומייל — בשלב הבא.' : 'שם, אימוג׳י וצבע — וזהו, אתם בפנים.'}</p>
+              <p class="muted small">${choice ? 'אפשר לתקן שמות, אימוג׳י וצבע. טלפון ומייל — בשלב הבא.' : 'איך קוראים לכם, ואתם בפנים.'}</p>
             </div>
             <${ProfileForm} key=${choice?.id || (account?.name ? 'new-acc' : 'new')}
               initial=${choice || (account?.name ? { display_name: account.name, people: [account.name], headcount: 1 } : null)}
               submitLabel="יאללה, נכנסים! 🔥" busy=${busy}
-              onSubmit=${(profile) => join(!choice && cleanPhone(account?.phone) && profile && !profile.phone ? { ...profile, phone: cleanPhone(account.phone) } : profile)} />
+              onSubmit=${async (profile) => {
+                // "אני לא ברשימה" with a name that already waits on the list: that's probably me — say so first
+                const twin = !choice && profile ? waitingTwin(unclaimed, profile) : null;
+                if (twin) {
+                  const me_ = await confirmDialog({
+                    title: `יש כבר ${twin.person} שמחכה ברשימה 👀`,
+                    text: `המארגנים כבר הוסיפו את ${twin.person}${twin.m.display_name !== twin.person ? ` (בפרופיל ${twin.m.display_name})` : ''}. זה את/ה? אם כן — נכנסים לפרופיל הזה, בלי כפילות בחשבון.`,
+                    confirmText: 'זה אני!',
+                    cancelText: 'לא, מישהו אחר',
+                  });
+                  if (me_) return join(null, { member: twin.m, person: twin.person });
+                }
+                return join(!choice && cleanPhone(account?.phone) && profile && !profile.phone ? { ...profile, phone: cleanPhone(account.phone) } : profile);
+              }} />
             ${unclaimed.length
               ? html`<button type="button" class="link onb-back-link" onClick=${() => setChoice(undefined)}><${Icon} name="arrow-right" size=${18} /> חזרה לבחירת פרופיל</button>`
               : null}

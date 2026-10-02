@@ -5,16 +5,18 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=65baf9b';
-import { cleanPhone } from '../ui/account.js?v=65baf9b';
-import { navigate } from '../router.js?v=65baf9b';
+import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=56bbb9a';
+import { cleanPhone } from '../ui/account.js?v=56bbb9a';
+import { navigate } from '../router.js?v=56bbb9a';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
-  ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=65baf9b';
-import { Icon } from '../ui/icons.js?v=65baf9b';
-import { disablePush, enablePush, pushState } from '../lib/device.js?v=65baf9b';
-import { deviceLinkUrl, displayName, formatDate, isAdmin as memberIsAdmin, whatsappChatUrl } from '../lib/logic.js?v=65baf9b';
+  ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, Fold,
+} from '../ui/components.js?v=56bbb9a';
+import { Icon } from '../ui/icons.js?v=56bbb9a';
+import { CoupleCard } from '../ui/couple.js?v=56bbb9a';
+import { disablePush, enablePush, pushState } from '../lib/device.js?v=56bbb9a';
+import { arrivalOf, resolveType } from '../lib/templates.js?v=56bbb9a';
+import { adminPersons, deviceLinkUrl, displayName, formatMoney, payingMembers, personsOf, whatsappChatUrl } from '../lib/logic.js?v=56bbb9a';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -42,16 +44,28 @@ const NOTIFY_KEYS = [
   ['assignments', '🙋 שיבוצים והצעות', 'כששיבצו אותך או כשהצעה שלך אושרה'],
   ['money', '💸 כסף והעברות', 'כשמישהו סימן שהעביר לך, או אישר שקיבל'],
   ['reminders', '⏰ תזכורות', 'תזכורות חכמות לפני ואחרי הטיול'],
+  ['flights', '✈️ עדכוני טיסות', 'עיכוב, ביטול, שער או טרמינל שהשתנו'],
 ];
+
+/** The flights toggle shows only in a trip that flies: flights on, a flight booking, or a trip abroad. */
+export function tripFlies(trip) {
+  if (!trip) return false;
+  if (arrivalOf(trip).flights) return true;
+  if ((trip.info?.bookings || []).some((b) => b && b.kind === 'flight')) return true;
+  return resolveType(trip.settings || {}).where === 'abroad';
+}
 const REMINDER_KEYS = [
   ['morning_gaps', '☀️ בוקר — מה עוד פתוח אצלך', 'שורה או שתיים בסיכום של 09:30, רק כשחסר משהו'],
   ['pack_evening_before', '🎒 לפני היציאה — לארוז / לקנות', 'יום לפני ב-12:00 וב-19:00, ושעה לפני שיוצאים — רק מה שעוד לא סומן'],
   ['task_due', '⏰ הגיע הזמן למשימה', 'כשמגיע המועד של משימה שלקחת'],
+  ['nudge', '🔔 תזכורת עדינה מהמארגנים', 'כשמנהל/ת מזכיר/ה מה עוד חסר אצלך (פעם ביום לכל היותר)'],
   ['unclaimed', '🙋 מה שאף אחד לא לקח (מנהלים)', 'יום לפני ב-12:00 וב-19:00, ובבוקר היציאה — רק אם יש כאלה'],
   ['expense_missing', '🧾 לרשום הוצאה על הקניות', 'בערב שלפני היציאה, אם יש לך קניות ועוד לא רשמת הוצאה (מנהלים: מי עוד לא)'],
   ['departure_morning', '🚗 בוקר היציאה', 'מה לא לשכוח לפני שיוצאים'],
   ['pay_after_trip', '💸 אחרי הטיול — להתחשבן', 'למי להעביר וכמה'],
 ];
+
+const DEFAULT_QUIET = { from: '22:30', to: '07:00' };
 
 function normalizePrefs(p) {
   const prefs = p && typeof p === 'object' ? p : {};
@@ -61,7 +75,9 @@ function normalizePrefs(p) {
   return {
     notify: Object.fromEntries(NOTIFY_KEYS.map(([k]) => [k, notify[k] !== false])),
     reminders: Object.fromEntries(REMINDER_KEYS.map(([k]) => [k, reminders[k] !== false])),
-    quiet_hours: qh && typeof qh === 'object' && qh.from && qh.to ? { from: qh.from, to: qh.to } : null,
+    // never set (no key) → the server's default 22:30–07:00 applies (deliver lib.ts); null = switched off
+    quiet_hours: !('quiet_hours' in prefs) ? { ...DEFAULT_QUIET }
+      : qh && typeof qh === 'object' && qh.from && qh.to ? { from: qh.from, to: qh.to } : null,
   };
 }
 
@@ -248,18 +264,27 @@ export default function MeScreen({ route }) {
 }
 
 function MeBody({ snap, me, admin, tripId }) {
+  // ux ME1: me → notifications (push first) → home gear / food → mail, partner & device, look → leave.
+  // "הטיולים שלי" lives on the dashboard (the home button), not here.
   return html`<div class="screen me-screen">
-    <${ProfileCard} me=${me} admin=${admin} />
+    <${ProfileCard} me=${me} role=${snap.me?.role || me.role} snap=${snap} />
+    <${CoupleCard} snap=${snap} me=${me} onEdit=${() => document.querySelector('.me-hero__edit')?.click()} />
+    <${NotifyCard} me=${me} tripId=${tripId} trip=${snap.trip} admin=${admin} />
     <${InventoryCard} me=${me} />
     <${DietCard} me=${me} />
-    <${NotifyCard} me=${me} tripId=${tripId} />
     <${AccountCard} />
     <${EmailCard} me=${me} />
-    <${TogetherCard} me=${me} trip=${snap.trip} />
-    <${DeviceLinkCard} me=${me} trip=${snap.trip} />
+    <${Fold} emoji="👫" title="בן/בת זוג ומכשיר נוסף" class="me-fold me-partner" data-testid="me-partner">
+      <${TogetherCard} me=${me} trip=${snap.trip} />
+      <${DeviceLinkCard} me=${me} trip=${snap.trip} />
+    </${Fold}>
     <${ThemeCard} />
-    <${TripsCard} tripId=${tripId} />
     <${DemoCard} snap=${snap} me=${me} />
+    <p class="me-links small">
+      <a class="link" href=${`#/t/${tripId}/welcome`}>📝 פרטי קשר והגעה</a>
+      <span aria-hidden="true"> · </span>
+      <button type="button" class="link" onClick=${() => window.dispatchEvent(new Event('medura:tour'))}>🎓 מדריך קצר</button>
+    </p>
     <${LeaveCard} snap=${snap} me=${me} admin=${admin} tripId=${tripId} />
   </div>`;
 }
@@ -268,7 +293,8 @@ function MeBody({ snap, me, admin, tripId }) {
 // profile
 // ---------------------------------------------------------------------------
 
-function ProfileCard({ me, admin }) {
+/** `role` is this device's own role (a couple's partner who wasn't crowned is a member). */
+function ProfileCard({ me, role, snap }) {
   const [open, setOpen] = useState(false);
   const [round, setRound] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -277,9 +303,26 @@ function ProfileCard({ me, admin }) {
   const people = (me.people || []).filter(Boolean);
   const peopleLine = people.length > 1 && joinNames(people[0], people[1]) !== me.display_name ? people.join(' · ') : null;
   const kind = heads > 2 ? `👨‍👩‍👧 ${heads} אנשים` : heads === 2 ? '👫 זוג' : '🧍 יחיד/ה';
-  const roleLabel = me.role === 'owner' ? '👑 יוצר/ת הטיול' : me.role === 'admin' ? '👑 מנהל/ת' : null;
+  const roleLabel = role === 'owner' ? '👑 יוצר/ת הטיול' : role === 'admin' ? '👑 מנהל/ת' : null;
 
   const save = async (patch) => {
+    // more / fewer of us moves everyone's split once there are expenses — say it before, not after
+    const next = Number(patch?.headcount) || heads;
+    const shared = (snap?.expenses || []).filter((e) => e.split_mode === 'all');
+    if (next !== heads && shared.length) {
+      const payers = payingMembers(snap);
+      const all = payers.reduce((n, m) => n + (Number(m.headcount) || 1), 0);
+      const spent = shared.reduce((n, e) => n + Number(e.amount || 0), 0);
+      const after = all + (payers.some((m) => m.id === me.id) ? next - heads : 0);
+      const mineNow = all ? (spent * heads) / all : 0;
+      const mineAfter = after ? (spent * next) / after : 0;
+      const yes = await confirmDialog({
+        title: `${next > heads ? 'מוסיפים' : 'מורידים'} אנשים בפרופיל?`,
+        text: `זה משנה את החלוקה של ההוצאות לכולם: החלק שלכם ${formatMoney(mineNow)} ← ${formatMoney(mineAfter)}. המנהלים יקבלו הודעה.`,
+        confirmText: 'כן, לעדכן',
+      });
+      if (!yes) return;
+    }
     setBusy(true);
     const done = await actions.run(ok((api) => api.updateMember(me.id, patch)), { success: 'הפרופיל עודכן ✨' });
     setBusy(false);
@@ -449,10 +492,12 @@ function DietCard({ me }) {
 // notifications, quiet hours, reminders, this device
 // ---------------------------------------------------------------------------
 
-function NotifyCard({ me, tripId }) {
+function NotifyCard({ me, tripId, trip, admin }) {
+  const flies = tripFlies(trip);
   const [prefs, setPrefs, pending] = useSynced(normalizePrefs(me.prefs));
   const [status, setStatus] = useState('idle');
   const timer = useRef(0);
+  const queue = useRef(Promise.resolve());
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const save = async (patch) => {
@@ -460,7 +505,10 @@ function NotifyCard({ me, tripId }) {
     pending.current++;
     setStatus('saving');
     clearTimeout(timer.current);
-    const done = await actions.run(ok((api) => api.updateMember(me.id, { prefs: patch })));
+    // one save at a time, in order: two quick changes (quiet hours on → a new end time) must not land reversed
+    const run = queue.current.then(() => actions.run(ok((api) => api.updateMember(me.id, { prefs: patch }))));
+    queue.current = run.catch(() => {});
+    const done = await run;
     pending.current--;
     setStatus(done ? 'saved' : 'idle');
     if (done) timer.current = setTimeout(() => setStatus('idle'), 2200);
@@ -477,9 +525,13 @@ function NotifyCard({ me, tripId }) {
       ? html`<span class="me-saved" aria-live="polite"><${Icon} name="check" size=${14} /> נשמר</span>`
       : html`<span class="me-saved" aria-live="polite"></span>`;
 
+  const on = NOTIFY_KEYS.filter(([k]) => (k !== 'flights' || flies) && prefs.notify[k]).length;
+  // push for this device first (ux ME1); what to get sits one tap away
   return html`<${Card} emoji="🔔" title="התראות ותזכורות" class="me-notify" action=${statusNode}>
+    <${PushBlock} tripId=${tripId} />
+    <${Fold} title="מה מקבלים" meta=${on ? `${on} מופעלות` : 'הכול כבוי'} class="me-notify__more" data-testid="notify-more">
     <div class="me-toggles">
-      ${NOTIFY_KEYS.map(([k, label, hint]) => html`<${Toggle}
+      ${NOTIFY_KEYS.filter(([k]) => k !== 'flights' || flies).map(([k, label, hint]) => html`<${Toggle}
         key=${k}
         checked=${prefs.notify[k]}
         label=${label}
@@ -492,7 +544,7 @@ function NotifyCard({ me, tripId }) {
       ? html`<div class="me-sub">
           <h3 class="me-sub__title">אילו תזכורות?</h3>
           <div class="me-toggles">
-            ${REMINDER_KEYS.map(([k, label, hint]) => html`<${Toggle}
+            ${REMINDER_KEYS.filter(([k]) => admin || k !== 'unclaimed').map(([k, label, hint]) => html`<${Toggle}
               key=${k}
               checked=${prefs.reminders[k]}
               label=${label}
@@ -508,7 +560,7 @@ function NotifyCard({ me, tripId }) {
         checked=${Boolean(quiet)}
         label="🌙 שעות שקט"
         hint=${quiet ? `בלי התראות בין ${quiet.from} ל-${quiet.to} (חוץ מדחופות)` : 'בלי התראות בלילה, חוץ מהודעות דחופות'}
-        onChange=${(v) => save({ quiet_hours: v ? { from: '23:00', to: '08:00' } : null })}
+        onChange=${(v) => save({ quiet_hours: v ? { ...DEFAULT_QUIET } : null })}
       />
       ${quiet
         ? html`<div class="me-quiet">
@@ -521,8 +573,7 @@ function NotifyCard({ me, tripId }) {
           </div>`
         : null}
     </div>
-
-    <${PushBlock} tripId=${tripId} />
+    </${Fold}>
   </${Card}>`;
 }
 
@@ -642,7 +693,8 @@ function DeviceLinkCard({ me, trip }) {
 
 function ThemeCard() {
   const theme = useStore((s) => s.theme);
-  return html`<${Card} emoji="🎨" title="מראה" class="me-theme">
+  const label = { auto: 'אוטומטי', light: 'בהיר', dark: 'כהה' }[theme] || 'אוטומטי';
+  return html`<${Fold} emoji="🎨" title="מראה" meta=${label} class="me-fold me-theme">
     <${Segmented}
       label="ערכת צבעים"
       value=${theme}
@@ -653,7 +705,7 @@ function ThemeCard() {
         { value: 'dark', label: '🌙 כהה' },
       ]}
     />
-  </${Card}>`;
+  </${Fold}>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -662,23 +714,26 @@ function ThemeCard() {
 
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
 
-/** "הפרופיל שלי": the person (by verified e-mail) — one name and phone for all their trips. */
+/** "החשבון שלי": the person (by verified e-mail) — one name and phone for all their trips, and what the
+ *  trip's people may see: "🟢 מחובר/ת עכשיו" (prefs.presence) and my phone (prefs.share_phone). */
 function AccountCard() {
-  const [acc, setAcc] = useState(undefined);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [busy, setBusy] = useState(false);
+  const acc = useStore((s) => s.account);
+  const verified = useStore((s) => Boolean(s.contact?.verified));
   useEffect(() => {
-    let alive = true;
-    store.get().api.myAccount?.().then((a) => {
-      if (!alive) return;
-      setAcc(a || null);
-      setName(a?.name || '');
-      setPhone(a?.phone || '');
-    }).catch(() => alive && setAcc(null));
-    return () => { alive = false; };
-  }, []);
+    actions.loadAccount({ force: true });
+  }, [verified]);
   if (!acc?.verified) return null;
+  return html`<${AccountForm} key=${acc.email} acc=${acc} />`;
+}
+
+export function AccountForm({ acc }) {
+  const [name, setName] = useState(acc.name || '');
+  const [phone, setPhone] = useState(acc.phone || '');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('idle');
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const prefs = acc.prefs || {};
   const dirty = name.trim() !== (acc.name || '') || phone.trim() !== (acc.phone || '');
   const save = async (e) => {
     e?.preventDefault();
@@ -689,11 +744,37 @@ function AccountCard() {
     }
     setBusy(true);
     const res = await actions.run((api) => api.saveAccount({ name: name.trim(), phone: cleanPhone(phone) }),
-      { refresh: false, success: 'הפרופיל שלך נשמר ✅' });
+      { success: 'הפרטים שלך נשמרו ✅' });
     setBusy(false);
-    if (res) setAcc(res);
+    if (res) actions.setAccount(res);
   };
-  return html`<${Card} emoji="🙂" title="הפרופיל שלי" class="me-account" data-testid="account-card">
+  // a switch saves at once (the trip is refreshed, so the People screen shows it right away); quick taps on
+  // both switches: each shows at once, and the server's answer lands only after the last one
+  const pending = useRef({ n: 0, server: acc });
+  const setPref = async (key, on) => {
+    const cur = store.get().account || acc;
+    if (!pending.current.n) pending.current.server = cur;
+    pending.current.n++;
+    actions.setAccount({ ...cur, prefs: { ...(cur.prefs || {}), [key]: on } });
+    setStatus('saving');
+    clearTimeout(timer.current);
+    if (key === 'presence') actions.resetPresence(); // back on → "I'm here" again with the next refresh
+    const res = await actions.run((api) => api.saveAccount({ prefs: { [key]: on } }));
+    if (res) pending.current.server = res;
+    if (--pending.current.n) return;
+    actions.setAccount(pending.current.server);
+    setStatus(res ? 'saved' : 'idle');
+    if (res) timer.current = setTimeout(() => setStatus('idle'), 2200);
+  };
+  const statusNode = status === 'saving'
+    ? html`<span class="me-saved is-saving" aria-live="polite">שומר…</span>`
+    : status === 'saved'
+      ? html`<span class="me-saved" aria-live="polite"><${Icon} name="check" size=${14} /> נשמר</span>`
+      : html`<span class="me-saved" aria-live="polite"></span>`;
+  const seen = prefs.presence !== false;
+  const phoneShown = prefs.share_phone !== false;
+  const invitable = prefs.invitable !== false;
+  return html`<${Card} emoji="🙂" title="החשבון שלי" class="me-account" data-testid="account-card" action=${statusNode}>
     <p class="muted small me-card__lead">פעם אחת לכל הטיולים · <bdi dir="ltr">${acc.email}</bdi> ✅</p>
     <form class="stack" onSubmit=${save} noValidate>
       <div class="grid-2">
@@ -702,6 +783,34 @@ function AccountCard() {
       </div>
       ${dirty ? html`<${Button} type="submit" size="sm" loading=${busy}>שמירה</${Button}>` : null}
     </form>
+    <div class="me-sub">
+      <h3 class="me-sub__title">מה החבר'ה בטיול רואים</h3>
+      <div class="me-toggles">
+        <${Toggle}
+          checked=${seen}
+          label="🟢 מתי אני מחובר/ת"
+          hint=${seen ? '״מחובר/ת עכשיו״ או ״נראה/תה לפני…״ — רק מי שבטיול, ובדיוק של דקה' : 'כבוי — אף אחד לא רואה מתי נכנסת'}
+          onChange=${(v) => setPref('presence', v)}
+        />
+        <${Toggle}
+          checked=${phoneShown}
+          label="📞 הטלפון שלי"
+          hint=${phoneShown ? 'כדי שיוכלו לשלוח לך וואטסאפ או להתקשר ממסך החבר׳ה' : 'כבוי — המספר שלך לא מוצג ליד השם שלך'}
+          onChange=${(v) => setPref('share_phone', v)}
+        />
+      </div>
+    </div>
+    <div class="me-sub">
+      <h3 class="me-sub__title">טיולים הבאים</h3>
+      <div class="me-toggles">
+        <${Toggle}
+          checked=${invitable}
+          label="📨 אפשר להזמין אותי מטיולים קודמים"
+          hint=${invitable ? 'מי שהיה איתך בטיול ומנהל/ת טיול חדש יכול/ה להזמין אותך בלחיצה — ואת/ה מאשר/ת' : 'כבוי — לא תופיע/י ברשימת ״➕ מטיולים קודמים״'}
+          onChange=${(v) => setPref('invitable', v)}
+        />
+      </div>
+    </div>
   </${Card}>`;
 }
 
@@ -772,68 +881,40 @@ function TogetherCard({ me, trip }) {
   </${Card}>`;
 }
 
-function TripsCard({ tripId }) {
-  const trips = useStore((s) => s.trips) || [];
-  useEffect(() => {
-    actions.loadTrips();
-  }, []);
-  return html`<${Card} emoji="🗺️" title="הטיולים שלי" class="me-trips">
-    ${trips.length
-      ? html`<div class="me-trips__list">
-          ${trips.map(({ trip, member }) => {
-            const current = trip.id === tripId;
-            const manages = member?.role === 'owner' || member?.role === 'admin';
-            return html`<div key=${trip.id} class=${cx('me-trip-row', current && 'is-current')}>
-              <a class="me-trip" href=${`#/t/${trip.id}`} aria-current=${current ? 'page' : undefined}>
-                <span class="me-trip__emoji" aria-hidden="true">${trip.emoji || '⛺'}</span>
-                <span class="me-trip__main">
-                  <span class="me-trip__name">${trip.name}</span>
-                  <span class="me-trip__date">${trip.starts_at ? formatDate(trip.starts_at) : 'בלי תאריך עדיין'}</span>
-                </span>
-                ${current ? html`<${Pill} tone="success">כאן עכשיו</${Pill}>` : html`<${Icon} name="chevron-left" size=${18} />`}
-              </a>
-              ${manages
-                ? html`<a class="icon-btn me-trip__edit" href=${`#/t/${trip.id}/trip?edit=1`} aria-label=${`עריכה או מחיקה של ${trip.name}`}>
-                    <${Icon} name="edit" size=${18} />
-                  </a>`
-                : null}
-            </div>`;
-          })}
-        </div>`
-      : null}
-    <div class="me-trips__actions">
-      <${Button} variant="secondary" size="sm" icon="plus" href="#/new">טיול חדש</${Button}>
-      <${Button} variant="ghost" size="sm" icon="link" href="#/?link=1">יש לי קישור</${Button}>
-      <${Button} variant="ghost" size="sm" onClick=${() => window.dispatchEvent(new Event('medura:tour'))}>🎓 מדריך קצר</${Button}>
-      ${tripId ? html`<${Button} variant="ghost" size="sm" href=${`#/t/${tripId}/welcome`}>📝 פרטי קשר והגעה</${Button}>` : null}
-    </div>
-  </${Card}>`;
-}
-
 function DemoCard({ snap, me }) {
   const mode = useStore((s) => s.mode);
   const [busy, setBusy] = useState(null);
   if (mode !== 'demo') return null;
-  const others = snap.members.filter((m) => m.id !== me.id);
-  const become = async (m) => {
-    setBusy(m.id);
-    await actions.run(ok((api) => api.demo.actAs(m.id)), { success: `עכשיו את/ה ${displayName(m)} 🎭` });
+  // one option per person (a couple is two people, each with their own rights), except the one I am now
+  const options = snap.members.flatMap((m) => {
+    const persons = personsOf(m);
+    const many = persons.length > 1;
+    return persons
+      .filter((p) => !(m.id === me.id && (!many || p.name === snap.me?.person)))
+      .map((p) => ({ m, p, key: `${m.id}:${p.name}`, name: many ? p.name : displayName(m), sub: many ? displayName(m) : null }));
+  });
+  const become = async (o) => {
+    setBusy(o.key);
+    const person = (o.m.people || []).includes(o.p.name) ? o.p.name : null;
+    await actions.run(ok((api) => api.demo.actAs(o.m.id, person)), { success: `עכשיו את/ה ${o.name} 🎭` });
     setBusy(null);
   };
+  const label = ({ m, p }) => (p.admin ? (m.role === 'owner' ? '👑 יוצר/ת' : '👑 מנהל/ת')
+    : !m.claimed ? '⏳ לא נכנס/ה' : !p.joined ? 'עוד לא נכנס/ה' : 'חבר/ה');
   return html`<${Card} emoji="🎭" title="החלף משתמש" class="me-demo">
     <p class="muted small me-card__lead">רק במצב הדגמה: ראו את מדורה בעיניים של חבר/ה אחר/ת.</p>
     <div class="me-demo__list">
-      ${others.map((m) => html`<button
+      ${options.map((o) => html`<button
         type="button"
-        key=${m.id}
+        key=${o.key}
         class="me-demo__opt"
         disabled=${Boolean(busy)}
-        aria-busy=${busy === m.id ? 'true' : undefined}
-        onClick=${() => become(m)}
+        aria-busy=${busy === o.key ? 'true' : undefined}
+        onClick=${() => become(o)}
       >
-        <${Avatar} member=${m} size=${34} />
-        <span class="me-demo__name">${displayName(m)}</span>
-        <span class="me-demo__role">${m.role === 'owner' ? '👑 יוצר/ת' : m.role === 'admin' ? '👑 מנהל/ת' : !m.claimed ? '⏳ לא נכנס/ה' : 'חבר/ה'}</span>
+        <${Avatar} member=${o.m} size=${34} />
+        <span class="me-demo__name">${o.name}${o.sub ? html`<span class="me-demo__sub"> · ${o.sub}</span>` : null}</span>
+        <span class="me-demo__role">${label(o)}</span>
       </button>`)}
     </div>
   </${Card}>`;
@@ -841,7 +922,9 @@ function DemoCard({ snap, me }) {
 
 function LeaveCard({ snap, me, admin, tripId }) {
   const [busy, setBusy] = useState(false);
-  const onlyAdmin = admin && !snap.members.some((m) => m.id !== me.id && memberIsAdmin(m));
+  // the only one with admin rights? (per person — a crowned partner in my own profile is another admin)
+  const mine = (a) => a.member.id === me.id && (a.person ? a.person.name === snap.me?.person || a.person.mine : !snap.me?.person);
+  const onlyAdmin = admin && adminPersons(snap).every(mine);
   const leave = async () => {
     const yes = await confirmDialog({
       title: 'לצאת מהטיול?',

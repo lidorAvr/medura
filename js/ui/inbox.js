@@ -2,10 +2,10 @@
 // told (the RPCs send the notification). Shown on the home screen; hidden when empty.
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { actions } from '../store.js?v=65baf9b';
-import { href } from '../router.js?v=65baf9b';
-import { displayName, formatMoney, formatTime, hebrewCount, myInbox } from '../lib/logic.js?v=65baf9b';
-import { Avatar, Button, Card, TextInput } from './components.js?v=65baf9b';
+import { actions } from '../store.js?v=56bbb9a';
+import { href } from '../router.js?v=56bbb9a';
+import { displayName, formatMoney, formatTime, hebrewCount, myInbox } from '../lib/logic.js?v=56bbb9a';
+import { Avatar, Button, Card, TextInput } from './components.js?v=56bbb9a';
 
 const ok = (fn) => async (api) => {
   await fn(api);
@@ -61,7 +61,7 @@ export function InboxCard({ snap, me, skip = [], only = null }) {
     if (e.kind === 'assignment') {
       const asking = declining === e.pledge.id;
       return html`<span class="inbox__emoji" aria-hidden="true">🙋</span>
-        <div class="inbox__text"><b>${displayName(e.by) || 'מנהל/ת'}</b> שיבץ/ה אותך: <a href=${href(`/t/${tripId}/lists?item=${e.item.id}`)}>${e.item.title}</a>${e.pledge.qty > 1 ? ` ×${e.pledge.qty}` : ''}</div>
+        <div class="inbox__text"><b>${e.byName || displayName(e.by) || 'מנהל/ת'}</b> שיבץ/ה אותך: <a href=${href(`/t/${tripId}/lists?item=${e.item.id}`)}>${e.item.title}</a>${e.pledge.qty > 1 ? ` ×${e.pledge.qty}` : ''}</div>
         ${asking
           ? html`<form class="inbox__why" onSubmit=${(ev) => {
               ev.preventDefault();
@@ -80,7 +80,7 @@ export function InboxCard({ snap, me, skip = [], only = null }) {
     }
     if (e.kind === 'money_request') {
       return html`<span class="inbox__emoji" aria-hidden="true">💰</span>
-        <div class="inbox__text"><b>${formatMoney(e.amount)}</b> ל${displayName(e.from)} — ${e.request.title}
+        <div class="inbox__text"><b>${formatMoney(e.amount)}</b> ל${e.request.by_person || displayName(e.from)} — ${e.request.title}
           ${e.request.due ? html`<span class="muted small" style="display:block">עד ${Number(e.request.due.slice(8, 10))}.${Number(e.request.due.slice(5, 7))}</span>` : null}</div>
         <div class="inbox__acts">
           <${Button} size="sm" href=${href(`/t/${tripId}/money`)}>לתשלום</${Button}>

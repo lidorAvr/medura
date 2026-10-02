@@ -1,9 +1,9 @@
 // Entry point: render the shell, boot the store, register the service worker.
 import { html } from 'htm/preact';
 import { render } from 'preact';
-import { App, preloadScreens } from './app.js?v=65baf9b';
-import { actions } from './store.js?v=65baf9b';
-import { captureInstallPrompt } from './lib/device.js?v=65baf9b';
+import { App, preloadScreens } from './app.js?v=56bbb9a';
+import { actions } from './store.js?v=56bbb9a';
+import { captureInstallPrompt } from './lib/device.js?v=56bbb9a';
 
 captureInstallPrompt();
 

@@ -1,7 +1,7 @@
 // Demo data for the in-browser fake backend (SPEC §6, §7.2).
 // Pure data + a builder: no storage, no randomness of its own (ids/codes are injected).
 
-export const DEMO_VERSION = 6;
+export const DEMO_VERSION = 9;
 
 /** SPEC §6 default categories, sort 1..10. */
 export const DEFAULT_CATEGORIES = Object.freeze([
@@ -97,6 +97,83 @@ export function jerusalemIso(ymd, hh, mm = 0) {
   return new Date(guess).toISOString();
 }
 
+// ---------- flight fixtures (design §4.3, §4.7 — the demo never calls AeroDataBox) ----------
+
+/** '+03:00' — the UTC offset of an IANA zone at a wall-clock time on a date. */
+function tzOffset(tz, ymd, hm) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const [hh, mm] = hm.split(':').map(Number);
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  // the offset at (roughly) that instant: format a UTC guess and compare wall clocks
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  const p = {};
+  for (const x of fmt.formatToParts(new Date(guess))) if (x.type !== 'literal') p[x.type] = Number(x.value);
+  const wall = Date.UTC(p.year, p.month - 1, p.day, p.hour === 24 ? 0 : p.hour, p.minute);
+  const mins = Math.round((wall - guess) / 60000);
+  const sign = mins < 0 ? '-' : '+';
+  const a = Math.abs(mins);
+  return `${sign}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`;
+}
+
+const AIRPORTS = {
+  TLV: { iata: 'TLV', name: 'Ben Gurion', city: 'Tel Aviv Yafo', tz: 'Asia/Jerusalem', lat: 32.0114, lon: 34.8867 },
+  LHR: { iata: 'LHR', name: 'Heathrow', city: 'London', tz: 'Europe/London', lat: 51.4706, lon: -0.4619 },
+  OTP: { iata: 'OTP', name: 'Henri Coandă', city: 'Bucharest', tz: 'Europe/Bucharest', lat: 44.5711, lon: 26.085 },
+  ATH: { iata: 'ATH', name: 'Athens', city: 'Athens', tz: 'Europe/Athens', lat: 37.9364, lon: 23.9445 },
+};
+
+/**
+ * Fictional-but-plausible fixture flights. Any date works: times are wall clocks at each airport,
+ * `arrDays` = +days of the arrival wall date. `delay` (minutes) moves `best`; `status` is fixed.
+ *   LY315 TLV→LHR (as the real sample) · LY316 LHR→TLV · W62326 TLV→OTP · W62327 OTP→TLV
+ *   FR1234 TLV→ATH · FR1235 ATH→TLV · LY317 TLV→ATH **delayed 55 min** · LY319 TLV→LHR **cancelled**
+ * Any other number → not_found.
+ */
+export const DEMO_FLIGHTS = Object.freeze({
+  LY315: { airline: ['El Al', 'LY'], aircraft: 'Boeing 787-9', from: 'TLV', to: 'LHR', dep: '10:10', arr: '13:35', depT: '3', arrT: '4', status: 'Expected' },
+  LY316: { airline: ['El Al', 'LY'], aircraft: 'Boeing 787-9', from: 'LHR', to: 'TLV', dep: '15:40', arr: '22:30', depT: '4', arrT: '3', status: 'Expected' },
+  LY317: { airline: ['El Al', 'LY'], aircraft: 'Boeing 737-800', from: 'TLV', to: 'ATH', dep: '16:00', arr: '18:10', depT: '3', arrT: null, status: 'Delayed', delay: 55, gate: 'B7' },
+  LY319: { airline: ['El Al', 'LY'], aircraft: 'Boeing 737-900', from: 'TLV', to: 'LHR', dep: '22:30', arr: '01:55', arrDays: 1, depT: '3', arrT: '4', status: 'Canceled' },
+  W62326: { airline: ['Wizz Air', 'W6'], aircraft: 'Airbus A321neo', from: 'TLV', to: 'OTP', dep: '05:25', arr: '07:40', depT: '1', arrT: null, status: 'Expected' },
+  W62327: { airline: ['Wizz Air', 'W6'], aircraft: 'Airbus A321neo', from: 'OTP', to: 'TLV', dep: '01:10', arr: '04:35', depT: null, arrT: '1', status: 'Expected' },
+  FR1234: { airline: ['Ryanair', 'FR'], aircraft: 'Boeing 737-800', from: 'TLV', to: 'ATH', dep: '06:00', arr: '08:05', depT: '1', arrT: null, status: 'Expected' },
+  FR1235: { airline: ['Ryanair', 'FR'], aircraft: 'Boeing 737-800', from: 'ATH', to: 'TLV', dep: '20:15', arr: '22:10', depT: null, arrT: '1', status: 'Expected' },
+});
+
+const hmPlus = (ymd, hm, minutes) => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const [hh, mm] = hm.split(':').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d, hh, mm + minutes));
+  return { ymd: t.toISOString().slice(0, 10), hm: t.toISOString().slice(11, 16) };
+};
+
+/** The normalized record (§4.3) of a fixture flight departing on `date` (local at the origin), or null. */
+export function demoFlight(number, date, now = new Date()) {
+  const f = DEMO_FLIGHTS[number];
+  if (!f || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) return null;
+  const at = (ap, ymd, hm) => `${ymd}T${hm}${tzOffset(AIRPORTS[ap].tz, ymd, hm)}`;
+  const arrYmd = addDaysYmd(date, f.arrDays || 0);
+  const delay = f.delay || 0;
+  const depBest = hmPlus(date, f.dep, delay);
+  const arrBest = hmPlus(arrYmd, f.arr, delay);
+  const side = (ap, sched, best, terminal, extra) => ({
+    ...AIRPORTS[ap], sched, best, terminal, gate: null, ...extra,
+  });
+  return {
+    number,
+    date,
+    status: f.status,
+    airline: { name: f.airline[0], iata: f.airline[1] },
+    aircraft: f.aircraft,
+    legs: 1,
+    updated: new Date(now.getTime() - 12 * 60e3).toISOString().slice(0, 16) + 'Z',
+    dep: side(f.from, at(f.from, date, f.dep), at(f.from, depBest.ymd, depBest.hm), f.depT, { gate: f.gate || null, checkin: null }),
+    arr: side(f.to, at(f.to, arrYmd, f.arr), at(f.to, arrBest.ymd, arrBest.hm), f.arrT, { belt: null }),
+  };
+}
+
 // ---------- the sample trip ----------
 
 /**
@@ -123,6 +200,7 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
     name: SAMPLE_TRIP_NAME,
     emoji: '🌊',
     location: 'חוף צאלון, כנרת',
+    address: 'חוף צאלון · עמק הירדן',
     location_url: 'https://waze.com/ul?q=%D7%97%D7%95%D7%A3%20%D7%A6%D7%90%D7%9C%D7%95%D7%9F&navigate=yes',
     lat: 32.8625,
     lon: 35.5647,
@@ -167,6 +245,7 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
       emoji: m.emoji,
       color: m.color,
       role: m.role || 'member',
+      admin_people: m.admin_people || null,
       phone: m.phone || null,
       prefs: m.prefs || {},
       inventory: m.inventory || [],
@@ -184,7 +263,7 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
   });
   addMember('maya', {
     display_name: 'מאיה ורון', headcount: 2, people: ['מאיה', 'רון'], emoji: '🐻', color: '#F28C28',
-    role: 'admin', phone: '0500000002', hoursAgo: 70,
+    role: 'admin', admin_people: ['מאיה'], phone: '0500000002', hoursAgo: 70, // רון isn't crowned
     inventory: ['גזיבו', 'מלקחיים', 'מחבת', 'פקל קפה'],
   });
   addMember('yoav', {
@@ -201,7 +280,16 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
     hoursAgo: 45, unclaimed: true, inventory: ['נפנף'],
   });
 
-  const memberUsers = [{ user_id: userId, trip_id: tripId, member_id: M.noa.id, person: M.noa.people[0], created_at: created }];
+  // devices: the demo user is נועה; מאיה and יואב are in from their own phones (seen lately); איתי, רון, שירה וטל not yet
+  const device = (m, person, hoursAgo, seenHoursAgo, uid = newId()) => ({
+    user_id: uid, trip_id: tripId, member_id: m.id, person, legacy: false,
+    last_seen_at: seenHoursAgo == null ? null : past(seenHoursAgo), created_at: past(hoursAgo),
+  });
+  const memberUsers = [
+    { ...device(M.noa, M.noa.people[0], 72, null, userId), created_at: created },
+    device(M.maya, 'מאיה', 70, 0.02),
+    device(M.yoav, 'יואב', 60, 3),
+  ];
 
   // ----- categories -----
   const defaultBuyers = { '🥩': 'maya', '🥗': 'maya', '🥫': 'maya', '🥤': 'yoav', '🔥': 'noa' };
@@ -378,18 +466,18 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
     return row;
   };
   const link = (tail) => `#/t/${tripId}/${tail}`;
-  note({ title: 'יואב הצטרפ/ה לטיול 🎉', audience: ['noa', 'maya'], link: link('people'), hoursAgo: 60, readBy: ['noa', 'maya'] });
-  note({ title: 'שירה וטל הצטרפ/ה לטיול 🎉', audience: ['noa', 'maya'], link: link('people'), hoursAgo: 50, readBy: ['maya'] });
-  note({ title: 'ההצעה נדחתה: רמקול נייד', body: I.speaker.reject_reason, audience: ['yoav'], link: link(`lists?item=${I.speaker.id}`), hoursAgo: 29, readBy: ['yoav'] });
-  note({ title: 'שובצת: שש בש + קלפים', audience: ['uri'], link: link(`lists?item=${I.backgammon.id}`), hoursAgo: 28 });
-  note({ title: 'הצעה חדשה: כנפיים', body: 'שירה וטל הציע/ה להוסיף לרשימה', audience: ['noa', 'maya'], link: link(`lists?item=${I.wings.id}`), hoursAgo: 20, readBy: ['maya'] });
+  note({ title: '🎉 יואב איתנו בטיול', audience: ['noa', 'maya'], link: link('people'), hoursAgo: 60, readBy: ['noa', 'maya'] });
+  note({ title: '🎉 שירה וטל איתנו בטיול', audience: ['noa', 'maya'], link: link('people'), hoursAgo: 50, readBy: ['maya'] });
+  note({ title: '✖️ רמקול נייד לא נכנס לרשימה', body: I.speaker.reject_reason, audience: ['yoav'], link: link(`lists?item=${I.speaker.id}`), hoursAgo: 29, readBy: ['yoav'] });
+  note({ title: '📌 עליך: שש בש + קלפים', audience: ['uri'], link: link(`lists?item=${I.backgammon.id}`), hoursAgo: 28 });
+  note({ title: '🙋 הצעה משירה וטל: כנפיים', body: 'לאשר או לדחות?', audience: ['noa', 'maya'], link: link(`lists?item=${I.wings.id}`), hoursAgo: 20, readBy: ['maya'] });
   note({
     kind: 'announcement', author: 'maya', title: 'יוצאים ב-09:00 מהחניון 🚗',
     body: 'מי שצריך/ה טרמפ — לכתוב לי עד מחר בערב. להביא כובע, מים וחיוך ☀️',
     hoursAgo: 18, readBy: ['maya', 'yoav', 'shira'],
   });
-  note({ title: 'שירה וטל סימן/ה שהעביר/ה לך ₪90', audience: ['yoav'], link: link('money'), hoursAgo: 5 });
-  note({ title: 'הצעה חדשה: מרשמלו למדורה', body: 'יואב הציע/ה להוסיף לרשימה', audience: ['noa', 'maya'], link: link(`lists?item=${I.marshmallow.id}`), hoursAgo: 8 });
+  note({ title: '💰 ₪90 משירה וטל — לאשר שהגיע?', audience: ['yoav'], link: link('money'), hoursAgo: 5 });
+  note({ title: '🙋 הצעה מיואב: מרשמלו למדורה', body: 'לאשר או לדחות?', audience: ['noa', 'maya'], link: link(`lists?item=${I.marshmallow.id}`), hoursAgo: 8 });
   note({
     kind: 'announcement', author: 'noa', audience: ['yoav', 'shira'], urgent: true,
     title: 'חסרים כסאות ומחצלות 🪑',
@@ -436,11 +524,12 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
   const rideId = newId();
   const rides = [{
     id: rideId, trip_id: tripId, driver_member: M.maya.id, seats: 3, kind: 'car', to_text: null, from_text: 'תל אביב — רכבת השלום',
+    from_lat: 32.0735, from_lon: 34.7934, to_lat: null, to_lon: null,
     depart_at: jerusalemIso(startYmd, 7, 30), note: 'יש מקום לצידנית אחת 🧊', created_at: past(40),
   }];
   const rideSeats = [{ ride_id: rideId, trip_id: tripId, member_id: M.yoav.id, seats: 1, status: 'approved', requested_by: 'passenger', created_at: past(38) }];
 
-  return {
+  const out = {
     version: DEMO_VERSION,
     trips: [trip],
     members,
@@ -474,5 +563,153 @@ export function buildDemoSeed({ userId, newId, newCode, now = new Date() }) {
       id: newId(), trip_id: tripId, member_id: M.shira.id, user_id: newId(), email: 'tal@example.com', person: 'טל',
       name: 'טל', from_member: null, status: 'pending', created_at: past(5), answered_at: null,
     }],
+    user_contacts: [],
+    trip_invites: [],
   };
+  addOtherTrips(out, { userId, newId, newCode, now });
+  return out;
 }
+
+// ---------- two more trips of the demo user (the "הבית שלי" dashboard) ----------
+
+/**
+ * A past weekend (the people you can invite "➕ מטיולים קודמים") and an upcoming trip abroad where the demo user is a
+ * regular member with things to do. Nothing in the sample trip changes.
+ */
+function addOtherTrips(out, { userId, newId, newCode, now }) {
+  const nowMs = now.getTime();
+  const today = jerusalemYmd(now);
+  const at = (daysAgo) => new Date(nowMs - daysAgo * 86400e3).toISOString();
+  const newTrip = (t) => {
+    const row = {
+      id: newId(), location_url: null, address: null, lat: null, lon: null, info: { schedule: [], rules: [], notes: '' },
+      invite_code: newCode(), rev: 1, created_by: userId, updated_at: t.created_at, ...t,
+    };
+    out.trips.push(row);
+    return row;
+  };
+  const member = (trip, m) => {
+    const row = {
+      id: newId(), trip_id: trip.id, headcount: (m.people || []).length || 1, people: [], emoji: '🙂', color: '#2F6B4F',
+      role: 'member', admin_people: null, phone: null, prefs: {}, inventory: [], claimed_at: m.created_at, ...m,
+    };
+    out.members.push(row);
+    return row;
+  };
+  const device = (m, person, email = null, uid = newId()) => {
+    out.member_users.push({ user_id: uid, trip_id: m.trip_id, member_id: m.id, person, legacy: false, last_seen_at: null, created_at: m.created_at });
+    if (email) out.user_contacts.push({ user_id: uid, email, verified_at: m.created_at });
+  };
+
+  // 1. past: "סוף שבוע בגליל" 🌲 — ended ~40 days ago; a villa weekend (stay/villa) with expense tags
+  const pastStart = addDaysYmd(today, -42);
+  const galil = newTrip({
+    name: 'סוף שבוע בגליל', emoji: '🌲', location: 'נחל עמוד', starts_at: jerusalemIso(pastStart, 10, 0),
+    ends_at: jerusalemIso(addDaysYmd(pastStart, 2), 12, 0), created_at: at(60),
+    settings: {
+      require_approval: true, type: 'stay', subtype: 'villa', where: 'il',
+      money: { tags: [{ e: '🏡', n: 'לינה' }, { e: '🛒', n: 'סופר' }, { e: '🍽️', n: 'מסעדות' }, { e: '⛽', n: 'דלק' }, { e: '🎯', n: 'אטרקציות' }] },
+    },
+  });
+  const g = (m, daysAgo) => member(galil, { ...m, created_at: at(daysAgo) });
+  const gNoa = g({ display_name: 'נועה ואיתי', people: ['נועה', 'איתי'], emoji: '🦊', role: 'owner', admin_people: ['נועה'] }, 60);
+  const gTamar = g({ display_name: 'תמר', people: ['תמר'], emoji: '🌻', color: '#E76F51' }, 58);
+  const gGal = g({ display_name: 'גל', people: ['גל'], emoji: '🐬', color: '#3A86FF' }, 57);
+  const gNoy = g({ display_name: 'נוי ובני', people: ['נוי', 'בני'], emoji: '🍉', color: '#8E44AD' }, 56);
+  const gIdo = g({ display_name: 'עידו', people: ['עידו'], emoji: '🧗', color: '#16A085' }, 55);
+  device(gNoa, 'נועה', null, userId);
+  device(gTamar, 'תמר', 'tamar@example.com');
+  device(gGal, 'גל', 'gal@example.com');
+  device(gNoy, 'נוי', 'noy@example.com');
+  device(gIdo, 'עידו', 'ido@example.com');
+  // one expense, settled: תמר paid the cabin, נועה ואיתי paid her back
+  const cabin = {
+    id: newId(), trip_id: galil.id, title: 'צימר בגליל', amount: 300, paid_by: gTamar.id, category_id: null, note: null,
+    split_mode: 'members', created_by: gTamar.id, spent_on: pastStart, created_at: at(42),
+    currency: null, orig_amount: null, rate: null, tag: 'לינה',
+  };
+  out.expenses.push(cabin);
+  out.expense_shares.push({ expense_id: cabin.id, trip_id: galil.id, member_id: gTamar.id, weight: 1 },
+    { expense_id: cabin.id, trip_id: galil.id, member_id: gNoa.id, weight: 1 });
+  out.payments.push({
+    id: newId(), trip_id: galil.id, from_member: gNoa.id, to_member: gTamar.id, amount: 150, method: 'bit', note: 'על הצימר 🏡',
+    status: 'confirmed', created_by: gNoa.id, created_at: at(39), confirmed_at: at(39),
+  });
+
+  // 2. abroad, upcoming: "רווקים באתונה" ✈️ — the demo user is a regular member.
+  //    New-shape settings (celebrate / bachelor / abroad), the group's flights FR1234 / FR1235 and a hotel with
+  //    coordinates; רון flies on his own (LY317 — the delayed fixture), so snapshot.flights has three rows.
+  const athensStart = addDaysYmd(today, 21);
+  const athensEnd = addDaysYmd(athensStart, 3);
+  const athens = newTrip({
+    name: 'רווקים באתונה', emoji: '✈️', location: 'אתונה, יוון', address: 'אטיקה · יוון', lat: 37.9838, lon: 23.7275,
+    starts_at: jerusalemIso(athensStart, 6, 0), ends_at: jerusalemIso(athensEnd, 22, 0),
+    settings: {
+      require_approval: true, type: 'celebrate', subtype: 'bachelor', where: 'abroad',
+      arrival: { flights: true, airport: 'TLV', modes: ['taxi', 'car', 'drop', 'transit', 'park'] },
+      money: {
+        tags: [{ e: '✈️', n: 'טיסות' }, { e: '🏨', n: 'לינה' }, { e: '🍾', n: 'שתייה' }, { e: '🍰', n: 'אוכל' },
+          { e: '🎯', n: 'פעילות' }, { e: '🎁', n: 'מתנה' }],
+      },
+    },
+    info: {
+      schedule: [], rules: [], notes: '',
+      bookings: [
+        { kind: 'flight', leg: 'out', flight: 'FR1234', airline: 'Ryanair', at: `${athensStart}T06:00`, from: 'TLV', to: 'ATH' },
+        { kind: 'hotel', name: 'דירה בפלאקה', address: 'Plaka · Athens · Greece', lat: 37.9725, lon: 23.7303,
+          check_in: `${athensStart}T15:00`, check_out: `${athensEnd}T11:00` },
+        { kind: 'flight', leg: 'back', flight: 'FR1235', airline: 'Ryanair', at: `${athensEnd}T20:15`, from: 'ATH', to: 'TLV' },
+      ],
+    },
+    created_at: at(10),
+  });
+  const a = (m, daysAgo) => member(athens, { ...m, created_at: at(daysAgo) });
+  const aMaya = a({ display_name: 'מאיה', people: ['מאיה'], emoji: '🐻', color: '#F28C28', role: 'owner' }, 10);
+  const aRon = a({
+    display_name: 'רון', people: ['רון'], emoji: '🦁', color: '#3A86FF',
+    prefs: { travel: { out: { flight: 'LY317', at: `${athensStart}T16:00`, date: athensStart, from: 'TLV', to: 'ATH' }, back: null } },
+  }, 9);
+  const aHadas = a({ display_name: 'הדס', people: ['הדס'], emoji: '🌸', color: '#E76F51' }, 8);
+  const aNoa = a({ display_name: 'נועה', people: ['נועה'], emoji: '🦊' }, 7);
+  device(aMaya, 'מאיה');
+  device(aRon, 'רון');
+  device(aHadas, 'הדס');
+  device(aNoa, 'נועה', null, userId);
+  const party = { id: newId(), trip_id: athens.id, name: 'מסיבה', emoji: '🎉', sort: 1, default_buyer_id: null, note: null, created_at: at(10) };
+  const tasks = { id: newId(), trip_id: athens.id, name: 'משימות', emoji: '📋', sort: 2, default_buyer_id: null, note: null, created_at: at(10) };
+  out.categories.push(party, tasks);
+  const item = (cat, title, type, daysAgo, sort) => {
+    const row = {
+      id: newId(), trip_id: athens.id, category_id: cat.id, title, note: null, type, qty: null, unit: null, per_person: false,
+      needed: 1, status: 'active', done: false, done_at: null, reject_reason: null, created_by: aMaya.id, approved_by: aMaya.id,
+      sort, created_at: at(daysAgo), updated_at: at(daysAgo), due_at: null,
+    };
+    out.items.push(row);
+    return row;
+  };
+  const speaker = item(party, 'רמקול נייד', 'bring', 6, 1);
+  const games = item(party, 'משחקי שתייה', 'bring', 6, 2);
+  item(tasks, 'להזמין שולחן במועדון', 'task', 5, 3);
+  for (const it of [speaker, games]) {
+    out.pledges.push({ id: newId(), trip_id: athens.id, item_id: it.id, member_id: aNoa.id, qty: 1, done: false, assigned_by: null, accepted_at: null, created_at: at(5) });
+  }
+  const reqId = newId();
+  out.money_requests.push({
+    id: reqId, trip_id: athens.id, requested_by: aMaya.id, title: 'דירה באתונה 🏛️', note: 'מקדמה לדירה — 4 לילות',
+    due: addDaysYmd(today, 10), methods: { bit: '050-1234567' }, status: 'open', created_at: at(4), expense_id: null,
+  });
+  for (const m of [aRon, aHadas, aNoa]) out.money_request_members.push({ request_id: reqId, trip_id: athens.id, member_id: m.id, amount: 250, payment_id: null });
+  const pollId = newId();
+  out.polls.push({
+    id: pollId, trip_id: athens.id, question: 'איפה חוגגים במוצ״ש? 🎶',
+    options: [{ id: 'o1', label: 'גאזי' }, { id: 'o2', label: 'פסירי' }, { id: 'o3', label: 'שייט בערב' }],
+    multi: false, closed: false, created_by: aMaya.id, created_at: at(3),
+  });
+  out.poll_votes.push({ poll_id: pollId, trip_id: athens.id, member_id: aRon.id, option_id: 'o1' });
+  out.notifications.push({
+    id: newId(), trip_id: athens.id, kind: 'announcement', title: 'ברוכים הבאים לאתונה ✈️',
+    body: 'מעדכנים כאן טיסות, דירה וכסף. מי שעוד לא סימן/ה טיסה — במסך ההגעה 🙏', audience: null, author_member: aMaya.id,
+    urgent: false, link: null, created_at: at(2),
+  });
+}
+

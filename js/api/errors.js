@@ -9,6 +9,7 @@ export const ERROR_CODES = Object.freeze([
   'invalid_input',
   'invalid_code',
   'already_claimed',
+  'name_taken',
   'email_not_verified',
   'needs_approval',
   'already_settled',
@@ -32,6 +33,7 @@ const HEBREW = Object.freeze({
   invalid_input: 'משהו בפרטים לא תקין — בדקו ונסו שוב ✏️',
   invalid_code: 'הקוד או הקישור לא תקינים — בדקו שהעתקתם את כולו 🔗',
   already_claimed: 'מישהו כבר נכנס לפרופיל הזה 🙃',
+  name_taken: 'השם הזה כבר קיים בפרופיל — אם זה את/ה בחרו בו, ואם לא הוסיפו אות או כינוי ✏️',
   email_not_verified: 'קודם מאמתים את המייל — שולחים קוד ומקלידים 🔐',
   needs_approval: 'לפרופיל הזה נכנסים באישור של מי שכבר בפנים — שולחים בקשה 🤝',
   already_settled: 'החשבון שלך כבר מאוזן — אין מה להעביר 🙂',
@@ -132,6 +134,54 @@ export function toApiError(err) {
   if (/^2[23][0-9A-Z]{3}$/.test(pgCode)) return withDetail(new ApiError('invalid_input'), message);
 
   return withDetail(new ApiError('unknown'), message);
+}
+
+// ---------------------------------------------------------------------------
+// Flight lookup (design §4.4 / §8). lookupFlight never rejects for these: it resolves
+// { ok: false, error: <code>, message: <Hebrew> } so the UI can fall back to manual fields.
+// ---------------------------------------------------------------------------
+
+/** Codes the `flight` edge function answers with, plus the two client-side ones (network, upstream). */
+export const FLIGHT_ERROR_CODES = Object.freeze([
+  'bad_input', 'not_member', 'not_found', 'rate_limited', 'quota', 'upstream', 'too_far', 'network',
+]);
+
+const FLIGHT_HEBREW = Object.freeze({
+  bad_input: 'מספר הטיסה או התאריך לא תקינים — למשל LY315 ותאריך ההמראה ✏️',
+  not_member: 'רק מי שבטיול יכול/ה לחפש כאן טיסות 🙅',
+  not_found: 'לא מצאנו את הטיסה בתאריך הזה — בדקו את המספר (למשל LY315)',
+  rate_limited: 'יותר מדי חיפושים היום — אפשר למלא ידנית',
+  quota: 'החיפוש האוטומטי נח לרגע — אפשר למלא ידנית',
+  upstream: 'החיפוש האוטומטי לא זמין כרגע — אפשר למלא ידנית',
+  too_far: 'הטיסה רחוקה מדי — הפרטים יתפרסמו קרוב יותר',
+  network: 'אין חיבור לאינטרנט — אפשר למלא ידנית ולחפש אחר כך 📶',
+});
+
+/** Friendly Hebrew text for a flight-lookup error code (unknown codes → the 'upstream' text). */
+export function flightErrorText(code) {
+  return Object.prototype.hasOwnProperty.call(FLIGHT_HEBREW, code) ? FLIGHT_HEBREW[code] : FLIGHT_HEBREW.upstream;
+}
+
+/** The failed-lookup result both API implementations resolve with. */
+export function flightFailure(code) {
+  const known = FLIGHT_ERROR_CODES.includes(code) ? code : 'upstream';
+  return { ok: false, error: known, message: flightErrorText(known) };
+}
+
+const FLIGHT_NUMBER_RE = /^[A-Z0-9]{2}[0-9]{1,4}[A-Z]?$/;
+
+/**
+ * Client-side input check shared by both implementations (never spend quota on a typo):
+ * "ly 315" / "LY-315" → "LY315". Returns { number, date } or null.
+ */
+export function flightInput(number, date) {
+  const n = String(number ?? '').toUpperCase().replace(/[\s\-–.]/g, '');
+  const d = typeof date === 'string' ? date.trim().slice(0, 10) : '';
+  if (!FLIGHT_NUMBER_RE.test(n) || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const [y, m, day] = d.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, day));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== day) return null;
+  return { number: n, date: d };
 }
 
 function withDetail(apiErr, detail) {

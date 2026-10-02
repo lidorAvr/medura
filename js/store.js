@@ -1,15 +1,21 @@
 // App store (SPEC §7.3): one tiny observable object + hooks + actions.
 import { useEffect, useReducer, useRef } from 'preact/hooks';
-import { createApi } from './api/index.js?v=65baf9b';
-import { hebrewError, toApiError } from './api/errors.js?v=65baf9b';
-import { isAdmin as memberIsAdmin, tripPhase, visibleNotifications } from './lib/logic.js?v=65baf9b';
-import { parseHash, navigate } from './router.js?v=65baf9b';
+import { createApi } from './api/index.js?v=56bbb9a';
+import { hebrewError, toApiError } from './api/errors.js?v=56bbb9a';
+import { isAdmin as memberIsAdmin, tripPhase, visibleNotifications } from './lib/logic.js?v=56bbb9a';
+import { parseHash, navigate } from './router.js?v=56bbb9a';
+import { withModules } from './lib/templates.js?v=56bbb9a';
+import { landingTrip } from './lib/overview.js?v=56bbb9a';
 
 const THEME_KEY = 'medura:theme';
 const THEMES = ['auto', 'light', 'dark'];
 const THEME_COLORS = { light: '#FBF6EE', dark: '#0E1512' };
 const REFRESH_DEBOUNCE_MS = 250;
 const MAX_TOASTS = 3;
+// "Seen lately": the regular refresh (the 45 s poll) touches presence at most this often — every second
+// poll, so a touch lands within ~100 s of the last one and, kept to the minute, stays inside the 3-minute
+// "🟢 מחובר/ת עכשיו" window (the server writes at most every 30 s).
+const PRESENCE_EVERY_MS = 55000;
 
 function readTheme() {
   try {
@@ -34,7 +40,32 @@ let state = {
   toasts: [],
   theme: readTheme(),
   contact: null, // {email, verified} of this user (device), or null until loaded / on error
+  account: undefined, // my account {email, verified, name, phone, prefs} (my_account); undefined = not loaded
+  overview: undefined, // my_overview() rows (SPEC §16.1); undefined = not loaded, null = unavailable (error / older server)
+  overviewAt: null, // ms of the last good overview (a cached one after a reload / offline)
+  invites: [], // my_invites(): pending invitations to my verified e-mail
 };
+
+const OVERVIEW_KEY = (userId) => `medura:overview:${userId}`;
+const LAST_TRIP_KEY = 'medura:lastTrip';
+let landingDone = false; // the cold-start "open the live trip" rule runs once per page load
+
+function readJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 /** Must this user verify an e-mail before using a trip? Always on the real server; in demo only
  *  when forced with ?emailgate=1 (tests / trying it out). */
@@ -106,7 +137,9 @@ export function useTrip() {
   const { snap, tripId } = useStore((s) => ({ snap: s.snap, tripId: s.tripId }));
   const myId = snap?.me?.member_id;
   const me = (myId && snap?.members?.find((m) => m.id === myId)) || null;
-  return { snap, me, isAdmin: me ? memberIsAdmin(me) : false, tripId };
+  // this device's own rights (per person); an older server without me.admin: my profile's role
+  const admin = typeof snap?.me?.admin === 'boolean' ? snap.me.admin : me ? memberIsAdmin(me) : false;
+  return { snap, me, isAdmin: admin, tripId };
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +188,21 @@ let inflight = null;
 let again = false;
 let seenNotifications = new Set();
 let notificationsPrimed = false;
+let touchedAt = 0; // last touch_presence for the open trip (0 = not yet)
+let overviewInflight = null;
+
+/** Tell the trip "I'm here" (fire and forget) — only while the page is visible, at most every PRESENCE_EVERY_MS. */
+function maybeTouch(tripId) {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  const now = Date.now();
+  if (touchedAt && now - touchedAt < PRESENCE_EVERY_MS) return;
+  touchedAt = now;
+  try {
+    Promise.resolve(state.api?.touchPresence?.(tripId)).catch(() => {});
+  } catch {
+    /* presence is best-effort */
+  }
+}
 
 function scheduleRefresh() {
   clearTimeout(refreshTimer);
@@ -202,8 +250,9 @@ async function refreshLoop() {
     try {
       const snap = await api.getSnapshot(tripId);
       if (state.tripId !== tripId) continue; // switched trips meanwhile
-      store.set({ snap, loading: false, error: null, online: true });
+      store.set({ snap: withModules(snap), loading: false, error: null, online: true });
       announceNew(snap);
+      maybeTouch(tripId);
     } catch (e) {
       const err = toApiError(e);
       if (state.tripId !== tripId) continue;
@@ -240,7 +289,8 @@ function applyTheme(theme) {
 // ---------------------------------------------------------------------------
 
 export const actions = {
-  /** createApi → init → ensureSession → myTrips; route-aware (auto-opens a single trip from "/"). */
+  /** createApi → init → ensureSession → myTrips (+ invites, overview in the background); route-aware: on a cold
+   *  start at "/" a trip in phase departure/during opens directly (SPEC §16.2), otherwise "/" is the dashboard. */
   async boot() {
     applyTheme(state.theme);
     store.set({ ready: false, error: null });
@@ -249,14 +299,27 @@ export const actions = {
       await api.init();
       const { userId } = await api.ensureSession();
       store.set({ api, mode: api.mode, userId });
+      const cached = readJson(OVERVIEW_KEY(userId));
+      if (cached && Array.isArray(cached.rows)) store.set({ overview: cached.rows, overviewAt: cached.at || null });
       await actions.loadContact();
       const trips = await actions.loadTrips({ quiet: false });
+      actions.loadInvites();
+      actions.loadOverview();
       const route = parseHash(location.hash);
-      if (route.name === 'landing' && trips.length === 1) {
-        navigate(`/t/${trips[0].trip.id}`, { replace: true });
+      if (route.name === 'landing' && !landingDone && !route.query.link) {
+        landingDone = true;
+        let last = null;
+        try {
+          last = localStorage.getItem(LAST_TRIP_KEY);
+        } catch {
+          /* storage unavailable */
+        }
+        const live = landingTrip(trips, last, new Date());
+        if (live) navigate(`/t/${live}`, { replace: true });
       } else if (route.params.tripId) {
         actions.openTrip(route.params.tripId);
       }
+      landingDone = true;
       store.set({ ready: true });
     } catch (e) {
       const err = toApiError(e);
@@ -281,7 +344,32 @@ export const actions = {
   },
 
   setContact(contact) {
-    store.set({ contact });
+    store.set({ contact, account: undefined });
+    if (contact?.verified) actions.loadInvites();
+  },
+
+  /** My account (name, phone, prefs incl. presence / share_phone) — loaded once; `force` reloads. */
+  async loadAccount({ force = false } = {}) {
+    const { api } = state;
+    if (!api?.myAccount) return null;
+    if (!force && state.account !== undefined) return state.account;
+    try {
+      const account = (await api.myAccount()) || null;
+      store.set({ account });
+      return account;
+    } catch {
+      store.set({ account: null });
+      return null;
+    }
+  },
+
+  setAccount(account) {
+    store.set({ account: account || null });
+  },
+
+  /** Touch presence on the next refresh even if it was touched lately (e.g. after turning it back on). */
+  resetPresence() {
+    touchedAt = 0;
   },
 
   async loadTrips({ quiet = true } = {}) {
@@ -300,6 +388,74 @@ export const actions = {
   },
 
   /**
+   * "הבית שלי": my_overview() across all my trips. A network error keeps the cached rows (offline);
+   * any other error (e.g. an older server without the RPC) → overview null (plain cards from state.trips).
+   */
+  async loadOverview({ force = false } = {}) {
+    const { api, userId } = state;
+    if (!api) return state.overview;
+    if (!api.myOverview) {
+      store.set({ overview: null });
+      return null;
+    }
+    if (!force && overviewInflight) return overviewInflight;
+    overviewInflight = (async () => {
+      try {
+        const rows = (await api.myOverview()) || [];
+        const at = Date.now();
+        store.set({ overview: rows, overviewAt: at, online: true });
+        if (userId) writeJson(OVERVIEW_KEY(userId), { at, rows });
+        return rows;
+      } catch (e) {
+        const err = toApiError(e);
+        if (err.code === 'network') {
+          store.set({ online: false, overview: state.overview === undefined ? null : state.overview });
+        } else {
+          console.warn('[medura] overview unavailable', err.code);
+          store.set({ overview: null });
+        }
+        return state.overview;
+      } finally {
+        overviewInflight = null;
+      }
+    })();
+    return overviewInflight;
+  },
+
+  /** Pending invitations to my verified e-mail (none without one). Errors keep the previous list and return null
+   *  (so a caller never mistakes "couldn't load" for "no such invitation"). */
+  async loadInvites() {
+    const { api } = state;
+    if (!api?.myInvites || !state.contact?.verified) {
+      if (state.invites.length) store.set({ invites: [] });
+      return state.invites;
+    }
+    try {
+      const invites = (await api.myInvites()) || [];
+      store.set({ invites, online: true });
+      return invites;
+    } catch (e) {
+      if (toApiError(e).code === 'network') store.set({ online: false });
+      return null;
+    }
+  },
+
+  /**
+   * Accept (optionally with partners, or as `person` of the placeholder I was invited onto) or decline an
+   * invitation. Accept → {trip_id, member_id}; decline → true.
+   */
+  async respondInvite(inviteId, accept, withNames = [], person = null) {
+    const res = await actions.run((api) => api.respondInvite(inviteId, accept, { with: withNames, person }), {
+      refresh: false,
+      error: (code) => (code === 'not_allowed_state' ? 'ההזמנה הזאת כבר לא פתוחה' : code === 'limit_reached' ? 'הטיול מלא — עד 60 פרופילים' : hebrewError(code)),
+    });
+    const ok = accept ? Boolean(res?.trip_id) : res !== undefined;
+    await Promise.all([actions.loadTrips(), actions.loadInvites(), actions.loadOverview({ force: true })]);
+    if (!ok) return undefined;
+    return accept ? res : true;
+  },
+
+  /**
    * Switch to a trip: load its snapshot and subscribe to realtime changes.
    * `force` reloads even when that trip is already the open one (e.g. right after joining it).
    */
@@ -314,6 +470,7 @@ export const actions = {
     clearTimeout(refreshTimer);
     seenNotifications = new Set();
     notificationsPrimed = false;
+    touchedAt = 0;
     store.set({ tripId, snap: null, loading: true, error: null });
     const snap = await actions.refresh();
     if (state.tripId === tripId && snap && !unsubscribeTrip) {
@@ -323,7 +480,7 @@ export const actions = {
         console.warn('[medura] realtime subscribe failed', e);
       }
       try {
-        localStorage.setItem('medura:lastTrip', tripId);
+        localStorage.setItem(LAST_TRIP_KEY, tripId);
       } catch {
         /* storage unavailable */
       }

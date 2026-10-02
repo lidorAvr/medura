@@ -4,18 +4,19 @@
 // Also exports small helpers that shopping.js and import.js reuse.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=65baf9b';
-import { navigate, href } from '../router.js?v=65baf9b';
+import { actions, useTrip } from '../store.js?v=56bbb9a';
+import { navigate, href } from '../router.js?v=56bbb9a';
 import {
-  buildSummaryText, displayName, formatQty, headcountTotal, hebrewCount, itemEffectiveQty, itemProgress,
-  membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
+  actorName, buildSummaryText, dueInfo, displayName, eachSplitOf, formatQty, headcountTotal, hebrewCount, itemEffectiveQty,
+  itemProgress, membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
   ilIso as ilIsoDue, ilWall as ilWallDue,
-} from '../lib/logic.js?v=65baf9b';
+} from '../lib/logic.js?v=56bbb9a';
 import {
-  Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, Pill, ProgressBar,
-  Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti,
-} from '../ui/components.js?v=65baf9b';
-import { Icon } from '../ui/icons.js?v=65baf9b';
+  Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, OverBanner, Pill, ProgressBar,
+  Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
+} from '../ui/components.js?v=56bbb9a';
+import { Icon } from '../ui/icons.js?v=56bbb9a';
+import { hasModule, itemTypeOn } from '../lib/templates.js?v=56bbb9a';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by shopping.js and import.js)
@@ -222,6 +223,13 @@ const TAB_ALIASES = {
 };
 const normalizeTab = (t) => TAB_ALIASES[String(t || '').toLowerCase()] || 'all';
 
+/** Is this lists tab there for the trip's features? ("שלי" always: what's on me + the packing list) */
+function tabOn(trip, tab) {
+  if (tab === 'mine') return true;
+  if (tab === 'all' || tab === 'pending') return hasModule(trip, 'lists') || hasModule(trip, 'tasks');
+  return itemTypeOn(trip, tab);
+}
+
 function buildModel(snap, me) {
   const members = snap.members || [];
   const heads = headcountTotal(members);
@@ -308,7 +316,11 @@ export default function ListsScreen({ route }) {
   const { snap, me, isAdmin } = useTrip();
   const tripId = route.params.tripId;
   const ready = !!snap && snap.trip?.id === tripId;
-  const tab = normalizeTab(route.query.tab);
+  const trip = snap?.trip;
+  const shared = !!trip && (hasModule(trip, 'lists') || hasModule(trip, 'tasks'));
+  // a tab of a feature that's off falls back to "הכל", or to "שלי" when only the packing list is on
+  const asked = normalizeTab(route.query.tab);
+  const tab = !trip || tabOn(trip, asked) ? asked : shared ? 'all' : 'mine';
   const itemId = route.query.item || null;
 
   const [query, setQuery] = useState('');
@@ -396,23 +408,26 @@ export default function ListsScreen({ route }) {
     </div>`;
   }
 
+  // once the trip is over the lists are history (ux A3): read only — no FAB, no ✋ / done buttons
+  const over = tripOver(snap.trip);
   const ctx = {
-    model, me, isAdmin, tripId, flashId,
+    model, me, isAdmin, tripId, flashId, over,
     open: openItem,
     forget: (id) => deleted.current.add(id),
     pendingTab: tab === 'pending',
     mineTab: tab === 'mine',
   };
 
+  // "הכל", "שלי" and (admins, when there are some) "לאישור" first — then the types (ux L2)
   const tabs = [
     { value: 'all', label: 'הכל' },
+    { value: 'mine', label: '⭐ שלי' },
+    { value: 'pending', label: '⏳ לאישור', badge: model.pendingCount || null },
     { value: 'buy', label: '🛒 קניות' },
     { value: 'bring', label: '🎒 מהבית' },
     { value: 'each', label: '🙋 כל אחד' },
     { value: 'task', label: '✅ משימות' },
-    { value: 'pending', label: '⏳ לאישור', badge: model.pendingCount || null },
-    { value: 'mine', label: '⭐ שלי' },
-  ];
+  ].filter((x) => tabOn(snap.trip, x.value) && (x.value !== 'pending' || model.pendingCount || tab === 'pending' || !isAdmin));
 
   const q = normText(query);
   const matchesQuery = (it) => {
@@ -438,24 +453,29 @@ export default function ListsScreen({ route }) {
         setMissingOnly(false);
       }}
       onImport=${() => navigate(`/t/${tripId}/import`)}
+      onBuild=${() => navigate(`/t/${tripId}/build`)}
     />`;
   }
 
-  return html`<div class="screen ls-screen">
+  const arrived = model.items.filter((it) => it.status === 'active' && coveredState(model.progress.get(it.id).state)).length;
+  return html`<div class=${cx('screen ls-screen', over && 'is-over')}>
+    <${OverBanner} trip=${snap.trip} />
     <div class="ls-head">
       <div class="ls-head__text">
         <h1 class="ls-head__title">רשימות</h1>
         <p class="ls-head__sub">
-          ${r.total
-            ? html`<span class="num">${hebrewCount(r.total, 'פריט', 'פריטים')}</span> · <span class="num">${r.pct}%</span> מכוסה${
-              model.pendingCount ? html` · <span class="num">${model.pendingCount}</span> ממתינים לאישור` : null}`
-            : 'בואו נתחיל למלא 📝'}
+          ${!r.total
+            ? 'בואו נתחיל למלא 📝'
+            : over
+              ? html`<span class="num">${hebrewCount(r.total, 'פריט', 'פריטים')}</span> · <span class="num">${arrived}</span> הגיעו`
+              : html`<span class="num">${hebrewCount(r.total, 'פריט', 'פריטים')}</span> · <span class="num">${r.pct}%</span> מוכן${
+                model.pendingCount ? html` · <span class="num">${model.pendingCount}</span> ממתינים לאישור` : null}`}
         </p>
       </div>
-      <${IconButton} icon="cart" label="מצב קנייה" href=${href(`/t/${tripId}/shop`)} class="ls-head__btn" />
+      ${over ? null : html`<${Button} variant="secondary" size="sm" href=${href(`/t/${tripId}/shop`)} class="ls-head__shop" aria-label="מצב קנייה">🛒 מצב קנייה</${Button}>`}
       <${IconButton} icon="more" label="עוד אפשרויות" onClick=${() => setMenuOpen(true)} class="ls-head__btn" />
     </div>
-    ${r.total ? html`<${ProgressBar} value=${r.pct} tone="accent" label="מוכנות הטיול" />` : null}
+    ${r.total && !over ? html`<${ProgressBar} value=${r.pct} tone="accent" label="מוכנות הטיול" />` : null}
 
     <${Segmented} options=${tabs} value=${tab} onChange=${setTab} label="סינון רשימות" class="ls-tabs" />
 
@@ -484,7 +504,7 @@ export default function ListsScreen({ route }) {
 
     ${body}
 
-    <${Fab} icon="plus" onClick=${() => openAdd()} />
+    ${over || tab === 'mine' ? null : html`<${Fab} icon="plus" label="פריט" onClick=${() => openAdd()} />`}
     <${AddItemSheet} open=${addOpen} prefill=${addPrefill} tab=${tab} ctx=${ctx}
       onClose=${() => setAddOpen(false)}
       onAdded=${(id) => {
@@ -504,7 +524,7 @@ export default function ListsScreen({ route }) {
 // Category tabs (הכל / type tabs / לאישור)
 // ---------------------------------------------------------------------------
 
-function CategoryTab({ ctx, tab, matchesQuery, missingOnly, query, onAdd, onClearFilters, onImport }) {
+function CategoryTab({ ctx, tab, matchesQuery, missingOnly, query, onAdd, onClearFilters, onImport, onBuild }) {
   const { model, isAdmin } = ctx;
   const inTab = model.items.filter((it) => {
     if (tab === 'pending') return it.status === 'proposed';
@@ -558,7 +578,8 @@ function CategoryTab({ ctx, tab, matchesQuery, missingOnly, query, onAdd, onClea
           ? null
           : html`<div class="row row--center wrap">
               <${Button} icon="plus" onClick=${() => onAdd(null)}>הוספת פריט</${Button}>
-              ${tab === 'all' ? html`<${Button} variant="secondary" icon="download" onClick=${onImport}>ייבוא מוואטסאפ</${Button}>` : null}
+              ${tab === 'all' && (hasModule(ctx.model.snap.trip, 'lists') || hasModule(ctx.model.snap.trip, 'tasks')) ? html`<${Button} variant="secondary" icon="sparkles" onClick=${onBuild}>בניית רשימה מהירה</${Button}>` : null}
+              ${tab === 'all' && hasModule(ctx.model.snap.trip, 'lists') ? html`<${Button} variant="secondary" icon="download" onClick=${onImport}>ייבוא מוואטסאפ</${Button}>` : null}
             </div>`}
       />`;
     }
@@ -572,6 +593,15 @@ function CategoryTab({ ctx, tab, matchesQuery, missingOnly, query, onAdd, onClea
       ? html`<p class="ls-hint">⏳ הצעות שמחכות לאישור של מנהל/ת הטיול.</p>`
       : null}
     ${empty ? html`<div class="card ls-empty">${empty}</div>` : null}
+    ${!empty && isAdmin && !ctx.over && tab === 'all' && !query && inTab.length < 10 && hasModule(model.snap.trip, 'lists')
+      ? html`<div class="card ls-fill" data-testid="ls-fill">
+          <p class="small"><b>הרשימה עוד קצרה</b> — ממלאים מהר:</p>
+          <div class="row wrap">
+            <${Button} size="sm" variant="secondary" onClick=${onImport}>📥 הדבקה מוואטסאפ</${Button}>
+            <${Button} size="sm" variant="secondary" onClick=${onBuild}>✨ בנייה מהירה</${Button}>
+          </div>
+        </div>`
+      : null}
     ${groups.map((g) => html`<${CategoryGroup} key=${g.key} group=${g} stat=${stats.get(g.key)} ctx=${ctx} />`)}
     ${rejected.length
       ? html`<${Section} title="נדחו" emoji="🚫" count=${rejected.length} collapsible defaultOpen=${false} class="ls-rejected">
@@ -595,10 +625,7 @@ function CategoryGroup({ group, stat, ctx }) {
     collapsible
     class=${cx('ls-cat', complete && 'is-complete')}
     right=${buyer
-      ? html`<span class="ls-cat__buyer" title=${`קונה ברירת מחדל: ${displayName(buyer)}`}>
-          <span class="sr-only">קונה ברירת מחדל: ${displayName(buyer)}</span>
-          <${Avatar} member=${buyer} size=${26} />
-        </span>`
+      ? html`<span class="ls-cat__buyer small" title=${`קונה ברירת מחדל: ${displayName(buyer)}`}>קונה: ${displayName(buyer)}</span>`
       : null}
   >
     <div class="list ls-list">
@@ -623,7 +650,19 @@ const PLEDGE_TOAST = {
 function rowQtyText(item, heads) {
   if (item.type === 'buy' || item.type === 'task') return itemEffectiveQty(item, heads).text;
   if (item.type === 'bring') return item.needed > 1 ? `×${item.needed}` : item.qty ? formatQty(item.qty, item.unit) : '';
+  if (item.type === 'each') return item.each_qty > 1 ? `×${item.each_qty} לזוג` : '';      // per couple / family (§19)
   return '';
+}
+
+/** My row of an "each" item (§19): {split, target, part (my person's share, when we split it), open, done} or null. */
+export function myEachPart(item, me, snap) {
+  if (!me || item?.type !== 'each') return null;
+  const raw = (snap?.pledges || []).find((p) => p.item_id === item.id && p.member_id === me.id) || null;
+  const s = eachSplitOf(item, me, raw);
+  const person = snap?.me?.member_id === me.id && (me.people || []).includes(snap.me.person) ? snap.me.person : null;
+  const part = s.split && person ? s.parts.find((x) => x.person === person) || null : null;
+  return { ...s, raw, person, part, others: s.parts.filter((x) => x !== part),
+    mineDone: part ? part.qty > 0 && part.done : !!raw?.done };
 }
 
 function ItemRow({ item, ctx }) {
@@ -638,6 +677,7 @@ function ItemRow({ item, ctx }) {
   const [waved, setWaved] = useState(false);
 
   const qtyText = rowQtyText(item, model.heads);
+  const due = dueInfo(item.due_at, new Date(), prog.state === 'done' || item.done);
   const canPledge = !!me && (item.status === 'active' || (item.status === 'proposed' && item.created_by === me.id));
   const lookAlike = isAdmin && item.status === 'proposed' ? lookAlikeOf(item, model.items) : null;
 
@@ -651,7 +691,9 @@ function ItemRow({ item, ctx }) {
   };
 
   let action = null;
-  if (pendingTab && isAdmin && item.status === 'proposed') {
+  if (ctx.over) {
+    action = null;
+  } else if (pendingTab && isAdmin && item.status === 'proposed') {
     action = html`<button type="button" class="ls-approve" disabled=${busy} aria-busy=${busy ? 'true' : undefined}
       aria-label=${`אישור: ${item.title}`}
       onClick=${() => run((api) => api.reviewItem(item.id, true, null), { success: `אושר ✅ ${item.title} ברשימה` })}>
@@ -660,8 +702,10 @@ function ItemRow({ item, ctx }) {
   } else if (item.status !== 'rejected') {
     let done = null;
     let toggle = null;
-    if (item.type === 'each' && item.status === 'active' && me) {
-      done = !!myPledge?.done;
+    const each = item.type === 'each' && item.status === 'active' ? myEachPart(item, me, model.snap) : null;
+    if (each && !(each.part && each.part.qty === 0 && each.open === 0)) {
+      // a couple that splits it ticks per person; nothing of it mine (all my partner's) → no tick here
+      done = each.mineDone;
       toggle = (next) => (api) => api.setPledgeDone(item.id, next);
     } else if (myPledge && item.type !== 'each') {
       done = item.type === 'bring' ? !!myPledge.done : !!item.done;
@@ -698,7 +742,6 @@ function ItemRow({ item, ctx }) {
     data-item=${item.id}
   >
     <button type="button" class="ls-row__open" onClick=${() => ctx.open(item.id)}>
-      <span class=${cx('ls-type', `ls-type--${item.type}`)} aria-hidden="true">${meta.emoji}</span>
       <span class="ls-row__main">
         <span class="ls-row__title">
           <span class="ls-row__name">${item.title}</span>
@@ -706,6 +749,7 @@ function ItemRow({ item, ctx }) {
         </span>
         <span class="ls-row__meta">
           <${Pill} tone=${status.tone}>${status.text}</${Pill}>
+          ${due ? html`<${Pill} tone=${due.late ? 'danger' : 'default'} class="ls-due" data-testid="item-due">${due.text}</${Pill}>` : null}
           ${lookAlike ? html`<${Pill} tone="warning" class="ls-dup-pill">🔁 דומה ל: ${lookAlike.title}</${Pill}>` : null}
           ${myPledge && item.type !== 'each' && (!mineTab || myPledge.qty > 1)
             ? html`<${Pill} tone="solid" class="ls-mine-pill">⭐ שלי${myPledge.qty > 1 && item.type === 'bring' ? ` ×${myPledge.qty}` : ''}</${Pill}>`
@@ -750,7 +794,7 @@ function MineTab({ ctx, matchesQuery, missingOnly, query }) {
     : null);
 
   return html`<div class="ls-groups">
-    <${PersonalGear} ctx=${ctx} query=${query} missingOnly=${missingOnly} />
+    ${hasModule(model.snap.trip, 'packing') ? html`<${PersonalGear} ctx=${ctx} query=${query} missingOnly=${missingOnly} />` : null}
 
     ${total
       ? html`<div class="card ls-mine-card">
@@ -787,7 +831,7 @@ function MineTab({ ctx, matchesQuery, missingOnly, query }) {
 }
 
 function PersonalGear({ ctx, query, missingOnly }) {
-  const { model, tripId } = ctx;
+  const { model, tripId, me } = ctx;
   const all = [...(model.snap.personal_items || [])].sort(byItemOrder);
   const [title, setTitle] = useState('');
   const [adding, setAdding] = useState(false);
@@ -852,7 +896,9 @@ function PersonalGear({ ctx, query, missingOnly }) {
     class="ls-personal"
   >
     <div class="card ls-personal__card">
-      <p class="ls-private"><${Icon} name="lock" size=${14} /> רק את/ה רואה את הרשימה הזו</p>
+      <p class="ls-private"><${Icon} name="lock" size=${14} /> ${(me?.people || []).length > 1
+        ? `רק את/ה רואה את הרשימה הזו — לכל אחד מ${displayName(me)} רשימה משלו`
+        : 'רק את/ה רואה את הרשימה הזו'}</p>
       ${all.length ? html`<${ProgressBar} value=${pct} tone="success" label="ציוד אישי ארוז" />` : null}
       ${all.length === 0
         ? html`<div class="ls-personal__empty">
@@ -910,7 +956,7 @@ const SELF_LABEL = { buy: 'אני קונה את זה', bring: 'אני מביא/�
 
 function blankForm(patch) {
   return {
-    title: '', category_id: null, type: 'buy', qty: '', unit: null, per_person: false, needed: 1, note: '', due: '',
+    title: '', category_id: null, type: 'buy', qty: '', unit: null, per_person: false, needed: 1, each_qty: 1, note: '', due: '',
     self: false, selfQty: 1, catTouched: false, typeTouched: false, ...patch,
   };
 }
@@ -924,6 +970,7 @@ function formFromItem(item) {
     unit: item.unit || null,
     per_person: !!item.per_person,
     needed: item.needed || 1,
+    each_qty: item.each_qty || 1,
     note: item.note || '',
     due: item.due_at ? (({ ymd, hm }) => `${ymd}T${hm}`)(ilWallDue(new Date(item.due_at))) : '',
     catTouched: true,
@@ -970,6 +1017,11 @@ function formToPayload(form, { creating }) {
     p.per_person = false;
   }
   if (form.type === 'bring') p.needed = Math.max(1, Math.min(200, Number(form.needed) || 1));
+  // "כל אחד מביא": how many per couple / family (§19) — 1 is the default (null)
+  if (form.type === 'each') {
+    const n = Math.max(1, Math.min(20, Number(form.each_qty) || 1));
+    if (n > 1 || !creating) p.each_qty = n > 1 ? n : null;
+  }
   if (creating && form.self && form.type !== 'each') p.pledge_qty = form.type === 'bring' ? form.selfQty : 1;
   return p;
 }
@@ -1007,7 +1059,7 @@ function ItemFormFields({ form, set, errors, ctx, creating, lockType, afterTitle
     if (creating) {
       const s = suggestFromTitle(title, cats);
       if (s && !form.catTouched && s.category) patch.category_id = s.category.id;
-      if (s && !form.typeTouched && !lockType && s.type) patch.type = s.type;
+      if (s && !form.typeTouched && !lockType && s.type && itemTypeOn(model.snap.trip, s.type)) patch.type = s.type;
     }
     set(patch);
   };
@@ -1016,6 +1068,18 @@ function ItemFormFields({ form, set, errors, ctx, creating, lockType, afterTitle
     ? `${formatQty(q, form.unit)} × ${model.heads} אנשים = ${itemEffectiveQty({ qty: q, unit: form.unit, per_person: true }, model.heads).text}`
     : '';
   const showApprovalHint = creating && !isAdmin && model.requireApproval;
+  const perPersonToggle = html`<${Toggle}
+    checked=${form.per_person}
+    onChange=${(v) => set({ per_person: v })}
+    label="לאדם"
+    hint=${perPersonPreview || 'הכמות מוכפלת במספר האנשים בטיול'}
+  />`;
+  const moreFields = html`<${Field} label="הערה" error=${errors.note}>
+      <${TextArea} value=${form.note} onInput=${(e) => set({ note: e.currentTarget.value })} rows=${2} placeholder="מותג, גודל, למי לפנות… (לא חובה)" maxlength="500" />
+    </${Field}>
+    <${Field} label="⏰ עד מתי? (לא חובה)" hint="בזמן הזה מי שלקח את זה ועוד לא סימן — מקבל תזכורת בפוש ובמייל">
+      <${TextInput} type="datetime-local" value=${form.due} onInput=${(e) => set({ due: e.currentTarget.value })} />
+    </${Field}>`;
 
   return html`<div class="stack ls-form">
     <${Field} label="מה צריך?" error=${errors.title}>
@@ -1032,7 +1096,7 @@ function ItemFormFields({ form, set, errors, ctx, creating, lockType, afterTitle
 
     <${Field} label="סוג">
       <${Segmented}
-        options=${TYPE_OPTIONS}
+        options=${TYPE_OPTIONS.filter((o) => o.value === form.type || itemTypeOn(ctx.model.snap.trip, o.value))}
         value=${form.type}
         onChange=${(type) => set({ type, typeTouched: true })}
         label="סוג הפריט"
@@ -1066,12 +1130,7 @@ function ItemFormFields({ form, set, errors, ctx, creating, lockType, afterTitle
           <${ChipScroller} label="יחידה" selected=${form.unit || ''}>
             ${UNIT_CHIPS.map((u) => html`<${Chip} key=${u} data-key=${u} active=${form.unit === u} onClick=${() => set({ unit: form.unit === u ? null : u })}>${u}</${Chip}>`)}
           </${ChipScroller}>
-          <${Toggle}
-            checked=${form.per_person}
-            onChange=${(v) => set({ per_person: v })}
-            label="לאדם"
-            hint=${perPersonPreview || 'הכמות מוכפלת במספר האנשים בטיול'}
-          />
+          ${creating ? null : perPersonToggle}
         </div>`
       : null}
 
@@ -1085,14 +1144,23 @@ function ItemFormFields({ form, set, errors, ctx, creating, lockType, afterTitle
         </div>`
       : null}
 
-    ${form.type === 'each' ? html`<p class="ls-hint">🙋 כל זוג/יחיד מביא משלו, וכל אחד מסמן כשארז.</p>` : null}
+    ${form.type === 'each'
+      ? html`<div class="ls-needed" data-testid="each-qty">
+          <span class="ls-needed__text">
+            <span class="field__label">כמה לכל זוג/משפחה?</span>
+            <span class="field__hint">יחיד/ה מביא/ה ${Math.ceil((Number(form.each_qty) || 1) / 2)} · כל זוג בוחר: ביחד או כל אחד את שלו</span>
+          </span>
+          <${Stepper} value=${form.each_qty || 1} min=${1} max=${20} onChange=${(v) => set({ each_qty: v })} label="כמה לכל זוג" />
+        </div>`
+      : null}
 
-    <${Field} label="הערה" error=${errors.note}>
-      <${TextArea} value=${form.note} onInput=${(e) => set({ note: e.currentTarget.value })} rows=${2} placeholder="מותג, גודל, למי לפנות… (לא חובה)" maxlength="500" />
-    </${Field}>
-    <${Field} label="⏰ עד מתי? (לא חובה)" hint="בזמן הזה מי שלקח את זה ועוד לא סימן — מקבל תזכורת בפוש ובמייל">
-      <${TextInput} type="datetime-local" value=${form.due} onInput=${(e) => set({ due: e.currentTarget.value })} />
-    </${Field}>
+    ${creating
+      // a new item asks only what's needed (ux L5): the rest waits behind "+ עוד פרטים"
+      ? html`<details class="ls-more" open=${Boolean(errors.note) || undefined} data-testid="item-more">
+          <summary class="ls-more__toggle link">+ עוד פרטים (הערה${form.type === 'buy' ? ', לאדם' : ''}, עד מתי)</summary>
+          <div class="stack">${form.type === 'buy' ? perPersonToggle : null}${moreFields}</div>
+        </details>`
+      : moreFields}
 
     ${creating && form.type !== 'each'
       ? html`<div class="ls-self">
@@ -1133,6 +1201,8 @@ function AddItemSheet({ open, prefill, tab, ctx, onClose, onAdded, onOpenExistin
         type: typeFromTab || s?.type || 'buy',
       };
     }
+    // "מי מביא מה" off: a new item is a task (and the other way round)
+    if (!itemTypeOn(model.snap.trip, next.type)) next = { ...next, type: itemTypeOn(model.snap.trip, 'buy') ? 'buy' : 'task' };
     setForm(next);
     setErrors({});
   }, [open]);
@@ -1268,6 +1338,7 @@ function ItemDetails({ item, ctx, busy, act, onEdit, onReject }) {
   const isCreator = !!me && item.created_by === me.id;
   const canEdit = isAdmin || (isCreator && item.status === 'proposed');
   const canDelete = isAdmin || (isCreator && item.status !== 'active');
+  const due = dueInfo(item.due_at, new Date(), item.done);
 
   const remove = async () => {
     const ok = await confirmDialog({
@@ -1286,6 +1357,7 @@ function ItemDetails({ item, ctx, busy, act, onEdit, onReject }) {
       <${Pill} tone="solid" class="ls-details__type"><span aria-hidden="true">${meta.emoji}</span> ${meta.label}</${Pill}>
       ${cat ? html`<${Pill}><span aria-hidden="true">${cat.emoji || '📦'}</span> ${cat.name}</${Pill}>` : null}
       <${Pill} tone=${status.tone}>${status.text}</${Pill}>
+      ${due ? html`<${Pill} tone=${due.late ? 'danger' : 'default'} data-testid="details-due">${due.text}</${Pill}>` : null}
     </div>
 
     ${eff.text && item.type !== 'each'
@@ -1303,7 +1375,7 @@ function ItemDetails({ item, ctx, busy, act, onEdit, onReject }) {
       ? html`<div class="ls-banner ls-banner--warning">
           <span class="ls-banner__emoji" aria-hidden="true">⏳</span>
           <span><strong>ממתין לאישור מנהל</strong><br />
-            <span class="small">הוצע ע״י ${creator ? displayName(creator) : 'מישהו'} · ${timeAgo(item.created_at)}</span></span>
+            <span class="small">הוצע ע״י ${creator ? actorName(creator, item.by_person) : 'מישהו'} · ${timeAgo(item.created_at)}</span></span>
         </div>`
       : null}
     ${lookAlike
@@ -1337,7 +1409,7 @@ function ItemDetails({ item, ctx, busy, act, onEdit, onReject }) {
         </div>`
       : null}
     ${item.created_at
-      ? html`<p class="ls-details__foot tiny muted">נוסף ע״י ${creator ? displayName(creator) : 'מישהו'} · ${timeAgo(item.created_at)}</p>`
+      ? html`<p class="ls-details__foot tiny muted">נוסף ע״י ${creator ? actorName(creator, item.by_person) : 'מישהו'} · ${timeAgo(item.created_at)}</p>`
       : null}
   </div>`;
 }
@@ -1358,9 +1430,12 @@ function ProgressBlock({ item, prog, model }) {
     const doneIds = new Set(prog.pledgers.filter((p) => p.done).map((p) => p.member_id));
     const done = model.members.filter((m) => doneIds.has(m.id));
     const notYet = model.members.filter((m) => !doneIds.has(m.id));
+    // per couple / family (§19): how many things, and how many are packed
+    const units = prog.units && prog.units.needed !== prog.total ? prog.units : null;
     return html`<div class="ls-progress">
       <div class="row row--between">
         <strong class="num">${prog.doneCount} מתוך ${prog.total} ארזו</strong>
+        ${units ? html`<span class="small muted num" data-testid="each-units">${units.done} מתוך ${units.needed} ${item.title}</span>` : null}
       </div>
       <${ProgressBar} value=${prog.total ? (prog.doneCount * 100) / prog.total : 0} tone="success" label="כמה כבר ארזו" />
       <div class="ls-each-who">
@@ -1388,12 +1463,7 @@ function MyPart({ item, prog, ctx, myPledge, busy, act }) {
 
   if (item.type === 'each') {
     if (item.status !== 'active') return null;
-    const done = !!myPledge?.done;
-    return html`<div class="ls-mypart">
-      <h3 class="ls-mypart__title">החלק שלי</h3>
-      <${Toggle} checked=${done} disabled=${busy === 'done'} label="ארזתי את שלי ✓" hint="כל זוג/יחיד מביא אחד משלו"
-        onChange=${(v) => act('done', (api) => api.setPledgeDone(item.id, v))} />
-    </div>`;
+    return html`<${EachPart} item=${item} ctx=${ctx} busy=${busy} act=${act} />`;
   }
 
   if (!canPledge && !isAdmin) {
@@ -1447,6 +1517,54 @@ function MyPart({ item, prog, ctx, myPledge, busy, act }) {
   </div>`;
 }
 
+/**
+ * "החלק שלנו" of an "each" item (§19). Together (the default): one tick for the profile, "2 לזוג". A couple that
+ * brings it each their own: my tick ("ארזתי את שלי (1)"), the partner's line, open units "עוד 1 — מי מביא? [אני]",
+ * and one small link to change it for this item only.
+ */
+function EachPart({ item, ctx, busy, act }) {
+  const { me, model } = ctx;
+  const e = myEachPart(item, me, model.snap);
+  if (!e) return null;
+  const people = (me.people || []).filter(Boolean);
+  const group = people.length >= 2;
+  const unit = group ? ((Number(me.headcount) || 1) > 2 || people.length > 2 ? 'למשפחה' : 'לזוג') : null;
+  const tick = (v) => act('done', (api) => api.setPledgeDone(item.id, v));
+  const override = group
+    ? html`<button type="button" class="link small ls-each-override" data-testid="each-override" disabled=${busy === 'split'}
+        onClick=${() => act('split', (api) => api.setEachPart(item.id, { split: e.split ? 'together' : 'each' }),
+          { success: e.split ? 'בפריט הזה — מביאים ביחד 💑' : 'בפריט הזה — כל אחד את שלו 🙋' })}>
+        ${e.split ? `רק בפריט הזה: מביאים ביחד` : `רק בפריט הזה: כל אחד את שלו`}
+      </button>`
+    : null;
+  if (!e.split || !e.part) {
+    return html`<div class="ls-mypart" data-testid="each-part">
+      <h3 class="ls-mypart__title">${group ? 'החלק שלנו' : 'החלק שלי'}</h3>
+      <${Toggle} checked=${!!e.raw?.done} disabled=${busy === 'done'} label=${group ? 'ארזנו ✓' : 'ארזתי את שלי ✓'}
+        hint=${e.target > 1 ? `${e.target} ${unit || 'שלך'}` : group ? `אחד ${unit}` : 'כל זוג/יחיד מביא משלו'}
+        onChange=${tick} />
+      ${override}
+    </div>`;
+  }
+  const mine = e.part;
+  return html`<div class="ls-mypart" data-testid="each-part">
+    <h3 class="ls-mypart__title">החלק שלנו <span class="small muted">· ${e.target} ${unit}</span></h3>
+    ${mine.qty > 0
+      ? html`<${Toggle} checked=${mine.done} disabled=${busy === 'done'} label=${`ארזתי את שלי (${mine.qty})`} onChange=${tick} />`
+      : null}
+    ${e.others.map((o) => html`<p class="small ls-each-partner" key=${o.person} data-testid="each-partner">
+      ${o.person}: ${o.qty === 0 ? 'לא מביא/ה מזה' : o.done ? `ארז/ה ✓ (${o.qty})` : `עוד לא (${o.qty})`}</p>`)}
+    ${e.open > 0
+      ? html`<div class="ls-mypart__row" data-testid="each-open">
+          <span class="ls-mypart__label">עוד ${e.open} — מי מביא?</span>
+          <${Button} size="sm" variant="accent" loading=${busy === 'claim'}
+            onClick=${() => act('claim', (api) => api.setEachPart(item.id, { claim: mine.qty + 1 }), { success: `סגור — ${mine.qty + 1} עליך ✋` })}>אני</${Button}>
+        </div>`
+      : null}
+    ${override}
+  </div>`;
+}
+
 function PledgeList({ item, prog, ctx, act }) {
   const { model, isAdmin } = ctx;
   if (item.type === 'each' || !prog.pledgers.length) return null;
@@ -1467,7 +1585,7 @@ function PledgeList({ item, prog, ctx, act }) {
           <${Avatar} member=${m} size=${34} />
           <span class="list-row__main">
             <span class="list-row__title">${displayName(m)}${item.type === 'bring' && p.qty > 1 ? html` <span class="ls-qty num">×${p.qty}</span>` : null}</span>
-            ${by && by.id !== m.id ? html`<span class="list-row__sub">שובץ/ה ע״י ${displayName(by)}</span>` : null}
+            ${by && by.id !== m.id ? html`<span class="list-row__sub">שובץ/ה ע״י ${actorName(by, raw.by_person)}</span>` : null}
           </span>
           <span class="list-row__end">
             ${item.type === 'bring'
@@ -1558,22 +1676,22 @@ function MenuSheet({ open, onClose, ctx }) {
   return html`<${Sheet} open=${open} onClose=${onClose} title="עוד אפשרויות">
     <div class="stack">
       <div class="list">
-        <button type="button" class="list-row ls-menu-row" onClick=${() => go(`/t/${tripId}/import`)}>
+        ${hasModule(model.snap.trip, 'lists') || hasModule(model.snap.trip, 'tasks') ? html`<button type="button" class="list-row ls-menu-row" onClick=${() => go(`/t/${tripId}/build`)}>
+          <span class="kbd-emoji" aria-hidden="true">✨</span>
+          <span class="list-row__main">
+            <span class="list-row__title">בניית רשימה מהירה</span>
+            <span class="list-row__sub">קטגוריה אחרי קטגוריה — כותבים, Enter, והלאה</span>
+          </span>
+          <${Icon} name="chevron-left" size=${18} />
+        </button>` : null}
+        ${hasModule(model.snap.trip, 'lists') ? html`<button type="button" class="list-row ls-menu-row" onClick=${() => go(`/t/${tripId}/import`)}>
           <span class="kbd-emoji" aria-hidden="true">📥</span>
           <span class="list-row__main">
             <span class="list-row__title">ייבוא רשימה מוואטסאפ</span>
             <span class="list-row__sub">מדביקים הודעה — והיא הופכת לפריטים מסודרים</span>
           </span>
           <${Icon} name="chevron-left" size=${18} />
-        </button>
-        <button type="button" class="list-row ls-menu-row" onClick=${() => go(`/t/${tripId}/shop`)}>
-          <span class="kbd-emoji" aria-hidden="true">🛒</span>
-          <span class="list-row__main">
-            <span class="list-row__title">מצב קנייה</span>
-            <span class="list-row__sub">רשימת קניות גדולה ונוחה לסופר</span>
-          </span>
-          <${Icon} name="chevron-left" size=${18} />
-        </button>
+        </button>` : null}
       </div>
       <${ShareButton} text=${missingText} label="📤 שתף מה חסר" block />
       ${me ? html`<${ShareButton} text=${mineText} label="לשלוח לעצמי את הרשימה שלי" variant="secondary" block />` : null}

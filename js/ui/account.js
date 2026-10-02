@@ -3,10 +3,10 @@
 // People who already have a trip on this device never see it (only new joiners).
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, emailRequired, store, useStore } from '../store.js?v=65baf9b';
-import { installState, onInstallChange, promptInstall } from '../lib/device.js?v=65baf9b';
-import { EmailGate } from './email-gate.js?v=65baf9b';
-import { Button, Card, Field, Skeleton, TextInput } from './components.js?v=65baf9b';
+import { actions, emailRequired, store, useStore } from '../store.js?v=56bbb9a';
+import { installState, onInstallChange, promptInstall } from '../lib/device.js?v=56bbb9a';
+import { EmailGate } from './email-gate.js?v=56bbb9a';
+import { Button, Card, Field, Skeleton, TextInput } from './components.js?v=56bbb9a';
 
 const LATER = 'medura:email-later';
 const readLater = () => {
@@ -35,8 +35,31 @@ function Shell({ title, lead, children }) {
   </div>`;
 }
 
-/** Wraps a screen for new people: e-mail → my profile → the screen. `requireVerified` = joining a trip. */
-export function Entry({ requireVerified = false, children }) {
+/** The trip a join link leads to, before anything else ("נועה הזמינה אותך ל…") — so the first screen isn't a bare
+ *  "what's your e-mail?" that looks like phishing. */
+function TripInvite({ code }) {
+  const [p, setP] = useState(null);
+  useEffect(() => {
+    if (!code) return undefined;
+    let alive = true;
+    store.get().api.previewInvite?.(String(code).trim().toLowerCase()).then((v) => { if (alive) setP(v); }).catch(() => {});
+    return () => { alive = false; };
+  }, [code]);
+  const t = p?.trip;
+  if (!t) return null;
+  const when = t.starts_at ? new Date(t.starts_at).toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric' }) : '';
+  return html`<div class="entry__trip" data-testid="entry-trip">
+    <span class="entry__trip-emoji" aria-hidden="true">${t.emoji || '⛺'}</span>
+    <div>
+      <b>הזמינו אותך ל${t.name}</b>
+      <div class="small muted">${[when, t.location, p.member_count ? `${p.member_count} כבר בפנים` : null].filter(Boolean).join(' · ')}</div>
+    </div>
+  </div>`;
+}
+
+/** Wraps a screen for new people: e-mail → my profile → the screen. `requireVerified` = joining a trip;
+ *  `code` = the join link's code (its trip is shown on top). */
+export function Entry({ requireVerified = false, code = null, children }) {
   const ready = useStore((s) => s.ready);
   const contact = useStore((s) => s.contact);
   const trips = useStore((s) => s.trips);
@@ -54,13 +77,14 @@ export function Entry({ requireVerified = false, children }) {
   if (!verified && (requireVerified || !later)) {
     return html`<${Shell} title=${requireVerified ? 'רגע לפני שנכנסים 🔐' : 'ברוכים הבאים למדורה 🔥'}
       lead=${requireVerified ? 'מאמתים את המייל פעם אחת — ומכל מכשיר רואים את כל הטיולים שלך.' : 'מתחילים במייל — ככה כל הטיולים שלך יחכו לך בכל מכשיר.'}>
+      ${code ? html`<${TripInvite} code=${code} />` : null}
       <${EmailGate} mode="inline" initialEmail=${later}
         onLater=${requireVerified ? null : (email) => { writeLater(email || 'later'); setLater(email || 'later'); }} />
     </${Shell}>`;
   }
   if (verified) {
     if (account === undefined) return html`<${Shell} title="רגע…"><${Skeleton} lines=${3} /></${Shell}>`;
-    if (!account?.name) return html`<${AccountStep} account=${account} onDone=${setAccount} />`;
+    if (!account?.name) return html`<${AccountStep} account=${account} onDone=${setAccount} top=${code ? html`<${TripInvite} code=${code} />` : null} />`;
   }
   return children;
 }
@@ -76,7 +100,7 @@ export function cleanPhone(p) {
 }
 
 /** "הפרופיל שלי": the person — name, phone, the app on the home screen. */
-export function AccountStep({ account, onDone }) {
+export function AccountStep({ account, onDone, top = null }) {
   const [name, setName] = useState(account?.name || '');
   const [phone, setPhone] = useState(account?.phone || '');
   const [error, setError] = useState(null);
@@ -94,6 +118,7 @@ export function AccountStep({ account, onDone }) {
     return undefined;
   };
   return html`<${Shell} title="הפרופיל שלי 🙂" lead="פעם אחת, לכל הטיולים. אפשר לשנות אחר כך במסך ״אני״.">
+    ${top}
     <${Card}>
       <form class="stack" onSubmit=${save} noValidate data-testid="account-step">
         <${Field} label="איך קוראים לך?" error=${error}>

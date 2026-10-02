@@ -2,10 +2,10 @@
 // summary and every push also go there. Two steps: address → 6-digit code.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore } from '../store.js?v=65baf9b';
-import { navigate } from '../router.js?v=65baf9b';
-import { hebrewError, toApiError } from '../api/errors.js?v=65baf9b';
-import { Button, Card, Field, TextInput } from './components.js?v=65baf9b';
+import { actions, store, useStore } from '../store.js?v=56bbb9a';
+import { navigate } from '../router.js?v=56bbb9a';
+import { hebrewError, toApiError } from '../api/errors.js?v=56bbb9a';
+import { Button, Card, Field, TextInput } from './components.js?v=56bbb9a';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
 const RESEND_S = 30;
@@ -115,7 +115,7 @@ export function EmailGate({ mode: purpose = 'gate', initialEmail = '', onLater =
     <div class="email-gate__head">
       <span class="email-gate__emoji" aria-hidden="true">${step === 'email' ? (signin ? '🔑' : '📬') : step === 'none' ? '🤔' : '🔐'}</span>
       <h1 class="email-gate__title">
-        ${step === 'email' ? (signin ? 'התחברות עם המייל' : 'רגע לפני שנכנסים — מה המייל שלך?') : step === 'none' ? 'לא מצאנו פרופיל עם המייל הזה' : 'שלחנו לך קוד'}
+        ${step === 'email' ? (signin ? 'התחברות עם המייל' : inline ? 'מה המייל שלך?' : 'רגע לפני שנכנסים — מה המייל שלך?') : step === 'none' ? 'לא מצאנו פרופיל עם המייל הזה' : 'שלחנו לך קוד'}
       </h1>
       <p class="email-gate__text">
         ${step === 'email'

@@ -3,23 +3,27 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=65baf9b';
-import { navigate } from '../router.js?v=65baf9b';
+import { actions, store, useTrip } from '../store.js?v=56bbb9a';
+import { href, navigate } from '../router.js?v=56bbb9a';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
-  membersById, settlePlan, timeAgo, tripTotals, whatsappChatUrl,
-} from '../lib/logic.js?v=65baf9b';
+  memberNets, membersById, openMoneyRequests, partyBalances, partyName, partyOf, payingMembers, personPhone, personsOf,
+  settleNets, settlePlan, splitsMoney, timeAgo, tripTotals, whatsappChatUrl,
+} from '../lib/logic.js?v=56bbb9a';
 import {
-  Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, IconButton, MemberPicker, MoneyInput, Pill,
-  ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, confirmDialog, fireConfetti,
-} from '../ui/components.js?v=65baf9b';
-import { Icon } from '../ui/icons.js?v=65baf9b';
-import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=65baf9b';
-import { MoneyRequests } from './money-requests.js?v=65baf9b';
+  Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, Fold, MemberPicker, MoneyInput, OverBanner, Pill,
+  ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, confirmDialog, fireConfetti, tripOver,
+} from '../ui/components.js?v=56bbb9a';
+import { Icon } from '../ui/icons.js?v=56bbb9a';
+import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=56bbb9a';
+import { MoneyRequests, payMethodsOf } from './money-requests.js?v=56bbb9a';
+import { expenseTagsFor } from '../lib/templates.js?v=56bbb9a';
+import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=56bbb9a';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
-/** |balance| under ₪1 counts as settled — settlePlan drops transfers under ₪1 too. */
+/** Under ₪1 counts as settled — settlePlan drops transfers under ₪1 too. Every "how much" on this screen is the
+ *  plan's own whole-shekel number (settleNets), so the header always equals the transfers under it. */
 const EVEN_BELOW = 1;
 const MAX_AMOUNT = 100000;
 const PAYMENTS_PREVIEW = 5;
@@ -33,6 +37,19 @@ const METHODS = [
   { value: 'other', label: 'אחר', emoji: '✨' },
 ];
 const methodOf = (value) => METHODS.find((m) => m.value === value) || METHODS[METHODS.length - 1];
+
+/**
+ * The trip's expense tags ([{e, n}]) when it has its own (settings.money.tags — seeded from the sub-type, design
+ * §2.4); null ⇒ the older trips keep today's category chips.
+ */
+export function tripTags(trip) {
+  const own = trip?.settings?.money?.tags;
+  if (!Array.isArray(own) || !own.length) return null;
+  const tags = expenseTagsFor(trip);
+  return tags.length ? tags : null;
+}
+/** A stored tag name → {e, n} (a tag since removed from the trip still shows, with a generic emoji). */
+const tagOf = (tags, name) => (name ? (tags || []).find((t) => t.n === name) || { e: '🏷️', n: name } : null);
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -142,12 +159,24 @@ export default function MoneyScreen({ route }) {
   const model = useMemo(() => {
     if (!ready) return null;
     const bals = balances(snap);
+    // who settles (SPEC §19): a couple that pays each their own part settles per person — its rows are keyed
+    // `${member_id}::${person}`; with nobody splitting this is exactly balances() / settlePlan(balances)
+    const pbals = partyBalances(snap);
+    const person = snap.me?.person || null;
+    const split = splitsMoney(me) && Boolean(person) && (me.people || []).includes(person);
+    const myKey = split ? `${me.id}::${person}` : me.id;
+    const plan = settlePlan(pbals);
     return {
       bals,
-      plan: settlePlan(bals),
+      pbals,
+      myKey,
+      plan,
+      nets: settleNets(plan),
+      mnets: memberNets(snap, plan),
       totals: tripTotals(snap),
       byId: membersById(snap.members),
-      mine: bals.find((b) => b.member_id === me.id) || null,
+      mine: pbals.find((b) => b.key === myKey) || bals.find((b) => b.member_id === me.id) || null,
+      ours: split ? bals.find((b) => b.member_id === me.id) || null : null,
       balById: new Map(bals.map((b) => [b.member_id, b])),
     };
   }, [ready, snap, me?.id]);
@@ -159,6 +188,14 @@ export default function MoneyScreen({ route }) {
       navigate(`/t/${tripId}/money`, { replace: true });
     }
   }, [ready, route.query.new]);
+
+  // Deep link: #/t/<id>/money?pay=me (the home "✓ שילמתי") opens "I paid" for my (first) transfer in the plan.
+  useEffect(() => {
+    if (!ready || !model || route.query.pay !== 'me') return;
+    const t = model.plan.find((x) => x.from === model.myKey || partyOf(x.from).member_id === me.id);
+    if (t) openPay({ kind: 'paid', from: t.from, to: t.to, amount: t.amount });
+    navigate(`/t/${tripId}/money`, { replace: true });
+  }, [ready, route.query.pay]);
 
   // Someone else deleted the expense whose sheet is open → close it gently.
   // (My own delete closes the sheet itself; `selfDeleted` keeps it from double-toasting.)
@@ -172,10 +209,19 @@ export default function MoneyScreen({ route }) {
   }, [expGone]);
 
   if (!ready || !model) return html`<${MoneySkeleton} />`;
+  const over = tripOver(snap.trip);
 
-  const { bals, plan, totals, byId, mine, balById } = model;
-  const nameOf = (id) => (id === me.id ? YOU : displayName(byId.get(id)));
+  const { bals, pbals, myKey, plan, nets, mnets, totals, byId, mine, ours, balById } = model;
+  // a settle-up party (a profile, or one person of a couple that pays each their own part)
+  const nameOf = (key) => (key === myKey || key === me.id ? YOU : partyName(snap, key));
+  // mine: my own line — or, on a device that hasn't said who it is, any line of my profile
+  const isMine = (key) => key === myKey || (myKey === me.id && partyOf(key).member_id === me.id);
+  // a payment's side: the person when that profile pays each their own part
+  const sideKey = (memberId, person) => (person && splitsMoney(byId.get(memberId)) ? `${memberId}::${person}` : memberId);
   const active = snap.expenses.length > 0 || snap.payments.length > 0;
+  // my one number: what my transfers in the plan add up to (whole shekels; + = I get, − = I pay)
+  const netOf = (p) => p.reduce((n, t) => n + (isMine(t.to) ? t.amount : 0) - (isMine(t.from) ? t.amount : 0), 0);
+  const myNet = netOf(plan);
 
   const onExpenseSaved = (id) => {
     if (!id) return;
@@ -189,11 +235,9 @@ export default function MoneyScreen({ route }) {
 
   // A payment that settles my own debt deserves a little party.
   const onPaymentSaved = () => {
-    const before = mine?.balance ?? 0;
     const after = store.get().snap;
     if (!after || after.trip?.id !== tripId) return;
-    const now = balances(after).find((b) => b.member_id === me.id);
-    if (before <= -EVEN_BELOW && now && Math.abs(now.balance) < EVEN_BELOW) fireConfetti();
+    if (myNet <= -EVEN_BELOW && Math.abs(netOf(settlePlan(partyBalances(after)))) < EVEN_BELOW) fireConfetti();
   };
 
   const confirmPayment = async (p) => {
@@ -207,7 +251,7 @@ export default function MoneyScreen({ route }) {
   const deletePayment = async (p) => {
     const ok = await confirmDialog({
       title: 'למחוק את ההעברה?',
-      text: `${nameOf(p.from_member)} ← ${nameOf(p.to_member)} · ${formatMoney(p.amount)}. ההתחשבנות תחושב מחדש.`,
+      text: `${nameOf(sideKey(p.from_member, p.from_person))} ← ${nameOf(sideKey(p.to_member, p.to_person))} · ${formatMoney(p.amount)}. ההתחשבנות תחושב מחדש.`,
       confirmText: 'כן, למחוק',
       danger: true,
     });
@@ -217,20 +261,55 @@ export default function MoneyScreen({ route }) {
     setBusyId(null);
   };
 
+  const waitingForMe = snap.payments.filter((p) => p.status !== 'confirmed' && p.from_member !== me.id && (p.to_member === me.id || admin)).length;
+  const payments = snap.payments.length
+    ? html`<${PaymentsSection}
+        snap=${snap}
+        me=${me}
+        admin=${admin}
+        byId=${byId}
+        nameOf=${nameOf}
+        sideKey=${sideKey}
+        busyId=${busyId}
+        onConfirm=${confirmPayment}
+        onDelete=${deletePayment}
+        bare=${over}
+      />`
+    : null;
+  const expenses = html`<${ExpensesSection}
+    snap=${snap}
+    me=${me}
+    byId=${byId}
+    totals=${totals}
+    flashId=${flashId}
+    onOpen=${(expense) => openExpense({ expense })}
+    onAdd=${active ? () => openExpense({}) : null}
+    bare=${over}
+  />`;
+  const table = active ? html`<${MembersTable} snap=${snap} me=${me} balById=${balById} pbals=${pbals} myKey=${myKey} nets=${nets} mnets=${mnets} />` : null;
+  // open = something is still to pay or to confirm (a share the settle-up covered isn't)
+  const openReqs = openMoneyRequests(snap).length;
+
+  // order (ux M1): hero → who pays whom (my row first) → requests → transfers → expenses → the table.
+  // Once the trip is over (A2): the same, folded to one row each, no FAB.
   return html`<div class="screen money">
+    <${OverBanner} trip=${snap.trip} text="סוגרים חשבון" />
     <${Hero}
       snap=${snap}
       me=${me}
       mine=${mine}
+      net=${myNet}
+      oursNet=${ours ? mnets.get(me.id) || 0 : null}
       totals=${totals}
       plan=${plan}
+      isMine=${isMine}
+      nameOf=${nameOf}
       active=${active}
+      over=${over}
       onAdd=${() => openExpense({})}
     />
 
-    <${MoneyRequests} snap=${snap} me=${me} admin=${admin} />
-
-    ${active ? html`<${PayStyle} me=${me} />` : null}
+    <${LateJoinNote} snap=${snap} me=${me} byId=${byId} />
 
     ${active
       ? html`<${SettleCard}
@@ -241,37 +320,34 @@ export default function MoneyScreen({ route }) {
           bals=${bals}
           byId=${byId}
           nameOf=${nameOf}
+          isMine=${isMine}
           onPay=${openPay}
-        />`
-      : html`<${HowItWorks} />`}
-
-    ${snap.payments.length
-      ? html`<${PaymentsSection}
-          snap=${snap}
-          me=${me}
-          admin=${admin}
-          byId=${byId}
-          nameOf=${nameOf}
-          busyId=${busyId}
-          onConfirm=${confirmPayment}
-          onDelete=${deletePayment}
+          over=${over}
         />`
       : null}
 
-    <${ExpensesSection}
-      snap=${snap}
-      me=${me}
-      byId=${byId}
-      totals=${totals}
-      flashId=${flashId}
-      onOpen=${(expense) => openExpense({ expense })}
-      onAdd=${active ? () => openExpense({}) : null}
-    />
+    ${over
+      ? html`
+        ${active ? html`<${Fold} emoji="🧾" title="הוצאות" count=${snap.expenses.length} meta=${html`<${Money} value=${totals.spent} />`} data-testid="fold-expenses">${expenses}</${Fold}>` : null}
+        ${payments ? html`<${Fold} emoji="💳" title="העברות" count=${snap.payments.length} open=${waitingForMe > 0} data-testid="fold-payments">${payments}</${Fold}>` : null}
+        ${(snap.money_requests || []).length
+          ? html`<${Fold} emoji="💰" title="בקשות" count=${openReqs ? (openReqs === 1 ? 'אחת פתוחה' : `${openReqs} פתוחות`) : (snap.money_requests || []).length} data-testid="fold-requests">
+              <${MoneyRequests} snap=${snap} me=${me} admin=${admin} />
+            </${Fold}>`
+          : null}
+        ${table ? html`<${Fold} emoji="⚖️" title="מאזן לפי חבר׳ה" count=${snap.members.length} data-testid="fold-table">${table}</${Fold}>` : null}
+        <button type="button" class="link money-forgot" data-testid="money-forgot" onClick=${() => openExpense({})}>שכחנו הוצאה? + הוספה</button>`
+      : html`
+        <${MoneyRequests} snap=${snap} me=${me} admin=${admin} />
+        ${payments}
+        ${active || snap.expenses.length ? expenses : null}
+        ${table ? html`<${Fold} emoji="⚖️" title="מאזן לפי חבר׳ה" count=${snap.members.length} data-testid="fold-table">${table}</${Fold}>` : null}`}
 
-    ${active ? html`<${MembersTable} snap=${snap} me=${me} balById=${balById} />` : null}
+    ${admin
+      ? html`<a class="money-settings small" href=${href(`/t/${tripId}/trip?edit=1&section=money`)} data-testid="money-settings">⚙️ מטבעות · פטורים ‹</a>`
+      : null}
 
-    <div class="money__fab-space" aria-hidden="true"></div>
-    <${Fab} icon="🧾" label="הוצאה חדשה" onClick=${() => openExpense({})} />
+    ${!over && active ? html`<${Fab} icon="🧾" label="הוצאה חדשה" onClick=${() => openExpense({})} />` : null}
 
     <${ExpenseSheet}
       key=${`exp-${expenseSheet.seq}`}
@@ -291,6 +367,8 @@ export default function MoneyScreen({ route }) {
       snap=${snap}
       me=${me}
       byId=${byId}
+      myKey=${myKey}
+      nameOf=${nameOf}
       onClose=${closePay}
       onSaved=${onPaymentSaved}
     />
@@ -318,99 +396,135 @@ function MoneySkeleton() {
 // hero: my balance + trip totals
 // ---------------------------------------------------------------------------
 
-function Hero({ snap, me, mine, totals, plan, active, onAdd }) {
-  const balance = mine?.balance ?? 0;
-  const state = !active ? 'empty' : balance >= EVEN_BELOW ? 'credit' : balance <= -EVEN_BELOW ? 'debt' : 'even';
-  const animated = useCountUp(Math.abs(balance));
+const HOW_STEPS = [
+  ['🧾', 'מי שקונה משהו לטיול — רושם/ת כאן הוצאה'],
+  ['👫', 'החשבון מתחלק אוטומטית לפי ראשים: זוג = 2 חלקים'],
+  ['🤝', 'בסוף רואים מי מעביר למי, ומסמנים ״שילמתי ✓״'],
+];
+
+function Hero({ snap, me, mine, net = 0, oursNet = null, totals, plan, isMine, nameOf, active, onAdd, over = false }) {
+  // the plan's own number (whole shekels) — the same one the transfers below add up to
+  const state = !active ? 'empty' : net >= EVEN_BELOW ? 'credit' : net <= -EVEN_BELOW ? 'debt' : 'even';
+  const animated = useCountUp(Math.abs(net));
 
   if (state === 'empty') {
+    // one card (ux M7): what this is, three steps as text, one button
     return html`<section class="money-hero money-hero--empty" data-testid="money-hero" data-state="empty" aria-labelledby="money-hero-title">
       <span class="money-hero__art" aria-hidden="true">🧾</span>
       <div class="money-hero__kicker">💸 הקופה של הטיול</div>
       <h1 class="money-hero__title" id="money-hero-title">עוד לא נרשמו הוצאות</h1>
-      <p class="money-hero__text">קניתם משהו לטיול? רושמים כאן — והחשבון מתחלק לבד לפי ראשים.</p>
+      <p class="money-hero__how-title">איך זה עובד?</p>
+      <ol class="money-how money-how--hero">
+        ${HOW_STEPS.map(([emoji, text]) => html`<li class="money-how__step"><span aria-hidden="true">${emoji}</span><span>${text}</span></li>`)}
+      </ol>
       <div class="money-hero__cta">
-        <${Button} variant="secondary" icon="plus" onClick=${onAdd}>הוספת הוצאה ראשונה</${Button}>
+        <${Button} variant="primary" icon="plus" onClick=${onAdd}>הוספת הוצאה ראשונה</${Button}>
       </div>
     </section>`;
   }
 
-  const toMe = plan.filter((t) => t.to === me.id).length;
-  const fromMe = plan.filter((t) => t.from === me.id).length;
+  const toMe = plan.filter((t) => isMine(t.to)).length;
+  const fromMe = plan.filter((t) => isMine(t.from));
   const parts = [
     html`החלק שלך <${Money} value=${mine?.owed ?? 0} />`,
     html`שילמת <${Money} value=${mine?.paid ?? 0} />`,
   ];
   if (mine?.sent > 0) parts.push(html`העברת <${Money} value=${mine.sent} />`);
   if (mine?.received > 0) parts.push(html`קיבלת <${Money} value=${mine.received} />`);
+  const exempt = new Set(Array.isArray(snap.trip.settings?.money?.exempt) ? snap.trip.settings.money.exempt : []);
+  const exemptNames = snap.members.filter((m) => exempt.has(m.id)).map(displayName);
 
   const art = { credit: '💰', debt: '💸', even: '✨' }[state];
-  return html`<section class=${`money-hero money-hero--${state}`} data-testid="money-hero" data-state=${state} aria-labelledby="money-hero-title">
+  return html`<section class=${cx('money-hero', `money-hero--${state}`, over && 'money-hero--over')} data-testid="money-hero" data-state=${state} aria-labelledby="money-hero-title">
     <span class="money-hero__art" aria-hidden="true">${art}</span>
-    <div class="money-hero__kicker">💸 הקופה של הטיול</div>
     ${state === 'even'
       ? html`<h1 class="money-hero__title money-hero__title--even" id="money-hero-title" data-testid="money-balance-label">את/ה מאוזנ/ת ✨</h1>`
-      : html`<h1 class="money-hero__balance" id="money-hero-title">
+      // the amount is written once: the count-up is what's seen, the heading's label is what's read out
+      : html`<h1 class="money-hero__balance" id="money-hero-title" aria-label=${`${state === 'credit' ? 'מגיע לך' : 'עליך להעביר'} ${formatMoney(Math.abs(net))}`}>
           <span class="money-hero__label" data-testid="money-balance-label">${state === 'credit' ? 'מגיע לך' : 'עליך להעביר'}</span>
-          <span class="money-hero__amount" data-testid="money-balance-amount" aria-hidden="true"><${Money} value=${animated} /></span>
-          <span class="sr-only">${formatMoney(Math.abs(balance))}</span>
+          <span class="money-hero__amount" data-testid="money-balance-amount" data-amount=${Math.abs(net)}><${Money} value=${animated} /></span>
         </h1>`}
     <p class="money-hero__breakdown" data-testid="money-breakdown">
       ${parts.map((p, i) => html`${i ? html`<span class="money-hero__sep" aria-hidden="true"> · </span>` : null}<span>${p}</span>`)}
     </p>
-    ${state === 'debt' && fromMe
-      ? html`<div class="money-hero__cta"><${Button} variant="secondary" size="sm" icon="chevron-down" onClick=${() => scrollToId('money-settle')}>למי מעבירים?</${Button}></div>`
+    ${oursNet !== null
+      // each of us pays our own part (§19): the hero is me; the couple as a whole in one small line
+      ? html`<p class="money-hero__ours small" data-testid="money-ours">💑 ${(me.people || []).length > 2 ? 'המשפחה' : 'הזוג'} יחד:${' '}
+          ${Math.abs(oursNet) < EVEN_BELOW ? 'מאוזנים ✨' : html`${oursNet > 0 ? 'מגיע לכם' : 'עליכם'} <${Money} value=${Math.abs(oursNet)} />`}</p>`
+      : null}
+    <p class="money-hero__line" data-testid="money-line">
+      <span><${Money} value=${totals.spent} data-testid="money-total" /> הוצאות</span><span class="money-hero__sep" aria-hidden="true"> · </span>
+      <span><${Money} value=${totals.perHead} data-testid="money-per-head" /> לאדם</span><span class="money-hero__sep" aria-hidden="true"> · </span>
+      <span><span class="num" data-testid="money-heads">${totals.heads}</span> משתתפים</span>
+      ${exemptNames.length ? html`<span class="money-hero__sep" aria-hidden="true"> · </span><span>${exemptNames.join(', ')} ${exemptNames.length > 1 ? 'פטורים' : 'פטור/ה'} 🎁</span>` : null}
+    </p>
+    ${over
+      ? null
+      : state === 'debt' && fromMe.length
+      ? html`<div class="money-hero__cta"><${Button} variant="secondary" size="sm" icon="chevron-down" onClick=${() => scrollToId('money-settle')}>
+          למי: ${fromMe.map((t) => nameOf(t.to)).join(', ')}
+        </${Button}></div>`
       : state === 'credit' && toMe
         ? html`<div class="money-hero__cta"><${Button} variant="secondary" size="sm" icon="chevron-down" onClick=${() => scrollToId('money-settle')}>
             ${toMe === 1 ? 'מחכה לך העברה אחת' : `מחכות לך ${toMe} העברות`}
           </${Button}></div>`
         : null}
-    <dl class="money-hero__stats">
-      <div class="money-stat">
-        <dt class="money-stat__label">סה״כ הוצאות</dt>
-        <dd class="money-stat__value" data-testid="money-total"><${Money} value=${totals.spent} /></dd>
-      </div>
-      <div class="money-stat">
-        <dt class="money-stat__label">לאדם</dt>
-        <dd class="money-stat__value" data-testid="money-per-head"><${Money} value=${totals.perHead} /></dd>
-      </div>
-      <div class="money-stat">
-        <dt class="money-stat__label">משתתפים</dt>
-        <dd class="money-stat__value num" data-testid="money-heads">${totals.heads}</dd>
-      </div>
-    </dl>
   </section>`;
 }
 
-function HowItWorks() {
-  const steps = [
-    ['🧾', 'מי שקונה משהו לטיול — רושם/ת כאן הוצאה'],
-    ['👫', 'החשבון מתחלק אוטומטית לפי ראשים: זוג = 2 חלקים'],
-    ['🤝', 'בסוף רואים מי מעביר למי, ומסמנים ״שילמתי ✓״'],
-  ];
-  return html`<${Card} title="איך זה עובד?" emoji="💡">
-    <ol class="money-how">
-      ${steps.map(([emoji, text]) => html`<li class="money-how__step"><span class="kbd-emoji" aria-hidden="true">${emoji}</span><span>${text}</span></li>`)}
-    </ol>
-  </${Card}>`;
+/**
+ * Someone who joined after money was already recorded: an expense split among "everyone" includes whoever joins
+ * later, a payment request sent before doesn't. Say which expenses are in my part (and how much), and which
+ * requests I'm not on — instead of an unexplained "עליך ₪1,700".
+ */
+function LateJoinNote({ snap, me, byId }) {
+  const joined = Date.parse(me.created_at || '');
+  if (!Number.isFinite(joined)) return null;
+  const rows = snap.expenses
+    .filter((x) => x.split_mode !== 'members' && Date.parse(x.created_at) < joined)
+    .map((x) => ({ exp: x, share: expenseShares(x, snap).find((s) => s.member_id === me.id)?.amount || 0 }))
+    .filter((r) => r.share > 0);
+  const onIt = new Set((snap.money_request_members || []).filter((x) => x.member_id === me.id).map((x) => x.request_id));
+  const missed = (snap.money_requests || []).filter((q) => q.status === 'open' && q.requested_by !== me.id
+    && !onIt.has(q.id) && Date.parse(q.created_at) < joined);
+  if (!rows.length && !missed.length) return null;
+  const sum = rows.reduce((n, r) => n + Math.round(r.share * 100), 0) / 100;
+  const askers = [...new Set(missed.map((q) => displayName(byId.get(q.requested_by))))].join(', ');
+  return html`<details class="money-late" data-testid="money-late">
+    <summary class="money-late__row">
+      <span aria-hidden="true">ℹ️</span>
+      <span class="money-late__text">${rows.length
+        ? html`הצטרפת אחרי ש${rows.length === 1 ? 'הוצאה אחת כבר נרשמה' : `־${rows.length} הוצאות כבר נרשמו`} — החלק שלך ${rows.length === 1 ? 'בה' : 'בהן'} <b><${Money} value=${sum} /></b>`
+        : 'בקשות תשלום שנשלחו לפני שהצטרפת לא כוללות אותך'}</span>
+      <${Icon} name="chevron-down" size=${16} />
+    </summary>
+    ${rows.length
+      ? html`<p class="small">הוצאה שמתחלקת בין ״כולם״ כוללת גם את מי שמצטרף אחר כך — לכן היא חלק מהחשבון שלך:</p>
+        <ul class="money-late__list">
+          ${rows.map((r) => html`<li key=${r.exp.id}><span class="truncate">${r.exp.title} · ${displayName(byId.get(r.exp.paid_by))}</span>
+            <span class="num">חלקך <${Money} value=${r.share} /></span></li>`)}
+        </ul>
+        <p class="tiny muted">לא השתתפת באחת מהן? מי ששילם/ה אותה (או מנהל/ת) יכולים לערוך אותה ולבחור ״רק חלק״.</p>`
+      : null}
+    ${missed.length
+      ? html`<p class="small" data-testid="money-late-requests">${rows.length ? 'ולהפך: ' : ''}בקשות תשלום שנשלחו לפני שהצטרפת לא כוללות אותך —${' '}
+          ${missed.map((q) => `״${q.title}״`).join(', ')}. גם את/ה משתתף/ת? בקשו מ${askers} להוסיף אותך לבקשה.</p>`
+      : null}
+  </details>`;
 }
 
 // ---------------------------------------------------------------------------
 // settle plan: who pays whom
 // ---------------------------------------------------------------------------
 
-function Pair({ from, to, size = 34 }) {
-  return html`<span class="money-pair" aria-hidden="true">
-    <${Avatar} member=${from} size=${size} />
-    <span class="money-pair__arrow"><${Icon} name="arrow-left" size=${16} /></span>
-    <${Avatar} member=${to} size=${size} />
-  </span>`;
-}
-
-function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, onPay }) {
+function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, isMine, onPay, over }) {
   const trip = snap.trip;
-  const rank = (t) => (t.from === me.id ? 0 : t.to === me.id ? 1 : 2);
+  const rank = (t) => (isMine(t.from) ? 0 : isMine(t.to) ? 1 : 2);
   const rows = [...plan].sort((a, b) => rank(a) - rank(b));
+  const mineRows = rows.filter((t) => rank(t) < 2);
+  // after the trip (ux A2): my row, then "עוד N העברות בין החבר'ה" folded
+  const others = over ? rows.filter((t) => rank(t) === 2) : [];
+  const listed = over ? mineRows : rows;
 
   // Progress: what was already sent vs. what is still left to transfer.
   const sentCents = bals.reduce((s, b) => s + Math.round(b.sent * 100), 0);
@@ -429,28 +543,40 @@ function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, onPay }) {
       ${sentCents > 0 || leftCents > 0
         ? html`<div class="money-progress" data-testid="money-progress">
             <div class="row row--between small">
-              <span>הועברו <${Money} value=${sentCents / 100} /> מתוך <${Money} value=${(sentCents + leftCents) / 100} /></span>
+              <span>הועברו <${Money} value=${Math.round(sentCents / 100)} /> מתוך <${Money} value=${Math.round((sentCents + leftCents) / 100)} /></span>
               <strong class="num">${pct}%</strong>
             </div>
             <${ProgressBar} value=${pct} tone="success" label="התקדמות ההתחשבנות" />
           </div>`
         : null}
 
+      ${mineRows.length && !over ? html`<${PayStyle} snap=${snap} me=${me} />` : null}
       ${rows.length
         ? html`<ul class="settle-list" data-testid="settle-list">
-            ${rows.map((t) => html`<${SettleRow}
+            ${listed.map((t) => html`<${SettleRow}
               key=${`${t.from}>${t.to}`}
               t=${t}
               trip=${trip}
               me=${me}
               admin=${admin}
-              from=${byId.get(t.from)}
-              to=${byId.get(t.to)}
+              from=${byId.get(partyOf(t.from).member_id)}
+              to=${byId.get(partyOf(t.to).member_id)}
+              toPay=${payMethodsOf(snap, partyOf(t.to).member_id)}
               nameOf=${nameOf}
+              isMine=${isMine}
               onPay=${onPay}
             />`)}
           </ul>
-          <p class="tiny muted money-note">הסכומים מעוגלים לשקל. אחרי ההעברה מסמנים כאן — וזה יורד מהחשבון.</p>`
+          ${others.length
+            ? html`<${Fold} title="עוד העברות בין החבר׳ה" count=${others.length} class="settle-more" data-testid="settle-more">
+                <ul class="settle-list">
+                  ${others.map((t) => html`<${SettleRow} key=${`${t.from}>${t.to}`} t=${t} trip=${trip} me=${me} admin=${admin}
+                    from=${byId.get(partyOf(t.from).member_id)} to=${byId.get(partyOf(t.to).member_id)}
+                    toPay=${payMethodsOf(snap, partyOf(t.to).member_id)} nameOf=${nameOf} isMine=${isMine} onPay=${onPay} />`)}
+                </ul>
+              </${Fold}>`
+            : null}
+          ${over ? null : html`<p class="tiny muted money-note">הסכומים מעוגלים לשקל. אחרי ההעברה מסמנים כאן — וזה יורד מהחשבון.</p>`}`
         : html`<div class="money-settled" data-testid="settle-empty">
             <span class="money-settled__emoji" aria-hidden="true">🎉</span>
             <div>
@@ -460,94 +586,96 @@ function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, onPay }) {
           </div>`}
 
       <div class="money-settle__foot">
-        <${ShareButton} text=${summary} label="שתף התחשבנות" size="sm" />
+        <${ShareButton} text=${summary} label="שיתוף ההתחשבנות" size="sm" variant="ghost" />
         <${Button} variant="ghost" size="sm" icon="plus" onClick=${() => onPay({ kind: 'free' })}>רישום העברה</${Button}>
       </div>
     </${Card}>
   </section>`;
 }
 
-/** Whole shekels split as evenly as possible (the first ones get the extra shekel). */
-function splitWhole(amount, n) {
-  const total = Math.round(Number(amount) || 0);
-  const base = Math.floor(total / n);
-  return Array.from({ length: n }, (_, i) => base + (i < total - base * n ? 1 : 0));
-}
-
-/** How a profile of 2+ pays its share: one transfer, or each person their part (prefs.pay). */
-function PayStyle({ me }) {
-  const [busy, setBusy] = useState(false);
+/** How a profile of 2+ settles (prefs.pay, SPEC §19) — a shortcut to the "💑 הזוג שלנו" choice on "אני". */
+function PayStyle({ snap, me }) {
   if ((me.people || []).length < 2) return null;
-  const value = me.prefs?.pay === 'each' ? 'each' : 'together';
-  const set = async (v) => {
-    if (v === value) return;
-    setBusy(true);
-    await actions.run(async (api) => { await api.updateMember(me.id, { prefs: { pay: v } }); return true; },
-      { success: v === 'each' ? 'מעכשיו כל אחד רואה ומעביר את החלק שלו 🙋' : 'מעכשיו העברה אחת לכולכם 💑' });
-    setBusy(false);
-  };
   return html`<div class="money-paystyle" data-testid="pay-style">
     <span class="small"><b>איך אתם משלמים?</b></span>
-    <${Segmented} label="איך אתם משלמים?" value=${value} onChange=${set} disabled=${busy}
-      options=${[{ value: 'together', label: '💑 קופה אחת' }, { value: 'each', label: '🙋 כל אחד לחוד' }]} />
+    <${Segmented} label="איך אתם משלמים?" value=${prefOf(me, 'pay')} onChange=${(v) => chooseCouple(snap, me, 'pay', v)}
+      options=${PAY_OPTIONS} class="me-couple__seg" />
   </div>`;
 }
 
-function SettleRow({ t, trip, me, admin, from, to, nameOf, onPay }) {
-  const mineOut = t.from === me.id;
-  const mineIn = t.to === me.id;
+function SettleRow({ t, trip, me, admin, from, to, toPay, nameOf, isMine, onPay }) {
+  const mineOut = isMine(t.from);
+  const mineIn = !mineOut && isMine(t.to);
+  // inside one profile (a couple that pays each their own part, §19): "עידו → נועה · בתוך הזוג"
+  const inside = partyOf(t.from).member_id === partyOf(t.to).member_id;
+  const toPerson = partyOf(t.to).person;
+  const fromPerson = partyOf(t.from).person;
+  const phoneOf = (m, person) => (person ? personPhone(m, personsOf(m).find((p) => p.name === person) || null) : m?.phone || null);
   const tripLabel = `${trip.emoji || '⛺'} ${trip.name}`;
   let actionsNode = null;
+  // a sentence, not an arrow (ux M2): "את/ה מעביר/ה למאיה ורון ₪153"
+  const who = mineOut
+    ? html`<span class="money-name">${YOU}</span> מעביר/ה ל<span class="money-name">${nameOf(t.to)}</span>`
+    : mineIn
+      ? html`<span class="money-name">${nameOf(t.from)}</span> מעביר/ה לך`
+      : html`<span class="money-name">${nameOf(t.from)}</span> מעביר/ה ל<span class="money-name">${nameOf(t.to)}</span>`;
 
   if (mineOut) {
-    const phone = to?.phone;
+    // how they like to get paid: the Bit / PayBox of their payment requests, else the profile phone
+    const bit = toPay?.bit || null;
+    const paybox = toPay?.paybox || null;
+    const phone = (inside ? phoneOf(to, toPerson) : phoneOf(to, toPerson) || bit) || null;
     const chat = phone ? whatsappChatUrl(phone, `היי! לגבי ${tripLabel} — מעביר/ה לך ${formatMoney(t.amount)} 💸`) : null;
     actionsNode = html`<div class="settle-row__actions">
-      <${Button} onClick=${() => onPay({ kind: 'paid', from: t.from, to: t.to, amount: t.amount })}>שילמתי ✓</${Button}>
-      ${phone
-        ? html`<${CopyButton} text=${copyablePhone(phone)} size="sm" label=${html`<bdi dir="ltr">${prettyPhone(phone)}</bdi>`} />`
-        : null}
-      ${chat
-        ? html`<${Button} variant="share" size="sm" icon="send" href=${chat} target="_blank" rel="noopener noreferrer">וואטסאפ</${Button}>`
-        : null}
-      ${!phone
-        ? html`<p class="settle-row__hint tiny muted">ל${nameOf(t.to)} אין מספר בפרופיל — בקשו אותו בקבוצה 🙂</p>`
+      <${Button} block onClick=${() => onPay({ kind: 'paid', from: t.from, to: t.to, amount: t.amount })}>שילמתי ✓</${Button}>
+      <div class="settle-row__links">
+        ${bit
+          ? html`<${CopyButton} text=${copyablePhone(bit)} size="sm" variant="ghost" label=${html`📱 ביט <bdi dir="ltr">${prettyPhone(bit)}</bdi>`} />`
+          : phone
+            ? html`<${CopyButton} text=${copyablePhone(phone)} size="sm" variant="ghost" label=${html`<bdi dir="ltr">${prettyPhone(phone)}</bdi>`} />`
+            : null}
+        ${paybox
+          ? html`<${CopyButton} text=${paybox} size="sm" variant="ghost" label=${html`📦 פייבוקס <bdi dir="ltr">${paybox.length > 18 ? `${paybox.slice(0, 16)}…` : paybox}</bdi>`} />`
+          : null}
+        ${chat
+          ? html`<${Button} variant="ghost" size="sm" icon="send" href=${chat} target="_blank" rel="noopener noreferrer">וואטסאפ</${Button}>`
+          : null}
+      </div>
+      ${!phone && !paybox
+        ? html`<p class="settle-row__hint tiny muted" data-testid="settle-no-phone">ל${nameOf(t.to)} אין מספר בפרופיל — בקשו אותו בקבוצה 🙂</p>`
         : null}
     </div>`;
   } else if (mineIn) {
     const myPhone = me.phone ? prettyPhone(me.phone) : '';
-    const nudge = from?.phone
+    const fromPhone = phoneOf(from, fromPerson);
+    const nudge = fromPhone
       ? whatsappChatUrl(
-        from.phone,
+        fromPhone,
         `היי! 🙂 לפי ההתחשבנות במדורה (${tripLabel}) נשאר ${formatMoney(t.amount)} להעביר לי${myPhone ? ` — אפשר בביט ל-${myPhone}` : ''} 🙏`,
       )
       : null;
     actionsNode = html`<div class="settle-row__actions">
-      <${Button} variant="primary" onClick=${() => onPay({ kind: 'received', from: t.from, to: t.to, amount: t.amount })}>קיבלתי ✓</${Button}>
+      <${Button} variant="secondary" onClick=${() => onPay({ kind: 'received', from: t.from, to: t.to, amount: t.amount })}>קיבלתי ✓</${Button}>
       ${nudge
-        ? html`<${Button} variant="secondary" size="sm" icon="send" href=${nudge} target="_blank" rel="noopener noreferrer">תזכורת עדינה</${Button}>`
+        ? html`<${Button} variant="ghost" size="sm" icon="send" href=${nudge} target="_blank" rel="noopener noreferrer">תזכורת עדינה</${Button}>`
         : null}
-    </div>`;
-  } else if (admin) {
-    actionsNode = html`<div class="settle-row__admin">
-      <${Button} variant="ghost" size="sm" icon="check" onClick=${() => onPay({ kind: 'admin', from: t.from, to: t.to, amount: t.amount })}>סימון ששולם</${Button}>
     </div>`;
   }
 
+  const top = html`<span class="settle-row__main">
+      <span class="settle-row__who">${who}</span>
+      ${mineOut ? html`<span class="settle-row__tag">👈 ההעברה שלך</span>` : null}
+      ${mineIn ? html`<span class="settle-row__tag">💚 מגיע לך</span>` : null}
+      ${inside ? html`<span class="settle-row__tag settle-row__inside" data-testid="settle-inside">💑 בתוך ${(from?.people || []).length > 2 ? 'המשפחה' : 'הזוג'}</span>` : null}
+    </span>
+    <${Money} value=${t.amount} class="settle-row__amount" />`;
+
   return html`<li class=${cx('settle-row', mineOut && 'is-out', mineIn && 'is-in')} data-testid="settle-row">
-    <div class="settle-row__top">
-      <${Pair} from=${from} to=${to} />
-      <div class="settle-row__main">
-        <span class="settle-row__who"><span class="money-name">${nameOf(t.from)}</span> <span class="settle-row__arrow" aria-hidden="true">←</span><span class="sr-only">מעביר/ה ל</span> <span class="money-name">${nameOf(t.to)}</span></span>
-        ${mineOut ? html`<span class="settle-row__tag">👈 ההעברה שלך</span>` : null}
-        ${mineIn ? html`<span class="settle-row__tag">💚 מגיע לך</span>` : null}
-      </div>
-      <${Money} value=${t.amount} class="settle-row__amount" />
-    </div>
-    ${from?.prefs?.pay === 'each' && (from.people || []).length > 1
-      ? html`<p class="settle-row__each small" data-testid="settle-each">כל אחד לחוד: ${splitWhole(t.amount, from.people.length)
-          .map((a, i) => `${from.people[i]} ${formatMoney(a)}`).join(' · ')}</p>`
-      : null}
+    ${admin && !mineOut && !mineIn
+      // admins mark someone else's transfer by tapping the row itself — no extra link per row
+      ? html`<button type="button" class="settle-row__top settle-row__tap" aria-label=${`סימון ששולם — ${nameOf(t.from)} ל${nameOf(t.to)} ${formatMoney(t.amount)}`}
+          onClick=${() => onPay({ kind: 'admin', from: t.from, to: t.to, amount: t.amount })}>${top}<${Icon} name="chevron-left" size=${16} /></button>`
+      : html`<div class="settle-row__top">${top}</div>`}
     ${actionsNode}
   </li>`;
 }
@@ -556,14 +684,19 @@ function SettleRow({ t, trip, me, admin, from, to, nameOf, onPay }) {
 // payments
 // ---------------------------------------------------------------------------
 
-function PaymentsSection({ snap, me, admin, byId, nameOf, busyId, onConfirm, onDelete }) {
+function PaymentsSection({ snap, me, admin, byId, nameOf, sideKey, busyId, onConfirm, onDelete, bare }) {
   const [all, setAll] = useState(false);
   const list = [...snap.payments].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   const shown = all ? list : list.slice(0, PAYMENTS_PREVIEW);
-  const waiting = list.filter((p) => p.status !== 'confirmed' && (p.to_member === me.id || admin)).length;
+  // the receiver confirms (an admin may, for them) — never the one who paid, even an admin; inside one profile
+  // (§19): only the partner who got it (a same-named person of another profile is not them)
+  const canConfirmOf = (p) => p.status !== 'confirmed' && (p.from_member === p.to_member
+    ? (p.to_member === me.id ? p.to_person === snap.me?.person : admin)
+    : p.from_member !== me.id && (p.to_member === me.id || admin));
+  const waiting = list.filter(canConfirmOf).length;
 
   return html`<section class="money-section" aria-labelledby="money-pay-title">
-    <div class="money-section__head">
+    <div class=${cx('money-section__head', bare && 'sr-only')}>
       <h2 class="money-section__title" id="money-pay-title"><span aria-hidden="true">💳</span> העברות</h2>
       <span class="section__count num">${list.length}</span>
       ${waiting ? html`<${Pill} tone="warning">${waiting} מחכות לאישור</${Pill}>` : null}
@@ -571,14 +704,13 @@ function PaymentsSection({ snap, me, admin, byId, nameOf, busyId, onConfirm, onD
     <ul class="list money-pay-list" data-testid="payments-list">
       ${shown.map((p) => {
         const confirmed = p.status === 'confirmed';
-        const canConfirm = !confirmed && (p.to_member === me.id || admin);
+        const canConfirm = canConfirmOf(p);
         const canDelete = admin || (p.created_by === me.id && !confirmed);
         const m = methodOf(p.method);
         const busy = busyId === p.id;
         return html`<li key=${p.id} class="pay-row" data-testid="payment-row" data-status=${p.status}>
-          <${Pair} from=${byId.get(p.from_member)} to=${byId.get(p.to_member)} size=${28} />
           <div class="pay-row__main">
-            <span class="pay-row__who"><span class="money-name">${nameOf(p.from_member)}</span> <span aria-hidden="true">←</span><span class="sr-only">העביר/ה ל</span> <span class="money-name">${nameOf(p.to_member)}</span></span>
+            <span class="pay-row__who"><span class="money-name">${nameOf(sideKey(p.from_member, p.from_person))}</span> ${nameOf(sideKey(p.from_member, p.from_person)) === YOU ? 'העברת' : 'העביר/ה'} ל<span class="money-name">${nameOf(sideKey(p.to_member, p.to_person)) === YOU ? 'ך' : nameOf(sideKey(p.to_member, p.to_person))}</span></span>
             <span class="pay-row__sub">${m.emoji} ${m.label}${p.note ? html` · <span class="pay-row__note">${p.note}</span>` : null} · ${timeAgo(p.created_at)}</span>
             ${canConfirm
               ? html`<${Button} size="sm" icon="check" class="pay-row__confirm" loading=${busy} onClick=${() => onConfirm(p)}>
@@ -590,7 +722,7 @@ function PaymentsSection({ snap, me, admin, byId, nameOf, busyId, onConfirm, onD
             <${Money} value=${p.amount} class="pay-row__amount" />
             <${Pill} tone=${confirmed ? 'success' : 'warning'}>${confirmed ? 'אושר ✅' : 'נשלח ⏳'}</${Pill}>
             ${canDelete
-              ? html`<${IconButton} icon="trash" size=${18} label="מחיקת ההעברה" class="pay-row__delete" disabled=${busy} onClick=${() => onDelete(p)} />`
+              ? html`<button type="button" class="link pay-row__delete" aria-label="מחיקת ההעברה" disabled=${busy} onClick=${() => onDelete(p)}>מחיקה</button>`
               : null}
           </div>
         </li>`;
@@ -613,7 +745,10 @@ function splitText(expense, snap) {
     const n = snap.expense_shares.filter((s) => s.expense_id === expense.id).length;
     return n === 1 ? 'משתתף/ת אחד/ת' : `${n} משתתפים`;
   }
-  return `כולם · ${hebrewCount(headcountTotal(snap.members), 'איש', 'אנשים')}`;
+  // "everyone" = who pays: the exempt are out ("כולם · 8 אנשים · אבי פטור/ה 🎁")
+  const payers = payingMembers(snap);
+  const out = snap.members.filter((m) => !payers.includes(m));
+  return `כולם · ${hebrewCount(headcountTotal(payers), 'איש', 'אנשים')}${out.length ? ` · ${out.map(displayName).join(', ')} פטור/ה 🎁` : ''}`;
 }
 
 function sortExpenses(list) {
@@ -621,24 +756,42 @@ function sortExpenses(list) {
     || String(b.created_at).localeCompare(String(a.created_at)));
 }
 
-function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd }) {
+function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd, bare }) {
   const cats = new Map(snap.categories.map((c) => [c.id, c]));
-  const list = sortExpenses(snap.expenses);
+  const all = sortExpenses(snap.expenses);
+  const tags = tripTags(snap.trip);
+  // tag filter (only when the trip has tags and some expense carries one)
+  const used = tags ? [...new Set(all.map((e) => e.tag).filter(Boolean))].map((n) => tagOf(tags, n))
+    .sort((a, b) => tags.findIndex((t) => t.n === a.n) - tags.findIndex((t) => t.n === b.n)) : [];
+  const [filter, setFilter] = useState(null);
+  const active = filter && used.some((t) => t.n === filter) ? filter : null;
+  const list = active ? all.filter((e) => e.tag === active) : all;
+  const shown = active ? list.reduce((sum, e) => sum + Number(e.amount || 0), 0) : totals.spent;
 
   return html`<section class="money-section" aria-labelledby="money-exp-title">
-    <div class="money-section__head">
+    <div class=${cx('money-section__head', bare && 'sr-only')}>
       <h2 class="money-section__title" id="money-exp-title"><span aria-hidden="true">🧾</span> הוצאות</h2>
-      ${list.length ? html`<span class="section__count num">${list.length}</span>` : null}
+      ${all.length ? html`<span class="section__count num">${list.length}</span>` : null}
       <span class="spacer"></span>
-      ${list.length ? html`<span class="money-section__sum">סה״כ <${Money} value=${totals.spent} /></span>` : null}
+      ${all.length ? html`<span class="money-section__sum" data-testid="expenses-sum">סה״כ <${Money} value=${shown} /></span>` : null}
     </div>
+    ${used.length
+      ? html`<div class="h-scroll money-tag-filter" role="group" aria-label="סינון לפי סוג" data-testid="expense-tag-filter">
+          <${Chip} active=${!active} onClick=${() => setFilter(null)} data-tag="">הכל</${Chip}>
+          ${used.map((t) => html`<${Chip} key=${t.n} active=${active === t.n} data-tag=${t.n}
+            onClick=${() => setFilter(active === t.n ? null : t.n)}>
+            <span aria-hidden="true">${t.e}</span> ${t.n} <span class="money-tag-filter__n num">${all.filter((e) => e.tag === t.n).length}</span>
+          </${Chip}>`)}
+        </div>`
+      : null}
     ${list.length
       ? html`<ul class="list money-exp-list" data-testid="expenses-list">
           ${list.map((e) => {
             const payer = byId.get(e.paid_by);
             const cat = cats.get(e.category_id);
+            const tag = tags || e.tag ? tagOf(tags, e.tag) : null;
             const myShare = expenseShares(e, snap).find((s) => s.member_id === me.id)?.amount || 0;
-            const who = e.paid_by === me.id ? 'שילמת' : `שולם ע״י ${displayName(payer)}`;
+            const who = paidByText(e, payer, me, snap);
             return html`<li key=${e.id}>
               <button
                 type="button"
@@ -649,17 +802,17 @@ function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd }) {
               >
                 <span class="exp-row__icon" aria-hidden="true">
                   <${Avatar} member=${payer} size=${42} />
-                  <span class="exp-row__cat">${cat?.emoji || '🧾'}</span>
+                  <span class="exp-row__cat">${tag?.e || cat?.emoji || '🧾'}</span>
                 </span>
                 <span class="list-row__main">
                   <span class="list-row__title">${e.title}</span>
                   <span class="list-row__sub">${who} · <span class="exp-row__split" data-testid="expense-split">${splitText(e, snap)}</span></span>
-                  <span class="list-row__sub exp-row__meta">${dayLabel(e.spent_on)}${e.note ? html` · <span class="exp-row__note">📝 ${e.note}</span>` : null}</span>
+                  <span class="list-row__sub exp-row__meta">${dayLabel(e.spent_on)}${tag ? html` · <span class="exp-row__tag" data-testid="expense-tag">${tag.e} ${tag.n}</span>` : null}${e.note ? html` · <span class="exp-row__note">📝 ${e.note}</span>` : null}</span>
                 </span>
                 <span class="exp-row__end">
                   <${Money} value=${e.amount} class="exp-row__amount" data-testid="expense-amount" />
                   ${e.currency ? html`<span class="exp-row__orig num" dir="ltr">${symbolOf(e.currency)}${Number(e.orig_amount).toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>` : null}
-                  ${myShare > 0 ? html`<span class="exp-row__mine">חלקך <${Money} value=${myShare} /></span>` : null}
+                  ${myShare > 0 ? html`<span class="exp-row__mine">${splitsMoney(me) ? 'חלקכם' : 'חלקך'} <${Money} value=${myShare} /></span>` : null}
                 </span>
               </button>
             </li>`;
@@ -680,11 +833,8 @@ function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd }) {
 // per-member table
 // ---------------------------------------------------------------------------
 
-function MembersTable({ snap, me, balById }) {
-  return html`<section class="money-section" aria-labelledby="money-table-title">
-    <div class="money-section__head">
-      <h2 class="money-section__title" id="money-table-title"><span aria-hidden="true">📊</span> מאזן לפי חבר׳ה</h2>
-    </div>
+function MembersTable({ snap, me, balById, pbals = [], myKey, nets = new Map(), mnets = new Map() }) {
+  return html`<section class="money-section" aria-label="מאזן לפי חבר׳ה">
     <div class="money-table-wrap">
       <table class="money-table" data-testid="members-table">
         <thead>
@@ -698,7 +848,9 @@ function MembersTable({ snap, me, balById }) {
         <tbody>
           ${snap.members.map((m) => {
             const b = balById.get(m.id) || { paid: 0, owed: 0, balance: 0 };
-            const tone = b.balance >= EVEN_BELOW ? 'plus' : b.balance <= -EVEN_BELOW ? 'minus' : 'even';
+            // the balance column is the plan's whole-shekel number — the same one the transfers above say
+            const net = mnets.get(m.id) || 0;
+            const tone = net >= EVEN_BELOW ? 'plus' : net <= -EVEN_BELOW ? 'minus' : 'even';
             return html`<tr key=${m.id} class=${cx(m.id === me.id && 'is-me')} data-testid="member-balance-row" data-member-id=${m.id}>
               <th scope="row" class="money-table__who">
                 <span class="money-table__name">
@@ -709,13 +861,26 @@ function MembersTable({ snap, me, balById }) {
               </th>
               <td data-col="paid"><${Money} value=${b.paid} /></td>
               <td data-col="owed"><${Money} value=${b.owed} /></td>
-              <td data-col="balance" class=${`money-table__bal is-${tone}`}><${Money} value=${b.balance} signed /></td>
-            </tr>`;
+              <td data-col="balance" class=${`money-table__bal is-${tone}`}><${Money} value=${net} signed /></td>
+            </tr>
+            ${splitsMoney(m)
+              // each of them pays their own part (§19): one small row per person
+              ? pbals.filter((r) => r.member_id === m.id && r.person).map((r) => {
+                const n2 = nets.get(r.key) || 0;
+                const t2 = n2 >= EVEN_BELOW ? 'plus' : n2 <= -EVEN_BELOW ? 'minus' : 'even';
+                return html`<tr key=${r.key} class=${cx('money-table__sub', r.key === myKey && 'is-me')} data-testid="member-person-row" data-person=${r.person}>
+                  <th scope="row" class="money-table__who"><span class="money-table__name money-table__person">↳ ${r.person}</span></th>
+                  <td data-col="paid"><${Money} value=${r.paid} /></td>
+                  <td data-col="owed"><${Money} value=${r.owed} /></td>
+                  <td data-col="balance" class=${`money-table__bal is-${t2}`}><${Money} value=${n2} signed /></td>
+                </tr>`;
+              })
+              : null}`;
           })}
         </tbody>
       </table>
     </div>
-    <p class="tiny muted money-note">יתרה = מה ששילמו − החלק שלהם, כולל העברות שכבר סומנו. פלוס = מגיע להם.</p>
+    <p class="tiny muted money-note">יתרה = מה ששילמו − החלק שלהם, כולל העברות שכבר סומנו — מעוגלת לשקל, כמו ב״איך מתחשבנים״. פלוס = מגיע להם.</p>
   </section>`;
 }
 
@@ -761,6 +926,9 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
   const [title, setTitle] = useState(exp?.title || '');
   const [paidBy, setPaidBy] = useState(exp?.paid_by || me.id);
   const [categoryId, setCategoryId] = useState(exp?.category_id || null);
+  const tags = tripTags(snap.trip);
+  const [tag, setTag] = useState(exp?.tag || null);
+  const tagChips = tags ? (tag && !tags.some((t) => t.n === tag) ? [...tags, tagOf(tags, tag)] : tags) : null;
   const [mode, setMode] = useState(exp?.split_mode === 'members' ? 'members' : 'all');
   const [chosen, setChosen] = useState(initialChosen);
   const [note, setNote] = useState(exp?.note || '');
@@ -788,7 +956,7 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
   const setChosenIds = (ids) => setChosen(ids.map((id) => chosen.find((c) => c.member_id === id) || { member_id: id }));
 
   // Live preview (logic.js: expenseShares / tripTotals).
-  const participants = mode === 'all' ? members : chosenIds.map((id) => byId.get(id)).filter(Boolean);
+  const participants = mode === 'all' ? payingMembers(snap) : chosenIds.map((id) => byId.get(id)).filter(Boolean);
   const valid = amountIls > 0 && amountIls <= MAX_AMOUNT && participants.length > 0;
   const draft = { amount: valid ? amountIls : 0, split_mode: mode, members: mode === 'members' ? chosen : undefined };
   const shares = valid ? expenseShares(draft, snap) : [];
@@ -798,6 +966,14 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
 
   const payer = byId.get(paidBy);
   const canPickPayer = admin;
+  // a couple that pays each their own part (§19): which of them paid — me by default, "ביחד" = together
+  const myPerson = (me.people || []).includes(snap.me?.person) ? snap.me.person : null;
+  const payerSplits = splitsMoney(payer);
+  const [payPerson, setPayPerson] = useState(exp ? exp.paid_by_person ?? null : paidBy === me.id ? myPerson : null);
+  const pickPayer = (id) => {
+    setPaidBy(id);
+    setPayPerson(exp && id === exp.paid_by ? exp.paid_by_person ?? null : id === me.id ? myPerson : null);
+  };
 
   const save = async () => {
     if (saving || deleting) return; // Enter in a field while a call is in flight
@@ -817,11 +993,13 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
       currency: foreign ? cur : null,
       ...(foreign ? { orig_amount: orig, rate } : {}),
       category_id: categoryId,
+      ...(tags || exp?.tag ? { tag: tag || null } : {}),
       note: note.trim() || null,
       spent_on: spentOn || todayYmd(),
       split_mode: mode,
     };
     if (canPickPayer) payload.paid_by = paidBy;
+    if (payerSplits) payload.paid_by_person = (payer.people || []).includes(payPerson) ? payPerson : null;
     if (mode === 'members') {
       payload.members = chosen.map((c) => (c.weight != null ? { member_id: c.member_id, weight: Number(c.weight) } : { member_id: c.member_id }));
     }
@@ -898,14 +1076,31 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
 
       <${Field} label="מי שילם?" hint=${canPickPayer ? 'כמנהל/ת אפשר לרשום הוצאה גם בשם מישהו אחר' : null}>
         ${canPickPayer
-          ? html`<${MemberPicker} members=${members} value=${paidBy} onChange=${(id) => id && setPaidBy(id)} label="מי שילם?" />`
+          ? html`<${MemberPicker} members=${members} value=${paidBy} onChange=${(id) => id && pickPayer(id)} label="מי שילם?" />`
           : html`<div class="money-payer">
               <${Avatar} member=${payer} size=${32} />
               <strong>${paidBy === me.id ? `${YOU} (${displayName(me)})` : displayName(payer)}</strong>
             </div>`}
+        ${payerSplits
+          ? html`<div class="money-payer-person" role="group" aria-label="מי מאיתנו שילם?" data-testid="expense-payer-person">
+              ${(payer.people || []).map((n) => html`<${Chip} key=${n} active=${payPerson === n} onClick=${() => setPayPerson(n)}>${n}</${Chip}>`)}
+              <${Chip} active=${!(payer.people || []).includes(payPerson)} onClick=${() => setPayPerson(null)}>💑 ביחד</${Chip}>
+            </div>`
+          : null}
       </${Field}>
 
-      ${snap.categories.length
+      ${tagChips
+        ? html`<${Field} label="סוג ההוצאה (לא חובה)">
+            <div class="h-scroll money-cats money-tags" data-testid="expense-tags">
+              ${tagChips.map((t) => html`<${Chip}
+                key=${t.n}
+                active=${tag === t.n}
+                data-tag=${t.n}
+                onClick=${() => setTag(tag === t.n ? null : t.n)}
+              ><span aria-hidden="true">${t.e}</span> ${t.n}</${Chip}>`)}
+            </div>
+          </${Field}>`
+        : snap.categories.length
         ? html`<${Field} label="קטגוריה (לא חובה)">
             <div class="h-scroll money-cats">
               ${[...snap.categories].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)).map((c) => html`<${Chip}
@@ -994,9 +1189,20 @@ function SplitPreview({ valid, shares, perHead, heads, units, customWeights, byI
   </div>`;
 }
 
+/** "שילמת" / "שולם ע״י …" — and, in a couple that pays each their own part (§19), which of them. */
+function paidByText(exp, payer, me, snap) {
+  if (splitsMoney(payer)) {
+    const person = (payer.people || []).includes(exp.paid_by_person) ? exp.paid_by_person : null;
+    if (!person) return exp.paid_by === me.id ? 'שילמתם ביחד' : `שולם ביחד ע״י ${displayName(payer)}`;
+    return exp.paid_by === me.id && person === snap.me?.person ? 'שילמת' : `שילם/ה: ${person}`;
+  }
+  return exp.paid_by === me.id ? 'שילמת' : `שולם ע״י ${displayName(payer)}`;
+}
+
 function ExpenseDetails({ open, exp, snap, me, onClose }) {
   const byId = membersById(snap.members);
   const cat = snap.categories.find((c) => c.id === exp.category_id);
+  const tag = exp.tag ? tagOf(tripTags(snap.trip), exp.tag) : null;
   const shares = expenseShares(exp, snap);
   const payer = byId.get(exp.paid_by);
   const footer = html`<${Button} variant="secondary" onClick=${onClose}>סגירה</${Button}>`;
@@ -1005,8 +1211,8 @@ function ExpenseDetails({ open, exp, snap, me, onClose }) {
       <div class="money-detail">
         <${Money} value=${exp.amount} class="money-detail__amount" />
         <div class="money-detail__meta">
-          <span class="row"><${Avatar} member=${payer} size=${24} /> ${exp.paid_by === me.id ? 'שילמת' : `שולם ע״י ${displayName(payer)}`}</span>
-          <span class="small muted">${dayLabel(exp.spent_on)}${cat ? ` · ${cat.emoji || '📦'} ${cat.name}` : ''} · ${splitText(exp, snap)}</span>
+          <span class="row"><${Avatar} member=${payer} size=${24} /> ${paidByText(exp, payer, me, snap)}</span>
+          <span class="small muted">${dayLabel(exp.spent_on)}${tag ? ` · ${tag.e} ${tag.n}` : cat ? ` · ${cat.emoji || '📦'} ${cat.name}` : ''} · ${splitText(exp, snap)}</span>
           ${exp.note ? html`<span class="small">📝 ${exp.note}</span>` : null}
         </div>
       </div>
@@ -1030,13 +1236,13 @@ function ExpenseDetails({ open, exp, snap, me, onClose }) {
 // ---------------------------------------------------------------------------
 
 const PAY_COPY = {
-  paid: { title: 'סימון תשלום 💸', cta: 'שילמתי ✓' },
+  paid: { title: 'סימון תשלום 💸', cta: 'כן, שילמתי ✓' },
   received: { title: 'קיבלתי כסף 💰', cta: 'קיבלתי ✓' },
   admin: { title: 'רישום העברה 📝', cta: 'רישום ההעברה' },
   free: { title: 'רישום העברה 📝', cta: 'רישום ההעברה' },
 };
 
-function PaymentSheet({ open, data, snap, me, byId, onClose, onSaved }) {
+function PaymentSheet({ open, data, snap, me, byId, myKey, nameOf, onClose, onSaved }) {
   const kind = data?.kind || 'free';
   const [amount, setAmount] = useState(data?.amount ?? null);
   const [method, setMethod] = useState('bit');
@@ -1046,25 +1252,30 @@ function PaymentSheet({ open, data, snap, me, byId, onClose, onSaved }) {
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
 
-  let fromId = data?.from || null;
-  let toId = data?.to || null;
+  // from / to are settle-up parties: a profile id, or `${member_id}::${person}` (a couple that pays each their own part)
+  let fromKey = data?.from || null;
+  let toKey = data?.to || null;
   if (kind === 'free') {
-    fromId = dir === 'paid' ? me.id : other;
-    toId = dir === 'paid' ? other : me.id;
+    fromKey = dir === 'paid' ? me.id : other;
+    toKey = dir === 'paid' ? other : me.id;
   }
+  const fromParty = partyOf(fromKey);
+  const toParty = partyOf(toKey);
+  const fromId = fromKey ? fromParty.member_id : null;
+  const toId = toKey ? toParty.member_id : null;
   const from = byId.get(fromId);
   const to = byId.get(toId);
-  const label = (id) => (id === me.id ? YOU : displayName(byId.get(id)));
+  const label = (key) => (nameOf ? nameOf(key) : key === me.id ? YOU : displayName(byId.get(key)));
   const others = snap.members.filter((m) => m.id !== me.id);
   const copy = PAY_COPY[kind] || PAY_COPY.free;
 
   let hint = '';
   if (kind === 'paid' || (kind === 'free' && dir === 'paid')) {
-    hint = to ? `נשלח ל${displayName(to)} התראה לאישור קבלה 🔔` : '';
+    hint = to ? `נשלח ל${toParty.person || displayName(to)} התראה לאישור קבלה 🔔` : '';
   } else if (kind === 'received' || (kind === 'free' && dir === 'received')) {
     hint = 'ההעברה תירשם כמאושרת ✅';
   } else if (kind === 'admin') {
-    hint = to ? `נשלח ל${displayName(to)} התראה לאישור קבלה 🔔` : '';
+    hint = to ? `נשלח ל${toParty.person || displayName(to)} התראה לאישור קבלה 🔔` : '';
   }
 
   const save = async () => {
@@ -1076,22 +1287,40 @@ function PaymentSheet({ open, data, snap, me, byId, onClose, onSaved }) {
     setErrors(errs);
     if (Object.keys(errs).length) return;
 
-    const received = toId === me.id && fromId !== me.id;
-    const success = fromId === me.id
-      ? `סימנת ששילמת ${formatMoney(amount)} ל${label(toId)} 💸`
+    const received = toKey === (myKey || me.id) || (toId === me.id && fromId !== me.id);
+    const success = fromKey === (myKey || me.id) || (fromId === me.id && !fromParty.person)
+      ? `סימנת ששילמת ${formatMoney(amount)} ל${label(toKey)} 💸`
       : received
-        ? `נרשם שקיבלת ${formatMoney(amount)} מ${label(fromId)} ✅`
+        ? `נרשם שקיבלת ${formatMoney(amount)} מ${label(fromKey)} ✅`
         : 'ההעברה נרשמה ✅';
+    const pay = { from_member: fromId, to_member: toId, amount, method, note: note.trim() || null };
+    if (fromParty.person) pay.from_person = fromParty.person;
+    if (toParty.person) pay.to_person = toParty.person;
     setSaving(true);
-    const res = await actions.run(
-      (api) => api.addPayment(snap.trip.id, { from_member: fromId, to_member: toId, amount, method, note: note.trim() || null }),
-      { success },
-    );
+    const res = await actions.run((api) => api.addPayment(snap.trip.id, pay), { success });
     setSaving(false);
     if (res === undefined) return;
     onClose();
     onSaved?.(res);
   };
+
+  // "I paid" from the plan (ux M8): one question — the amount and how stay behind "שינוי"
+  const quick = kind === 'paid' && data?.amount > 0 && Boolean(to);
+  const fieldsNode = html`      <${Field} label="כמה?" error=${errors.amount} hint=${data?.amount ? `לפי ההתחשבנות: ${formatMoney(data.amount)}` : null}>
+        <${MoneyInput} value=${amount} onChange=${(v) => { setAmount(v); if (errors.amount) setErrors({ ...errors, amount: null }); }} />
+      </${Field}>
+
+      <${Field} label="איך?">
+        <div class="money-methods">
+          ${METHODS.map((m) => html`<${Chip} key=${m.value} active=${method === m.value} onClick=${() => setMethod(m.value)}>
+            <span aria-hidden="true">${m.emoji}</span> ${m.label}
+          </${Chip}>`)}
+        </div>
+      </${Field}>
+
+      <${Field} label="הערה">
+        <${TextInput} value=${note} maxLength=${500} placeholder="לא חובה — למשל: על הבשר 🥩" onInput=${(e) => setNote(e.target.value)} />
+      </${Field}>`;
 
   const footer = html`
     <${Button} variant="secondary" onClick=${onClose} disabled=${saving}>ביטול</${Button}>
@@ -1117,7 +1346,7 @@ function PaymentSheet({ open, data, snap, me, byId, onClose, onSaved }) {
         ? html`<div class="pay-hero" data-testid="pay-hero">
             <div class="pay-hero__side">
               <${Avatar} member=${from} size=${56} />
-              <span class="pay-hero__name">${label(fromId)}</span>
+              <span class="pay-hero__name">${label(fromKey)}</span>
             </div>
             <div class="pay-hero__flow" aria-hidden="true">
               <span class="pay-hero__coin">₪</span>
@@ -1125,26 +1354,18 @@ function PaymentSheet({ open, data, snap, me, byId, onClose, onSaved }) {
             </div>
             <div class="pay-hero__side">
               <${Avatar} member=${to} size=${56} />
-              <span class="pay-hero__name">${label(toId)}</span>
+              <span class="pay-hero__name">${label(toKey)}</span>
             </div>
           </div>`
         : null}
 
-      <${Field} label="כמה?" error=${errors.amount} hint=${data?.amount ? `לפי ההתחשבנות: ${formatMoney(data.amount)}` : null}>
-        <${MoneyInput} value=${amount} onChange=${(v) => { setAmount(v); if (errors.amount) setErrors({ ...errors, amount: null }); }} />
-      </${Field}>
-
-      <${Field} label="איך?">
-        <div class="money-methods">
-          ${METHODS.map((m) => html`<${Chip} key=${m.value} active=${method === m.value} onClick=${() => setMethod(m.value)}>
-            <span aria-hidden="true">${m.emoji}</span> ${m.label}
-          </${Chip}>`)}
-        </div>
-      </${Field}>
-
-      <${Field} label="הערה">
-        <${TextInput} value=${note} maxLength=${500} placeholder="לא חובה — למשל: על הבשר 🥩" onInput=${(e) => setNote(e.target.value)} />
-      </${Field}>
+      ${quick
+        ? html`<p class="pay-ask" data-testid="pay-ask">שילמת <b><${Money} value=${amount} /></b> ל${label(toKey)} ב${methodOf(method).label}?</p>
+          <details class="pay-more" open=${Object.values(errors).some(Boolean) || undefined}>
+            <summary class="link pay-more__toggle">שינוי סכום או אמצעי ‹</summary>
+            <div class="stack">${fieldsNode}</div>
+          </details>`
+        : fieldsNode}
 
       ${hint ? html`<p class="small muted money-pay-hint">${hint}</p>` : null}
     </form>

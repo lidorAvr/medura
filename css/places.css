@@ -1,0 +1,148 @@
+/* PlaceInput (js/ui/place-input.js) — OpenStreetMap place search. Tokens only (light + dark), logical props, RTL. */
+
+.place { position: relative; min-width: 0; }
+
+.place__box { position: relative; display: flex; align-items: center; }
+.place__icon {
+  position: absolute;
+  inset-inline-start: 12px;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.7;
+  pointer-events: none;
+}
+.place__input.input { padding-inline-start: 38px; padding-inline-end: 38px; width: 100%; }
+.place__spin {
+  position: absolute;
+  inset-inline-end: 12px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  animation: place-spin 0.8s linear infinite;
+}
+@keyframes place-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .place__spin { animation-duration: 2.4s; } }
+
+.place__pop {
+  margin-top: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.place__pop.is-hidden { display: none; }
+
+.place__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: min(52vh, 340px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.place__opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.place__opt + .place__opt { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.place__opt:hover,
+.place__opt.is-active { background: var(--surface-2); }
+.place__opt { position: relative; }
+.place__opt.is-active::before { content: ""; position: absolute; inset-block: 6px; inset-inline-start: 0; width: 3px; border-radius: 3px; background: var(--accent); }
+.place__opt-emoji { flex: none; width: 24px; text-align: center; font-size: 1.125rem; line-height: 1; }
+/* width 0 + flex-grow: a long nowrap name never widens the page (its min-content contribution is 0). */
+.place__opt-text { display: flex; flex-direction: column; min-width: 0; width: 0; flex: 1 1 0; }
+.place__opt-name {
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+.place__opt-addr {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+.place__opt--free .place__opt-name { color: var(--primary-text); font-weight: 500; }
+
+.place__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
+}
+.place__full {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--primary-text);
+  font: inherit;
+  font-size: 0.84375rem;
+  font-weight: 500;
+  min-height: 36px;
+  padding: 0 6px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.place__full:hover { background: var(--surface-2); }
+.place__full:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.place__attr { font-size: 0.71875rem; color: var(--muted); direction: ltr; }
+
+/* picked */
+.place-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+}
+.place-card__top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.place-card__emoji { flex: none; font-size: 1.125rem; line-height: 1; }
+.place-card__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+.place-card__change {
+  flex: none;
+  appearance: none;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.84375rem;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  position: relative;
+}
+.place-card__change::after { content: ""; position: absolute; inset: -5px -2px; }
+.place-card__change:hover { background: var(--surface-3); }
+.place-card__change:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.place-card__addr { font-size: 0.84375rem; color: var(--muted); overflow-wrap: anywhere; unicode-bidi: plaintext; text-align: start; }
+.place-card__nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }

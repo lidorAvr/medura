@@ -3,16 +3,16 @@
 // share to WhatsApp) and polls (create, vote, live result bars, close / delete).
 import { html } from 'htm/preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { useTrip, actions } from '../store.js?v=65baf9b';
+import { useTrip, actions } from '../store.js?v=56bbb9a';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, IconButton, MemberPicker, Pill,
-  ProgressBar, Segmented, Sheet, ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=65baf9b';
-import { Icon } from '../ui/icons.js?v=65baf9b';
+  ProgressBar, Segmented, Sheet, ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog, OverBanner, tripOver,
+} from '../ui/components.js?v=56bbb9a';
+import { Icon } from '../ui/icons.js?v=56bbb9a';
 import {
-  displayName, membersById, visibleNotifications, pollResults, timeAgo, formatDate, formatDateTime,
+  actorName, displayName, membersById, pinnedNotices, visibleNotifications, pollResults, timeAgo, formatDate, formatDateTime,
   formatTime, hebrewCount,
-} from '../lib/logic.js?v=65baf9b';
+} from '../lib/logic.js?v=56bbb9a';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';
@@ -47,17 +47,27 @@ function dayLabel(iso, now) {
   return formatDate(iso);
 }
 
-/** A friendly icon for a system notice, from its link and wording. */
+/** A system title that starts with its emoji ("📌 עליך: פחמים") → [the emoji, the rest]; else [null, title]. */
+const LEAD_EMOJI = /^(\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*)\s+/u;
+export function splitLeadEmoji(title) {
+  const t = String(title || '');
+  const m = t.match(LEAD_EMOJI);
+  return m && t.length > m[0].length ? [m[1], t.slice(m[0].length)] : [null, t];
+}
+
+/** A friendly icon for a system notice: its own leading emoji, else from its link and wording. */
 function noticeEmoji(n) {
+  const [lead] = splitLeadEmoji(n.title);
+  if (lead) return lead;
   if (n.kind === 'reminder') return '⏰';
   const t = String(n.title || '');
   const link = String(n.link || '');
-  if (t.startsWith('שובצת')) return '🙋';
-  if (t.startsWith('הצעה חדשה')) return '💡';
+  if (t.startsWith('שובצת')) return '📌';
+  if (t.startsWith('הצעה חדשה')) return '🙋';
   if (t.includes('אושרה')) return '✅';
-  if (t.includes('נדחתה')) return '🙅';
+  if (t.includes('נדחתה')) return '✖️';
   if (t.includes('הצטרפ')) return '🎉';
-  if (t.includes('מונית')) return '👑';
+  if (t.includes('מנהל')) return '👑';
   if (link.includes('/money') || t.includes('₪')) return '💸';
   if (link.includes('/lists')) return '📋';
   if (link.includes('/people')) return '👥';
@@ -135,21 +145,16 @@ function MessagesBody({ route, snap, me, admin, tripId }) {
   const myPollVotes = new Set((snap.poll_votes || []).filter((v) => v.member_id === me.id).map((v) => v.poll_id));
   const waiting = polls.filter((p) => !p.closed && !myPollVotes.has(p.id));
   const freshCount = notices.filter((n) => fresh.has(n.id)).length;
+  // after the trip (ux A3): read only — no nudge to vote; open polls show as closed with the trip
+  const over = tripOver(snap.trip);
 
   return html`<div class="screen msg-screen">
-    <header class="msg-head">
-      <div class="msg-head__text">
-        <h1 class="h1">הודעות</h1>
-        <p class="muted small">
-          ${freshCount
-            ? html`<span class="msg-head__fresh">${hebrewCount(freshCount, 'הודעה חדשה', 'הודעות חדשות')} ✨</span>`
-            : 'כל העדכונים של הטיול במקום אחד'}
-        </p>
-      </div>
-      <span class="msg-head__emoji" aria-hidden="true">📣</span>
+    <${OverBanner} trip=${snap.trip} />
+    <header class="msg-head msg-head--line">
+      <h1 class="h1">הודעות</h1>
+      ${freshCount ? html`<span class="msg-head__fresh small">${hebrewCount(freshCount, 'הודעה חדשה', 'הודעות חדשות')} ✨</span>` : null}
+      ${admin && !over ? html`<${Composer} snap=${snap} me=${me} tripId=${tripId} startOpen=${query.compose === '1'} />` : null}
     </header>
-
-    ${admin ? html`<${Composer} snap=${snap} me=${me} tripId=${tripId} startOpen=${query.compose === '1'} />` : null}
 
     ${pollsOn
       ? html`<${Segmented}
@@ -173,10 +178,10 @@ function MessagesBody({ route, snap, me, admin, tripId }) {
           admin=${admin}
           byId=${byId}
           now=${now}
-          waiting=${waiting}
-          onGoPolls=${() => setTab('polls')}
+          waiting=${over ? [] : waiting}
+          over=${over}
         />`
-      : html`<${Polls} snap=${snap} me=${me} admin=${admin} byId=${byId} now=${now} onCreate=${() => setPollSheet(true)} />`}
+      : html`<${Polls} snap=${snap} me=${me} admin=${admin} byId=${byId} now=${now} over=${over} onCreate=${() => setPollSheet(true)} />`}
 
     <${CreatePollSheet}
       open=${pollSheet}
@@ -197,15 +202,18 @@ const FILTERS = [
   { value: 'sys', label: '⚙️ עדכוני מערכת' },
 ];
 
-function Feed({ notices, fresh, snap, me, admin, byId, now, waiting, onGoPolls }) {
+function Feed({ notices, fresh, snap, me, admin, byId, now, waiting, over }) {
   const [filter, setFilter] = useState('all');
   const hasAnn = notices.some((n) => n.kind === 'announcement');
   const hasSys = notices.some((n) => n.kind !== 'announcement');
-  const active = hasAnn && hasSys ? filter : 'all';
+  const active = hasAnn && hasSys && notices.length > 10 ? filter : 'all';
   const shown = notices.filter((n) => active === 'all' || (active === 'ann') === (n.kind === 'announcement'));
+  // urgent announcements stay pinned on top for 3 days ("החשוב למעלה"), not buried under newer notices
+  const pinnedIds = new Set(active === 'sys' ? [] : pinnedNotices(snap, now).map((n) => n.id));
+  const pinned = shown.filter((n) => pinnedIds.has(n.id));
 
   const groups = [];
-  for (const n of shown) {
+  for (const n of shown.filter((x) => !pinnedIds.has(x.id))) {
     const key = dayKey(n.created_at);
     let g = groups[groups.length - 1];
     if (!g || g.key !== key) {
@@ -217,20 +225,26 @@ function Feed({ notices, fresh, snap, me, admin, byId, now, waiting, onGoPolls }
 
   return html`<div class="stack msg-feed">
     ${waiting.length
-      ? html`<button type="button" class="msg-nudge" onClick=${onGoPolls}>
-          <span class="msg-nudge__emoji" aria-hidden="true">🗳️</span>
-          <span class="msg-nudge__text">
-            <span class="msg-nudge__title">${waiting.length === 1 ? 'סקר פתוח מחכה לקול שלך' : `${waiting.length} סקרים מחכים לקול שלך`}</span>
-            <span class="msg-nudge__sub">${waiting[0].question}</span>
-          </span>
-          <${Icon} name="chevron-left" size=${20} />
-        </button>`
+      // an open poll I haven't answered is the feed's first item — vote right here (ux N1)
+      ? html`<section class="msg-day msg-feed-poll" aria-label="סקר פתוח" data-testid="feed-poll">
+          <${PollCard} poll=${waiting[0]} snap=${snap} me=${me} admin=${admin} byId=${byId} now=${now} />
+          ${waiting.length > 1 ? html`<p class="small muted">ועוד ${hebrewCount(waiting.length - 1, 'סקר אחד', 'סקרים')} בלשונית הסקרים</p>` : null}
+        </section>`
       : null}
 
-    ${hasAnn && hasSys
+    ${hasAnn && hasSys && notices.length > 10
       ? html`<div class="h-scroll msg-filters" role="group" aria-label="סינון עדכונים">
-          ${FILTERS.map((f) => html`<${Chip} key=${f.value} active=${active === f.value} onClick=${() => setFilter(f.value)}>${f.label}</${Chip}>`)}
+          ${FILTERS.map((f) => html`<${Chip} key=${f.value} active=${active === f.value} aria-pressed=${active === f.value ? 'true' : 'false'} onClick=${() => setFilter(f.value)}>${f.label}</${Chip}>`)}
         </div>`
+      : null}
+
+    ${pinned.length
+      ? html`<section class="msg-day msg-pinned" aria-label="נעוץ" data-testid="msg-pinned">
+          <h2 class="msg-day__label">📌 נעוץ — דחוף</h2>
+          <div class="stack-sm">
+            ${pinned.map((n) => html`<${Notice} key=${n.id} n=${n} fresh=${fresh.has(n.id)} snap=${snap} me=${me} admin=${admin} byId=${byId} now=${now} />`)}
+          </div>
+        </section>`
       : null}
 
     ${shown.length
@@ -265,6 +279,8 @@ function Notice({ n, fresh, snap, me, admin, byId, now }) {
   const ann = n.kind === 'announcement';
   const author = n.author_member ? byId.get(n.author_member) : null;
   const mine = n.author_member === me.id;
+  // a system title's leading emoji is already the icon — not twice
+  const title = ann ? n.title : splitLeadEmoji(n.title)[1];
   const link = safeLink(n.link);
   const body = String(n.body || '');
   const long = body.length > 220 || body.split('\n').length > 5;
@@ -304,14 +320,14 @@ function Notice({ n, fresh, snap, me, admin, byId, now }) {
     </div>
     <div class="msg-notice__main">
       <div class="msg-notice__meta">
-        <span class="msg-notice__who">${ann ? (author ? displayName(author) : 'מנהל/ת') : 'עדכון'}</span>
+        <span class="msg-notice__who">${ann ? (author ? actorName(author, n.by_person) : 'מנהל/ת') : 'עדכון'}</span>
         <span aria-hidden="true">·</span>
         <time datetime=${n.created_at} title=${formatDateTime(n.created_at)}>${timeAgo(n.created_at, now)}</time>
         ${fresh ? html`<span class="msg-notice__new"><span class="dot" aria-hidden="true"></span>חדש</span>` : null}
       </div>
       ${link
-        ? html`<a class="msg-notice__title" href=${link}>${n.title}<${Icon} name="chevron-left" size=${16} class="msg-notice__chev" /></a>`
-        : html`<h3 class="msg-notice__title">${n.title}</h3>`}
+        ? html`<a class="msg-notice__title" href=${link}>${title}<${Icon} name="chevron-left" size=${16} class="msg-notice__chev" /></a>`
+        : html`<h3 class="msg-notice__title">${title}</h3>`}
       ${body
         ? html`<p class=${cx('msg-notice__body', long && !expanded && 'is-clamped')}>${body}</p>`
         : null}
@@ -457,6 +473,7 @@ function Composer({ snap, me, tripId, startOpen }) {
     );
     setBusy(false);
     if (id === undefined) return;
+    setOpen(false);
     setSent({ title: t, body: b, urgent, count: audience ? audience.length : null });
     reset();
   };
@@ -477,25 +494,23 @@ function Composer({ snap, me, tripId, startOpen }) {
     </${Card}>`;
   }
 
-  if (!open) {
-    return html`<button type="button" class="msg-compose-prompt" onClick=${() => setOpen(true)}>
-      <${Avatar} member=${me} size=${38} />
-      <span class="msg-compose-prompt__text">
-        <span class="msg-compose-prompt__kicker">📣 הודעה לקבוצה</span>
-        <span class="msg-compose-prompt__hint">מה רוצים להגיד לחבר'ה?</span>
-      </span>
-      <span class="msg-compose-prompt__icon" aria-hidden="true"><${Icon} name="send" size=${18} /></span>
+  // writing opens as a sheet with a sticky "שליחה" (ux N2); the feed stays put underneath
+  const close = () => {
+    setOpen(false);
+    setErrors({});
+  };
+  // one small labelled button in the header row — the feed starts right under it (ux N1)
+  const prompt = html`<button type="button" class="btn btn--secondary btn--sm msg-compose-prompt" onClick=${() => setOpen(true)}>
+      <span aria-hidden="true">✍️</span> <span class="btn__label">הודעה חדשה</span>
     </button>`;
-  }
-
-  return html`<${Card}
+  return html`${prompt}<${Sheet}
+    open=${open}
+    onClose=${close}
+    title="📣 הודעה חדשה"
     class="msg-composer"
-    emoji="📣"
-    title="הודעה חדשה"
-    action=${html`<${IconButton} icon="x" label="סגירת ההודעה" onClick=${() => {
-      setOpen(false);
-      setErrors({});
-    }} />`}
+    footer=${html`<${Button} type="submit" form=${formId} variant=${urgent ? 'danger' : 'primary'} size="lg" block icon="send" loading=${busy}>
+      ${urgent ? 'שליחה דחופה' : 'שליחה'}
+    </${Button}>`}
   >
     <form id=${formId} class="stack" onSubmit=${submit} noValidate>
       <div class="h-scroll msg-templates" role="group" aria-label="תבניות מהירות">
@@ -566,28 +581,25 @@ function Composer({ snap, me, tripId, startOpen }) {
               options=${[{ value: 'now', label: '⚡ עכשיו' }, { value: 'digest', label: '☀️ בסיכום היומי' }]} />
           </${Field}>`
         : null}
-      <${Button} type="submit" variant=${urgent ? 'danger' : 'accent'} size="lg" block icon="send" loading=${busy}>
-        ${urgent ? 'שליחה דחופה' : 'שליחה'}
-      </${Button}>
     </form>
-  </${Card}>`;
+  </${Sheet}>`;
 }
 
 // ---------------------------------------------------------------------------
 // polls
 // ---------------------------------------------------------------------------
 
-function Polls({ snap, me, admin, byId, now, onCreate }) {
+function Polls({ snap, me, admin, byId, now, over, onCreate }) {
   const polls = [...(snap.polls || [])].sort(
     (a, b) => Number(a.closed) - Number(b.closed) || Date.parse(b.created_at) - Date.parse(a.created_at),
   );
   return html`<div class="stack msg-polls">
     <div class="msg-polls__head">
-      <p class="muted small">רוצים להחליט משהו ביחד? כולם מצביעים, כולם רואים ✋</p>
-      <${Button} size="sm" variant="primary" icon="plus" onClick=${onCreate}>סקר חדש</${Button}>
+      <p class="muted small">${over ? 'הסקרים נסגרו עם סוף הטיול 🏁' : 'רוצים להחליט משהו ביחד? כולם מצביעים, כולם רואים ✋'}</p>
+      ${over ? null : html`<${Button} size="sm" variant="primary" icon="plus" onClick=${onCreate}>סקר חדש</${Button}>`}
     </div>
     ${polls.length
-      ? polls.map((p) => html`<${PollCard} key=${p.id} poll=${p} snap=${snap} me=${me} admin=${admin} byId=${byId} now=${now} />`)
+      ? polls.map((p) => html`<${PollCard} key=${p.id} poll=${p} snap=${snap} me=${me} admin=${admin} byId=${byId} now=${now} over=${over} />`)
       : html`<${Card}>
           <${EmptyState}
             emoji="🗳️"
@@ -599,11 +611,16 @@ function Polls({ snap, me, admin, byId, now, onCreate }) {
   </div>`;
 }
 
-function PollCard({ poll, snap, me, admin, byId, now }) {
+function PollCard({ poll: raw, snap, me, admin, byId, now, over = false }) {
+  // the trip ended: an open poll reads as closed — results only, nothing written to the server
+  const poll = over && !raw.closed ? { ...raw, closed: true, endedWithTrip: true } : raw;
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
   const serverVotes = (snap.poll_votes || []).filter((v) => v.poll_id === poll.id);
   const serverMine = serverVotes.filter((v) => v.member_id === me.id).map((v) => v.option_id);
+  // one vote per profile: say which of us cast it, so a partner's tap isn't a silent change
+  const myPerson = snap.me?.person || null;
+  const castBy = serverVotes.find((v) => v.member_id === me.id && v.by_person)?.by_person || null;
   const mine = pending || serverMine;
   // Show my choice right away (optimistic) until the fresh snapshot arrives.
   const votes = pending
@@ -660,7 +677,7 @@ function PollCard({ poll, snap, me, admin, byId, now }) {
           ${creator ? `${displayName(creator)} · ` : ''}${timeAgo(poll.created_at, now)} · ${poll.multi ? 'אפשר לבחור כמה' : 'תשובה אחת'}
         </p>
       </div>
-      ${poll.closed ? html`<${Pill}>🔒 נסגר</${Pill}>` : html`<${Pill} tone="success">פתוח</${Pill}>`}
+      ${poll.endedWithTrip ? html`<${Pill}>🏁 נסגר עם סוף הטיול</${Pill}>` : poll.closed ? html`<${Pill}>🔒 נסגר</${Pill}>` : html`<${Pill} tone="success">פתוח</${Pill}>`}
     </div>
 
     <div class="msg-poll__opts" role=${poll.multi ? 'group' : 'radiogroup'} aria-label=${poll.question}>
@@ -690,15 +707,18 @@ function PollCard({ poll, snap, me, admin, byId, now }) {
       })}
     </div>
 
+    ${castBy && castBy !== myPerson && !pending
+      ? html`<p class="tiny muted msg-poll__cast" data-testid="poll-cast-by">🗳️ ${castBy} הצביע/ה בשם ${displayName(me)} — לחיצה משנה את ההצבעה של כולכם</p>`
+      : null}
     <div class="msg-poll__foot">
       <span class="msg-poll__votes">
         ${voters ? `הצביעו ${voters} מתוך ${snap.members.length}` : 'עוד אין קולות — תהיו ראשונים!'}
       </span>
       <div class="msg-poll__actions">
         <${ShareButton} size="sm" variant="ghost" label="שיתוף" text=${pollShareText(snap.trip, poll, results)} />
-        ${canManage
+        ${canManage && !over
           ? html`<${Button} size="sm" variant="ghost" disabled=${busy} onClick=${toggleClosed}>${poll.closed ? '🔓 פתיחה מחדש' : '🔒 סגירה'}</${Button}>
-              <${IconButton} icon="trash" label="מחיקת הסקר" size=${18} disabled=${busy} onClick=${remove} />`
+              <button type="button" class="link msg-poll__delete" aria-label="מחיקת הסקר" disabled=${busy} onClick=${remove}>מחיקה</button>`
           : null}
       </div>
     </div>

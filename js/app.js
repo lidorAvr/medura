@@ -2,17 +2,18 @@
 import { html } from 'htm/preact';
 import { Component } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { useRoute, href, navigate } from './router.js?v=65baf9b';
-import { useStore, useTrip, actions, emailRequired } from './store.js?v=65baf9b';
-import { unreadCount } from './lib/logic.js?v=65baf9b';
-import { hebrewError } from './api/errors.js?v=65baf9b';
-import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=65baf9b';
-import { Icon } from './ui/icons.js?v=65baf9b';
-import { EmailGate } from './ui/email-gate.js?v=65baf9b';
-import { Tour, tourDue } from './ui/tour.js?v=65baf9b';
-import { PendingGate } from './ui/pending.js?v=65baf9b';
-import { arrivalOf, hasModule } from './lib/templates.js?v=65baf9b';
-import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=65baf9b';
+import { useRoute, href, navigate } from './router.js?v=56bbb9a';
+import { useStore, useTrip, actions, emailRequired } from './store.js?v=56bbb9a';
+import { unreadCount } from './lib/logic.js?v=56bbb9a';
+import { hebrewError } from './api/errors.js?v=56bbb9a';
+import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=56bbb9a';
+import { Icon } from './ui/icons.js?v=56bbb9a';
+import { EmailGate } from './ui/email-gate.js?v=56bbb9a';
+import { Tour, tourDue } from './ui/tour.js?v=56bbb9a';
+import { PendingGate } from './ui/pending.js?v=56bbb9a';
+import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=56bbb9a';
+import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=56bbb9a';
+import { answersOf } from './lib/overview.js?v=56bbb9a';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -21,22 +22,24 @@ const cx = (...a) => a.filter(Boolean).join(' ');
 // ---------------------------------------------------------------------------
 
 const SCREENS = {
-  landing: './screens/onboarding.js?v=65baf9b',
-  new: './screens/onboarding.js?v=65baf9b',
-  join: './screens/onboarding.js?v=65baf9b',
-  link: './screens/onboarding.js?v=65baf9b',
-  home: './screens/home.js?v=65baf9b',
-  trip: './screens/trip.js?v=65baf9b',
-  rides: './screens/rides.js?v=65baf9b',
-  lists: './screens/lists.js?v=65baf9b',
-  shop: './screens/shopping.js?v=65baf9b',
-  import: './screens/import.js?v=65baf9b',
-  money: './screens/money.js?v=65baf9b',
-  messages: './screens/messages.js?v=65baf9b',
-  people: './screens/people.js?v=65baf9b',
-  me: './screens/me.js?v=65baf9b',
-  welcome: './screens/welcome.js?v=65baf9b',
-  signin: './screens/signin.js?v=65baf9b',
+  landing: './screens/dashboard.js?v=56bbb9a',
+  invite: './screens/dashboard.js?v=56bbb9a',
+  new: './screens/onboarding.js?v=56bbb9a',
+  join: './screens/onboarding.js?v=56bbb9a',
+  link: './screens/onboarding.js?v=56bbb9a',
+  home: './screens/home.js?v=56bbb9a',
+  trip: './screens/trip.js?v=56bbb9a',
+  rides: './screens/rides.js?v=56bbb9a',
+  lists: './screens/lists.js?v=56bbb9a',
+  shop: './screens/shopping.js?v=56bbb9a',
+  import: './screens/import.js?v=56bbb9a',
+  build: './screens/build.js?v=56bbb9a',
+  money: './screens/money.js?v=56bbb9a',
+  messages: './screens/messages.js?v=56bbb9a',
+  people: './screens/people.js?v=56bbb9a',
+  me: './screens/me.js?v=56bbb9a',
+  welcome: './screens/welcome.js?v=56bbb9a',
+  signin: './screens/signin.js?v=56bbb9a',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
@@ -196,12 +199,19 @@ function TopBar({ route }) {
     unread = 0;
   }
   const trip = snap?.trip;
+  // a dot on "all my trips" when something waits elsewhere: an invitation, or answers in another trip
+  const elsewhere = useStore((s) => (s.invites?.length || 0) > 0
+    || (Array.isArray(s.overview) && s.overview.some((ov) => ov?.trip?.id !== tripId && answersOf(ov) > 0)));
   return html`<div class=${cx('topbar', scrolled && 'is-scrolled')}>
     <div class="topbar__inner">
+      <a class="topbar__home icon-btn" href="#/" aria-label="כל הטיולים שלי" title="כל הטיולים שלי">
+        <${Icon} name="home" size=${20} />
+        ${elsewhere ? html`<span class="topbar__home-dot" aria-hidden="true"></span>` : null}
+      </a>
       <a class="topbar__trip" href=${href(`/t/${tripId}/trip`)} aria-label=${trip ? `פרטי הטיול: ${trip.name}` : 'פרטי הטיול'}>
         <span class="topbar__emoji" aria-hidden="true">${trip?.emoji || '⛺'}</span>
         ${trip
-          ? html`<span class="topbar__name">${trip.name}</span>`
+          ? html`<span class="topbar__name" data-testid="topbar-name">${nameParts(trip.name)}</span>`
           : html`<span class="topbar__name topbar__name--loading" aria-hidden="true"></span>`}
       </a>
       <div class="topbar__actions">
@@ -217,9 +227,15 @@ function TopBar({ route }) {
   </div>`;
 }
 
+/** The trip's name with its numbers kept whole — a narrow top bar never shows "יום הולדת 0…" for "יום הולדת 60". */
+function nameParts(name) {
+  return String(name ?? '').split(/(\d[\d.,:/-]*)/).filter(Boolean)
+    .map((part) => (/^\d/.test(part) ? html`<bdi>${part}</bdi>` : part));
+}
+
 const TABS = [
   { key: 'home', path: '', emoji: '🏕️', label: 'בית', match: ['home', 'trip'] },
-  { key: 'lists', path: '/lists', emoji: '📋', label: 'רשימות', match: ['lists', 'shop', 'import'] },
+  { key: 'lists', path: '/lists', emoji: '📋', label: 'רשימות', match: ['lists', 'shop', 'import', 'build'] },
   { key: 'rides', path: '/rides', emoji: '🚗', label: 'הסעות', match: ['rides'] },
   { key: 'money', path: '/money', emoji: '💸', label: 'כסף', match: ['money'] },
   { key: 'messages', path: '/messages', emoji: '🔔', label: 'הודעות', match: ['messages'] },
@@ -236,7 +252,7 @@ function BottomNav({ route }) {
   }
   const id = route.params.tripId || tripId;
   const flying = arrivalOf(snap?.trip).flights;
-  const tabs = TABS.filter((t) => !['rides', 'money'].includes(t.key) || hasModule(snap?.trip, t.key))
+  const tabs = TABS.filter((t) => (t.key === 'lists' ? hasLists(snap?.trip) : !['rides', 'money'].includes(t.key) || hasModule(snap?.trip, t.key)))
     .map((t) => (t.key === 'rides' && flying ? { ...t, emoji: '✈️', label: 'הגעה' } : t));
   return html`<nav class="bottom-nav" aria-label="ניווט ראשי">
     <div class="bottom-nav__inner" style=${`grid-template-columns: repeat(${tabs.length}, minmax(0, 1fr))`}>
@@ -344,7 +360,7 @@ function NotFound() {
 // App
 // ---------------------------------------------------------------------------
 
-const BARE_ROUTES = new Set(['landing', 'new', 'join', 'link', 'signin', 'notfound']);
+const BARE_ROUTES = new Set(['landing', 'invite', 'new', 'join', 'link', 'signin', 'notfound']);
 const FOCUS_ROUTES = new Set(['shop', 'welcome']); // full-screen, no chrome
 
 /** First visit to a trip: the welcome wizard (skipped by automated browsers unless ?welcome=1). */
