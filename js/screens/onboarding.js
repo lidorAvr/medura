@@ -1,25 +1,25 @@
 // Onboarding (SPEC §8.1): landing / new trip / join ("מי אתם?") / link device.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore } from '../store.js?v=9252f89';
-import { navigate, href } from '../router.js?v=9252f89';
-import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=9252f89';
+import { actions, store, useStore } from '../store.js?v=8d87c37';
+import { navigate, href } from '../router.js?v=8d87c37';
+import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=8d87c37';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
-} from '../lib/logic.js?v=9252f89';
+} from '../lib/logic.js?v=8d87c37';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
   confirmDialog, fireConfetti,
-} from '../ui/components.js?v=9252f89';
-import { Icon } from '../ui/icons.js?v=9252f89';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=9252f89';
-import { Entry, cleanPhone } from '../ui/account.js?v=9252f89';
+} from '../ui/components.js?v=8d87c37';
+import { Icon } from '../ui/icons.js?v=8d87c37';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=8d87c37';
+import { Entry, cleanPhone } from '../ui/account.js?v=8d87c37';
 import {
   AIRPORTS, FAMILIES, MODULES, composeType, focusPacksFor, hasLists, itemTypeOn, packSeed, tripSeed, typeModules, wizardCopy,
-} from '../lib/templates.js?v=9252f89';
-import { ListEditor, PackPicker, applyPack, countOf, fromSeed, toSeed } from '../ui/list-editor.js?v=9252f89';
-import { PlaceInput } from '../ui/place-input.js?v=9252f89';
-import { flightFit, hmOf } from '../lib/flights.js?v=9252f89';
+} from '../lib/templates.js?v=8d87c37';
+import { ListEditor, PackPicker, applyPack, countOf, fromSeed, toSeed } from '../ui/list-editor.js?v=8d87c37';
+import { PlaceInput } from '../ui/place-input.js?v=8d87c37';
+import { flightFit, hmOf } from '../lib/flights.js?v=8d87c37';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];

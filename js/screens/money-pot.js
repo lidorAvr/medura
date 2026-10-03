@@ -4,13 +4,13 @@
 // Dual currency: "≈ €12" next to a ₪ amount at the rate of that transaction's day (fx.js; no rate → ₪ only).
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions } from '../store.js?v=9252f89';
-import { displayName, formatMoney, potModel, potSettings } from '../lib/logic.js?v=9252f89';
+import { actions } from '../store.js?v=8d87c37';
+import { displayName, formatMoney, potModel, potSettings } from '../lib/logic.js?v=8d87c37';
 import {
   CURRENCIES, dayOf, expenseInForeign, foreignCurrencies, formatForeign, fxModeOf, fxModes, inForeign, knownRate,
   loadFxMode, prefetchRates, rateOn, saveFxMode, symbolOf, toShekels,
-} from '../lib/fx.js?v=9252f89';
-import { Avatar, Button, Card, Chip, Field, MemberPicker, MoneyInput, Pill, ProgressBar, Segmented, ShareButton, Sheet, TextInput, confirmDialog } from '../ui/components.js?v=9252f89';
+} from '../lib/fx.js?v=8d87c37';
+import { Avatar, Button, Card, Chip, Field, MemberPicker, MoneyInput, Pill, ProgressBar, Segmented, ShareButton, Sheet, TextInput, confirmDialog } from '../ui/components.js?v=8d87c37';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const YOU = 'את/ה';

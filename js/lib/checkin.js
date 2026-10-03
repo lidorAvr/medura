@@ -3,7 +3,7 @@
 // from the booking (`booking.checkin = {who, hours, item}`). Takeoff times on bookings are wall-clock strings
 // ('YYYY-MM-DDTHH:MM'); the due time is computed on the Israeli clock (a flight out of Israel is exactly that; a
 // flight back is within an hour or two — a check-in window is that loose anyway).
-import { ilIso } from './logic.js?v=9252f89';
+import { ilIso } from './logic.js?v=8d87c37';
 
 export const CHECKIN_HOURS = [
   { hours: 48, label: '48 שעות לפני' },

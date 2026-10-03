@@ -961,3 +961,8 @@
 .ls-cat__secret { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); height: 32px; padding: 0 10px; border-radius: 999px; cursor: pointer; font-size: 0.8rem; font-weight: 700; white-space: nowrap; }
 .ls-cat__secret.is-on { background: var(--primary-soft, var(--surface-2)); border-color: var(--primary); color: var(--text); }
 @media (max-width: 440px) { .ls-cat__buyer:has(+ .ls-cat__secret) { display: none; } }   /* room for the category name next to the 🤫 pill */
+
+/* new category, inline in the item form */
+.ls-newcat { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.ls-newcat .input, .ls-newcat input[type="text"] { flex: 1 1 160px; min-width: 0; }
+.ls-newcat__secret { flex: 1 0 100%; display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-muted); }

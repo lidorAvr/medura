@@ -4,19 +4,19 @@
 // Also exports small helpers that shopping.js and import.js reuse.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=9252f89';
-import { navigate, href } from '../router.js?v=9252f89';
+import { actions, useTrip } from '../store.js?v=8d87c37';
+import { navigate, href } from '../router.js?v=8d87c37';
 import {
   actorName, buildSummaryText, dueInfo, displayName, eachSplitOf, formatQty, headcountTotal, hebrewCount, itemEffectiveQty,
   itemProgress, membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
   ilIso as ilIsoDue, ilWall as ilWallDue,
-} from '../lib/logic.js?v=9252f89';
+} from '../lib/logic.js?v=8d87c37';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, OverBanner, Pill, ProgressBar,
   Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=9252f89';
-import { Icon } from '../ui/icons.js?v=9252f89';
-import { hasModule, itemTypeOn } from '../lib/templates.js?v=9252f89';
+} from '../ui/components.js?v=8d87c37';
+import { Icon } from '../ui/icons.js?v=8d87c37';
+import { hasModule, itemTypeOn } from '../lib/templates.js?v=8d87c37';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by shopping.js and import.js)
@@ -961,7 +961,7 @@ const SELF_LABEL = { buy: 'אני קונה את זה', bring: 'אני מביא/�
 function blankForm(patch) {
   return {
     title: '', category_id: null, type: 'buy', qty: '', unit: null, per_person: false, needed: 1, each_qty: 1, note: '', due: '',
-    self: false, selfQty: 1, catTouched: false, typeTouched: false, ...patch,
+    self: false, selfQty: 1, catTouched: false, typeTouched: false, secret: false, ...patch,
   };
 }
 
@@ -979,6 +979,7 @@ function formFromItem(item) {
     due: item.due_at ? (({ ymd, hm }) => `${ymd}T${hm}`)(ilWallDue(new Date(item.due_at))) : '',
     catTouched: true,
     typeTouched: true,
+    secret: !!item.secret,
   });
 }
 
@@ -1057,6 +1058,22 @@ export function ChipScroller({ label, selected, children }) {
 function ItemFormFields({ form, set, errors, ctx, creating, lockType, afterTitle = null }) {
   const { model, isAdmin } = ctx;
   const cats = model.cats;
+  const groomOn = Boolean(model.snap.trip.settings?.groom);
+  const catSecret = Boolean(cats.find((c) => c.id === form.category_id)?.secret);
+  const [newCat, setNewCat] = useState(null);          // null = closed, else the name being typed
+  const [newCatSecret, setNewCatSecret] = useState(false);
+  const [catBusy, setCatBusy] = useState(false);
+  const createCat = async () => {
+    const name = (newCat || '').trim();
+    if (!name || catBusy) return;
+    const hit = cats.find((c) => normText(c.name) === normText(name));
+    if (hit) { set({ category_id: hit.id, catTouched: true }); setNewCat(null); return; }          // already there: just pick it
+    setCatBusy(true);
+    const id = await actions.run((api) => api.upsertCategory(ctx.tripId, { name, emoji: groomOn && newCatSecret ? '🎁' : '📦', ...(groomOn && newCatSecret ? { secret: true } : {}) }),
+      { success: 'הקטגוריה נוצרה ✨' });
+    setCatBusy(false);
+    if (id) { set({ category_id: id, catTouched: true }); setNewCat(null); setNewCatSecret(false); }
+  };
   const onTitle = (e) => {
     const title = e.currentTarget.value;
     const patch = { title };
@@ -1117,8 +1134,21 @@ function ItemFormFields({ form, set, errors, ctx, creating, lockType, afterTitle
           onClick=${() => set({ category_id: form.category_id === c.id ? null : c.id, catTouched: true })}
         ><span aria-hidden="true">${c.emoji || '📦'}</span> ${c.name}</${Chip}>`)}
         <${Chip} data-key="none" active=${!form.category_id} tone="muted" onClick=${() => set({ category_id: null, catTouched: true })}>📦 בלי</${Chip}>
+        ${isAdmin ? html`<${Chip} data-key="new" data-testid="new-cat-chip" tone="muted" onClick=${() => setNewCat((v) => (v === null ? '' : null))}>➕ קטגוריה חדשה</${Chip}>` : null}
       </${ChipScroller}>
+      ${newCat !== null
+        ? html`<div class="ls-newcat" data-testid="new-cat">
+            <${TextInput} value=${newCat} onInput=${(e) => setNewCat(e.currentTarget.value.slice(0, 40))} maxlength="40"
+              placeholder=${groomOn ? 'למשל: מתנות' : 'שם הקטגוריה'} data-autofocus
+              onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); createCat(); } }} />
+            ${groomOn ? html`<label class="ls-newcat__secret"><input type="checkbox" checked=${newCatSecret} onChange=${(e) => setNewCatSecret(e.currentTarget.checked)} /> 🤫 סודית — מוסתרת מהחוגג/ת</label>` : null}
+            <${Button} size="sm" icon="plus" loading=${catBusy} disabled=${!newCat.trim()} onClick=${createCat}>הוספת קטגוריה</${Button}>
+          </div>` : null}
     </${Field}>
+    ${isAdmin && groomOn
+      ? html`<div data-testid="item-secret-toggle"><${Toggle} checked=${form.secret || catSecret} disabled=${catSecret}
+          onChange=${(v) => set({ secret: v })}
+          label=${catSecret ? '🤫 הקטגוריה מוסתרת מהחוגג/ת' : '🤫 הפתעה — מוסתר מהחוגג/ת'} /></div>` : null}
 
     ${form.type === 'buy'
       ? html`<div class="ls-qty-block">
@@ -1218,7 +1248,11 @@ function AddItemSheet({ open, prefill, tab, ctx, onClose, onAdded, onOpenExistin
     if (!(await confirmNotDuplicate(form.title, model.snap))) return;
     setSaving(true);
     const proposal = !isAdmin && model.requireApproval;
-    const id = await actions.run((api) => api.addItem(tripId, formToPayload(form, { creating: true })), {
+    const id = await actions.run(async (api) => {
+      const newId = await api.addItem(tripId, formToPayload(form, { creating: true }));
+      if (newId && form.secret && isAdmin) await api.setSecret('item', newId, true);          // a surprise from the start
+      return newId;
+    }, {
       success: proposal ? 'ההצעה נשלחה למנהלים ⏳' : 'נוסף לרשימה ✨',
     });
     setSaving(false);
@@ -1283,7 +1317,11 @@ function ItemSheet({ open, item, ctx, onClose }) {
     setErrors(errs);
     if (Object.keys(errs).length) return;
     const patch = formToPayload(form, { creating: false });
-    if (await act('save', (api) => api.updateItem(it.id, patch), { success: 'נשמר ✓' })) setMode('view');
+    if (await act('save', async (api) => {
+      await api.updateItem(it.id, patch);
+      if (ctx.isAdmin && form.secret !== !!it.secret) await api.setSecret('item', it.id, form.secret);
+      return true;
+    }, { success: 'נשמר ✓' })) setMode('view');
   };
   const reject = async () => {
     const why = reason.trim() || null;
