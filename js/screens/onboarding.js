@@ -1,24 +1,24 @@
 // Onboarding (SPEC §8.1): landing / new trip / join ("מי אתם?") / link device.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore } from '../store.js?v=56bbb9a';
-import { navigate, href } from '../router.js?v=56bbb9a';
-import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=56bbb9a';
+import { actions, store, useStore } from '../store.js?v=8a35ae3';
+import { navigate, href } from '../router.js?v=8a35ae3';
+import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=8a35ae3';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
-} from '../lib/logic.js?v=56bbb9a';
+} from '../lib/logic.js?v=8a35ae3';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
   confirmDialog, fireConfetti,
-} from '../ui/components.js?v=56bbb9a';
-import { Icon } from '../ui/icons.js?v=56bbb9a';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=56bbb9a';
-import { Entry, cleanPhone } from '../ui/account.js?v=56bbb9a';
+} from '../ui/components.js?v=8a35ae3';
+import { Icon } from '../ui/icons.js?v=8a35ae3';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=8a35ae3';
+import { Entry, cleanPhone } from '../ui/account.js?v=8a35ae3';
 import {
   AIRPORTS, FAMILIES, MODULES, composeType, tripSeed, typeModules, wizardCopy,
-} from '../lib/templates.js?v=56bbb9a';
-import { PlaceInput } from '../ui/place-input.js?v=56bbb9a';
-import { flightFit, hmOf } from '../lib/flights.js?v=56bbb9a';
+} from '../lib/templates.js?v=8a35ae3';
+import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
+import { flightFit, hmOf } from '../lib/flights.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];

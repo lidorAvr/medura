@@ -4,7 +4,7 @@
 // trips from before families keep their flat `type` and are mapped by resolveType (nothing is rewritten).
 // Everything here is a suggestion: the admin edits, deletes and toggles all of it later.
 // Pure data + tiny helpers (no DOM, no API) so the logic tests can check it.
-import { adminPersons } from './logic.js?v=56bbb9a';
+import { adminPersons } from './logic.js?v=8a35ae3';
 
 /**
  * Features the creator picks for a trip (defaults by type) and admins switch on/off later ("⚙️ מה יש בטיול").

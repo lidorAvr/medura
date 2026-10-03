@@ -4,15 +4,15 @@
 // Money collected before buying stays "בקופה" (out of the settle-up) until the purchase is recorded.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { actions, store } from '../store.js?v=56bbb9a';
-import { href } from '../router.js?v=56bbb9a';
+import { actions, store } from '../store.js?v=8a35ae3';
+import { href } from '../router.js?v=8a35ae3';
 import {
   actorName, balanceSettled, balances, displayName, expenseShares, formatMoney, headcountTotal, hebrewCount, moneyPots,
   partyBalances, personPhone, personsOf, titleSimilarity, whatsappChatUrl,
-} from '../lib/logic.js?v=56bbb9a';
+} from '../lib/logic.js?v=8a35ae3';
 import {
   Avatar, Button, Card, CopyButton, Field, MemberPicker, MoneyInput, Segmented, Sheet, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=56bbb9a';
+} from '../ui/components.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const METHOD = { bit: '📱 ביט', paybox: '📦 פייבוקס', bank: '🏦 העברה בנקאית', cash: '💵 מזומן' };
@@ -339,14 +339,16 @@ function RequestSheet({ open, snap, me, onClose }) {
   const [due, setDue] = useState('');
   const [note, setNote] = useState('');
   const [m, setM] = useState({ bit: '', paybox: '', bank: '', cash: false });
-  const [paid, setPaid] = useState(true);
+  // null = not answered yet. Never guessed: "כבר שילמתי" records an expense, so a wrong default counts the
+  // purchase twice once it's recorded for real (testers 2026-10-02)
+  const [paid, setPaid] = useState(null);
   const [withMe, setWithMe] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useLayoutEffect(() => {
     if (!open) return;
-    setTitle(''); setMode('per_person'); setAmount(null); setExpId(null); setPaid(true); setWithMe(!iAmExempt);
+    setTitle(''); setMode('per_person'); setAmount(null); setExpId(null); setPaid(null); setWithMe(!iAmExempt);
     setWho(others.filter((x) => !exempt.has(x.id)).map((x) => x.id)); setDue(''); setNote(''); setError(null); setBusy(false);
     setM({ bit: me.phone || '', paybox: '', bank: '', cash: false });
     // how I like to get paid, saved once in my profile
@@ -366,7 +368,7 @@ function RequestSheet({ open, snap, me, onClose }) {
   const askedSum = exp ? chosen.reduce((n, x) => n + (expShares.get(x.id) || 0), 0) : null;
   const exemptOut = others.filter((x) => exempt.has(x.id) && !who.includes(x.id));
   // "כבר שילמתי" on a title I already recorded as an expense → it would count twice
-  const twin = mode !== 'expense' && paid && title.trim().length > 1
+  const twin = mode !== 'expense' && paid !== false && title.trim().length > 1
     ? myExpenses.find((e) => titleSimilarity(title, e.title)) : null;
 
   const useExpense = (e) => {
@@ -390,6 +392,7 @@ function RequestSheet({ open, snap, me, onClose }) {
     if (!title.trim()) return setError('על מה? (למשל: מקדמה לווילה)');
     if (mode === 'expense' ? !exp : !(amount > 0)) return setError(mode === 'expense' ? 'על איזו הוצאה?' : 'כמה?');
     if (!chosen.length) return setError('ממי מבקשים?');
+    if (mode !== 'expense' && paid === null) return setError('כבר שילמת על זה, או שאוספים לפני הקנייה? בוחרים אחת למעלה');
     setBusy(true);
     const methods = { bit: m.bit.trim(), paybox: m.paybox.trim(), bank: m.bank.trim(), cash: m.cash };
     const body = { title: title.trim(), note: note.trim() || null, due: due || null, members: chosen.map((x) => x.id), methods };
@@ -436,8 +439,14 @@ function RequestSheet({ open, snap, me, onClose }) {
             ? html`<p class="mreq-split small" data-testid="mreq-split">סה״כ ${formatMoney(exp.amount)} · מבקשים ${formatMoney(askedSum)} מ־${hebrewCount(chosen.length, 'פרופיל', 'פרופילים')}</p>`
             : null}
       ${mode !== 'expense'
-        ? html`<${Toggle} checked=${paid} onChange=${setPaid} label="כבר שילמתי על זה"
-            hint=${paid ? 'נרשם כהוצאה שלך — וכשמשלמים לך, החשבון מתאזן' : 'איסוף לפני קנייה: הכסף נשאר ״בקופה״ (מחוץ להתחשבנות) עד שרושמים את הקנייה'} />`
+        ? html`<${Field} label="כבר שילמת על זה?" class="mreq-paid"
+            hint=${paid === null ? 'בוחרים אחת — כך נדע אם לרשום את זה כהוצאה עכשיו, או לחכות לקנייה'
+              : paid ? 'נרשם עכשיו כהוצאה שלך — וכשמשלמים לך, החשבון מתאזן. לא רושמים אותה שוב ב״הוצאה חדשה״'
+                : 'איסוף לפני קנייה: הכסף נשאר ״בקופה״ (מחוץ להתחשבנות) עד שרושמים את הקנייה — מכאן, מהבקשה'}>
+            <${Segmented} label="כבר שילמת על זה?" value=${paid === null ? null : paid ? 'yes' : 'no'}
+              onChange=${(v) => { setPaid(v === 'yes'); setError(null); }}
+              options=${[{ value: 'yes', label: '✅ כן, שילמתי' }, { value: 'no', label: '🛒 עוד לא' }]} />
+          </${Field}>`
         : null}
       ${twin
         ? html`<div class="mreq-warn small" role="note" data-testid="mreq-twin">

@@ -3,27 +3,27 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=56bbb9a';
-import { href, navigate } from '../router.js?v=56bbb9a';
+import { actions, useTrip } from '../store.js?v=8a35ae3';
+import { href, navigate } from '../router.js?v=8a35ae3';
 import {
   actorName,
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
   hebrewCount, itemEffectiveQty, itemProgress, membersById, missingItems, myAgenda, similarItems, timeAgo, tripReadiness,
   visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats, adminPersons, personsOf,
-  departureOf, myRideText, pinnedNotices, myInbox, settlePlan, moneyPots, myNet, openMoneyRequests, partyBalances,
+  departureOf, myRideText, pinnedNotices, myInbox, tripPlan, moneyPots, myNet, openMoneyRequests, partyBalances,
   partyName, partyOf, splitsMoney,
-} from '../lib/logic.js?v=56bbb9a';
+} from '../lib/logic.js?v=8a35ae3';
 import {
   Avatar, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js?v=56bbb9a';
-import { Icon } from '../ui/icons.js?v=56bbb9a';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=56bbb9a';
-import { InboxCard } from '../ui/inbox.js?v=56bbb9a';
-import { payMethodsOf } from './money-requests.js?v=56bbb9a';
-import { AlbumSheet } from './trip-extras.js?v=56bbb9a';
-import { hebrewError } from '../api/errors.js?v=56bbb9a';
-import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=56bbb9a';
+} from '../ui/components.js?v=8a35ae3';
+import { Icon } from '../ui/icons.js?v=8a35ae3';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=8a35ae3';
+import { InboxCard } from '../ui/inbox.js?v=8a35ae3';
+import { payMethodsOf } from './money-requests.js?v=8a35ae3';
+import { AlbumSheet } from './trip-extras.js?v=8a35ae3';
+import { hebrewError } from '../api/errors.js?v=8a35ae3';
+import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 3;
@@ -373,8 +373,12 @@ function TripDayCard({ snap, me, now }) {
   const leave = departureOf(trip);
   const depart = rides.mySeat?.depart_at || rides.myRide?.depart_at || leave.at;
   const firstRow = !rides.mySeat?.depart_at && !rides.myRide?.depart_at ? leave.row : null;
-  const open = snap.pledges.filter((p) => p.member_id === me.id && !p.done).length
-    + (snap.personal_items || []).filter((p) => !p.done).length;
+  // what "הרשימה שלי" still shows unticked: what I bring, "כל אחד מביא", what I buy / do, and my own packing list
+  const mine = myAgenda(snap, me.id);
+  const on = (x) => itemTypeOn(trip, x.item.type);
+  const open = mine.bring.filter((x) => on(x) && !x.pledge.done).length + mine.each.filter((x) => on(x) && !x.done).length
+    + [...mine.buy, ...mine.tasks].filter((x) => on(x) && !x.item.done).length
+    + (hasModule(trip, 'packing') ? (snap.personal_items || []).filter((p) => !p.done).length : 0);
   const waze = trip.settings?.where === 'abroad' ? null : wazeUrl(trip);   // abroad: no Waze from home to "רומא"
   const rideText = myRideText(rides);
 
@@ -600,7 +604,7 @@ function AfterCard({ snap, me, isAdmin, onAlbum }) {
   const money = hasModule(trip, 'money');
   const bals = money ? balances(snap) : [];
   // the same plan the money screen shows (a couple that pays each their own part settles per person)
-  const plan = money ? settlePlan(partyBalances(snap)) : [];
+  const plan = money ? tripPlan(snap) : [];
   const byId = membersById(snap.members || []);
   const person = (me.people || []).includes(snap.me?.person) ? snap.me.person : null;
   const myKey = person && splitsMoney(me) ? `${me.id}::${person}` : me.id;
@@ -674,7 +678,7 @@ function AfterCard({ snap, me, isAdmin, onAlbum }) {
       state = 'asked';
       const a = asked[0];
       line = html`עליך <b class="num" data-testid="after-amount">${formatMoney(sumOf(asked))}</b> ל${actorName(byId.get(a.request.requested_by), a.request.by_person)} · ${a.request.title}${asked.length > 1 ? ` ועוד ${asked.length - 1}` : ''}`;
-      action = html`<${Button} block href=${moneyHref} data-testid="after-request">לבקשה ולתשלום</${Button}>`;
+      action = html`<${Button} block href=${`${moneyHref}?show=requests`} data-testid="after-request">לבקשה ולתשלום</${Button}>`;
     } else if (inn.length) {
       state = 'get';
       line = html`${names(inn.map((t) => t.from))} ${inn.length > 1 ? 'מעבירים' : 'מעביר/ה'} לך <b class="num" data-testid="after-amount">${formatMoney(inSum)}</b>`;

@@ -4,25 +4,25 @@
 // only: the album on top, schedule / rules / notes folded to rows, no weather, navigation, invite or rides.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=56bbb9a';
+import { actions, useTrip } from '../store.js?v=8a35ae3';
 import {
   AIRPORTS, ARRIVAL_MODES, FAMILIES, MODULES, arrivalOf, composeType, dayCount, hasLists, hasModule, resolveType, schedulePlan,
   schedulePresets,
-} from '../lib/templates.js?v=56bbb9a';
-import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=56bbb9a';
-import { PlaceInput } from '../ui/place-input.js?v=56bbb9a';
-import { CURRENCIES } from '../lib/fx.js?v=56bbb9a';
-import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=56bbb9a';
-import { href, navigate } from '../router.js?v=56bbb9a';
+} from '../lib/templates.js?v=8a35ae3';
+import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=8a35ae3';
+import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
+import { CURRENCIES } from '../lib/fx.js?v=8a35ae3';
+import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=8a35ae3';
+import { href, navigate } from '../router.js?v=8a35ae3';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, adminPersons,
   rideModel, tripOver,
-} from '../lib/logic.js?v=56bbb9a';
+} from '../lib/logic.js?v=8a35ae3';
 import {
   Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, Fold, IconButton, OverBanner, Sheet,
   ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=56bbb9a';
-import { Icon } from '../ui/icons.js?v=56bbb9a';
+} from '../ui/components.js?v=8a35ae3';
+import { Icon } from '../ui/icons.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';
@@ -434,7 +434,7 @@ export default function TripScreen({ route }) {
       : isAdmin
         ? html`<${Card} emoji="⏰" title="לו״ז" class="trip-schedule">
             <${EmptyState} emoji="🗓️" title="עוד אין לו״ז" text="מתי יוצאים, מתי על האש ומתי ישנים — שכולם יידעו"
-              action=${html`<${Button} size="sm" icon="plus" onClick=${openEdit}>הוספת לו״ז</${Button}>`} />
+              action=${html`<${Button} size="sm" icon="plus" onClick=${() => navigate(`/t/${trip.id}/trip?edit=1&section=schedule`)}>הוספת לו״ז</${Button}>`} />
           </${Card}>`
         : null}
 

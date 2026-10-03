@@ -3,15 +3,15 @@
 // the screen stays awake, and "סיימתי!" records the receipt as a shared expense (+ confetti).
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=56bbb9a';
-import { navigate, href } from '../router.js?v=56bbb9a';
-import { displayName, expenseShares, formatMoney, headcountTotal, hebrewCount, itemEffectiveQty, membersById } from '../lib/logic.js?v=56bbb9a';
+import { actions, useTrip } from '../store.js?v=8a35ae3';
+import { navigate, href } from '../router.js?v=8a35ae3';
+import { displayName, expenseShares, formatMoney, headcountTotal, hebrewCount, itemEffectiveQty, membersById } from '../lib/logic.js?v=8a35ae3';
 import {
   Avatar, Button, Chip, EmptyState, Field, IconButton, MemberPicker, MoneyInput, ProgressBar, Segmented, Sheet, Skeleton,
   TextInput, fireConfetti,
-} from '../ui/components.js?v=56bbb9a';
-import { Icon } from '../ui/icons.js?v=56bbb9a';
-import { ChipScroller, cx, groupByCategory, runOk, sortedCategories } from './lists.js?v=56bbb9a';
+} from '../ui/components.js?v=8a35ae3';
+import { Icon } from '../ui/icons.js?v=8a35ae3';
+import { ChipScroller, cx, groupByCategory, runOk, sortedCategories } from './lists.js?v=8a35ae3';
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const SETTLE_MS = 650; // how long a toggled row stays in place before it moves

@@ -1,7 +1,7 @@
 // "הבית שלי" (SPEC §8.0, §16.2): pure helpers over my_overview() rows — no DOM, no store.
 // Overview row shape: SPEC §16.1 / my_overview(). Every field is read defensively (an older
 // server may send fewer keys).
-import { formatMoney, tripPhase } from './logic.js?v=56bbb9a';
+import { formatMoney, tripPhase } from './logic.js?v=8a35ae3';
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const time = (iso) => {

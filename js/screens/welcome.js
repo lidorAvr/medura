@@ -6,14 +6,15 @@
 // (asking for one happens on the rides tab); the footer's action stays in reach.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore, useTrip } from '../store.js?v=56bbb9a';
-import { href, navigate } from '../router.js?v=56bbb9a';
-import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=56bbb9a';
-import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=56bbb9a';
-import { flightFit } from '../lib/flights.js?v=56bbb9a';
-import { PlaceInput } from '../ui/place-input.js?v=56bbb9a';
-import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=56bbb9a';
-import { AIRPORTS, arrivalQuestion, tripType, welcomeSteps } from '../lib/templates.js?v=56bbb9a';
+import { actions, store, useStore, useTrip } from '../store.js?v=8a35ae3';
+import { href, navigate } from '../router.js?v=8a35ae3';
+import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=8a35ae3';
+import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=8a35ae3';
+import { flightFit } from '../lib/flights.js?v=8a35ae3';
+import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
+import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=8a35ae3';
+import { seatsFor } from './rides.js?v=8a35ae3';
+import { AIRPORTS, arrivalQuestion, tripType, welcomeSteps } from '../lib/templates.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
@@ -127,7 +128,8 @@ function Wizard({ snap, me, start }) {
   const [fromText, setFromText] = useState(savedFrom);
   const [fromPlace, setFromPlace] = useState(savedFrom && savedLat != null && savedLon != null
     ? { name: savedFrom, address: '', lat: Number(savedLat), lon: Number(savedLon) } : null);
-  const [seats, setSeats] = useState(myRide?.seats ?? (mode === 'park' ? 0 : 2));
+  const ownSeats = Math.min(2, seatsFor('car', me));         // what's left next to my own profile, 2 at most
+  const [seats, setSeats] = useState(myRide?.seats ?? (mode === 'park' ? 0 : ownSeats));
   const [organise, setOrganise] = useState(Boolean(myRide && myRide.kind === 'taxi'));
   const [depart, setDepart] = useState(myRide?.depart_at ? ilWall(new Date(myRide.depart_at)).hm : '');
   const [late, setLate] = useState(Boolean(prefs.arrival));
@@ -327,12 +329,12 @@ function Wizard({ snap, me, start }) {
       const offered = (aq.options.find((o) => o.key === 'car')?.choices || []).map((c) => c.key);
       const first = offered.includes('drop') || !offered.length ? 'drop' : offered[0];
       setMode((m) => (m === 'car' || m === 'drop' ? m : first));
-      if (first === 'car' && !myRide && seats < 1) setSeats(2);
+      if (first === 'car' && !myRide && seats < 1) setSeats(ownSeats);
       return;
     }
     setMode(value);
     if (value === 'park' && !myRide) setSeats(0);
-    if (value === 'car' && !myRide && seats < 1) setSeats(2);
+    if (value === 'car' && !myRide && seats < 1) setSeats(ownSeats);
   };
   const isOn = (key) => mode === key || (abroad && key === 'car' && mode === 'drop');
 
@@ -413,12 +415,12 @@ function Wizard({ snap, me, start }) {
             ? html`<div class="me-chips" role="radiogroup" aria-label="נוהגים או שמקפיצים אתכם?">
                 ${(aq.options.find((o) => o.key === 'car')?.choices || []).map((c) => html`<button type="button" key=${c.key} role="radio"
                   aria-checked=${mode === c.key ? 'true' : 'false'} class=${cx('chip', mode === c.key && 'is-active')}
-                  onClick=${() => { setMode(c.key); setErrors({}); if (c.key === 'car' && !myRide && seats < 1) setSeats(2); }}>${c.label}</button>`)}
+                  onClick=${() => { setMode(c.key); setErrors({}); if (c.key === 'car' && !myRide && seats < 1) setSeats(ownSeats); }}>${c.label}</button>`)}
               </div>`
             : null}
           ${abroad && mode === 'taxi'
             ? html`<button type="button" role="switch" aria-checked=${organise ? 'true' : 'false'} class=${cx('welcome-chk', organise && 'is-on')}
-                onClick=${() => { setOrganise(!organise); if (!organise && seats < 1) setSeats(3); }}>
+                onClick=${() => { setOrganise(!organise); if (!organise && seats < 1) setSeats(seatsFor('taxi', me)); }}>
                 ${organise ? '☑️' : '⬜'} אני מזמין/ה את המונית — יש מקום לעוד
               </button>`
             : null}

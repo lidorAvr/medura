@@ -7,8 +7,8 @@
 // Every call loads a fresh copy, runs one RPC against it, and saves only on success —
 // so a failed call never leaves partial changes behind (like a SQL transaction).
 
-import { ApiError, flightFailure, flightInput } from './errors.js?v=56bbb9a';
-import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=56bbb9a';
+import { ApiError, flightFailure, flightInput } from './errors.js?v=8a35ae3';
+import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=8a35ae3';
 import {
   DEMO_VERSION,
   DEFAULT_CATEGORIES,
@@ -19,7 +19,7 @@ import {
   buildDemoSeed,
   demoFlight,
   jerusalemYmd,
-} from './demo-seed.js?v=56bbb9a';
+} from './demo-seed.js?v=8a35ae3';
 
 export const DEMO_STORAGE_KEY = 'medura:demo:v1';
 export const DEMO_UID_KEY = 'medura:demo:uid';

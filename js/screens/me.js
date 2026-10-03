@@ -5,18 +5,18 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=56bbb9a';
-import { cleanPhone } from '../ui/account.js?v=56bbb9a';
-import { navigate } from '../router.js?v=56bbb9a';
+import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=8a35ae3';
+import { cleanPhone } from '../ui/account.js?v=8a35ae3';
+import { navigate } from '../router.js?v=8a35ae3';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
   ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, Fold,
-} from '../ui/components.js?v=56bbb9a';
-import { Icon } from '../ui/icons.js?v=56bbb9a';
-import { CoupleCard } from '../ui/couple.js?v=56bbb9a';
-import { disablePush, enablePush, pushState } from '../lib/device.js?v=56bbb9a';
-import { arrivalOf, resolveType } from '../lib/templates.js?v=56bbb9a';
-import { adminPersons, deviceLinkUrl, displayName, formatMoney, payingMembers, personsOf, whatsappChatUrl } from '../lib/logic.js?v=56bbb9a';
+} from '../ui/components.js?v=8a35ae3';
+import { Icon } from '../ui/icons.js?v=8a35ae3';
+import { CoupleCard } from '../ui/couple.js?v=8a35ae3';
+import { disablePush, enablePush, pushState } from '../lib/device.js?v=8a35ae3';
+import { arrivalOf, resolveType, tripType } from '../lib/templates.js?v=8a35ae3';
+import { adminPersons, deviceLinkUrl, displayName, formatMoney, payingMembers, personsOf, whatsappChatUrl } from '../lib/logic.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -270,7 +270,7 @@ function MeBody({ snap, me, admin, tripId }) {
     <${ProfileCard} me=${me} role=${snap.me?.role || me.role} snap=${snap} />
     <${CoupleCard} snap=${snap} me=${me} onEdit=${() => document.querySelector('.me-hero__edit')?.click()} />
     <${NotifyCard} me=${me} tripId=${tripId} trip=${snap.trip} admin=${admin} />
-    <${InventoryCard} me=${me} />
+    ${tripType(snap.trip).ask?.home === false ? null : html`<${InventoryCard} me=${me} />`}
     <${DietCard} me=${me} />
     <${AccountCard} />
     <${EmailCard} me=${me} />

@@ -4,15 +4,15 @@
 // picks which ways a trip offers (settings.arrival). Used on the rides tab, the trip screen and the wizard.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=56bbb9a';
-import { navigate } from '../router.js?v=56bbb9a';
-import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel, tripPhase } from '../lib/logic.js?v=56bbb9a';
-import { AIRPORTS, ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=56bbb9a';
-import { findFlight, flightCode, flightDest, flightFit, hmOf, isFlightNumber, isYmd, legDate, travelFromFlight } from '../lib/flights.js?v=56bbb9a';
-import { hasCoords, navLinks } from '../lib/places.js?v=56bbb9a';
-import { FlightLive, LookupNote, nearOf, tripDays, useFlightLookup, wall, whereOf } from './trip-extras.js?v=56bbb9a';
-import { PlaceInput } from '../ui/place-input.js?v=56bbb9a';
-import { Avatar, Button, Card, Chip, Field, OverBanner, Sheet, Skeleton, Stepper, TextInput, confirmDialog, tripOver } from '../ui/components.js?v=56bbb9a';
+import { actions, useTrip } from '../store.js?v=8a35ae3';
+import { navigate } from '../router.js?v=8a35ae3';
+import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel, tripPhase } from '../lib/logic.js?v=8a35ae3';
+import { AIRPORTS, ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=8a35ae3';
+import { findFlight, flightCode, flightDest, flightFit, hmOf, isFlightNumber, isYmd, legDate, travelFromFlight } from '../lib/flights.js?v=8a35ae3';
+import { hasCoords, navLinks } from '../lib/places.js?v=8a35ae3';
+import { FlightLive, LookupNote, nearOf, tripDays, useFlightLookup, wall, whereOf } from './trip-extras.js?v=8a35ae3';
+import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
+import { Avatar, Button, Card, Chip, Field, OverBanner, Sheet, Skeleton, Stepper, TextInput, confirmDialog, tripOver } from '../ui/components.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const ok = (fn) => async (api) => {
@@ -565,6 +565,15 @@ const SHEET = {
 };
 const PARK = { title: 'חונים בשדה — יש מקום 🅿️', done: 'הרכב לשדה ברשימה 🅿️' };
 
+/** How many seats a new offer starts with: what's left next to my own profile — a family of four in a car has one
+ *  seat to give, not three (testers 2026-10-02). At least 1, at most the kind's usual; a meeting point is its own. */
+export function seatsFor(kind, me) {
+  const w = SHEET[kind] || SHEET.car;
+  if (kind === 'meet') return w.def;
+  const mine = Math.max(1, Number(me?.headcount) || 1);
+  return Math.max(1, Math.min(w.def, (kind === 'taxi' ? 4 : 5) - mine));
+}
+
 /** A place the sheet holds: the picked OSM place (with coords) or null, plus the text in the field. */
 function usePlace() {
   const [place, setPlace] = useState(null);
@@ -590,7 +599,7 @@ function RideSheet({ open, ride, kind = 'car', park = false, trip, me, onClose }
 
   useLayoutEffect(() => {
     if (!open) return;
-    setSeats(ride ? ride.seats : w.def);
+    setSeats(ride ? ride.seats : seatsFor(kind, me));
     from.load(ride?.from_text || (!ride ? me?.prefs?.transport?.from : '') || '', ride ? ride.from_lat : me?.prefs?.transport?.from_lat,
       ride ? ride.from_lon : me?.prefs?.transport?.from_lon);
     to.load(ride ? ride.to_text || '' : fly && kind !== 'meet' ? airportName(myAirport(trip, me)) : '', ride?.to_lat, ride?.to_lon);

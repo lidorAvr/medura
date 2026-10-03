@@ -3,14 +3,14 @@
 // Times here are wall-clock strings ('YYYY-MM-DDTHH:MM', local to the place) — shown as typed.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=56bbb9a';
-import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=56bbb9a';
-import { hasModule, resolveType } from '../lib/templates.js?v=56bbb9a';
-import { symbolOf } from '../lib/fx.js?v=56bbb9a';
-import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=56bbb9a';
-import { navLinks } from '../lib/places.js?v=56bbb9a';
-import { PlaceInput } from '../ui/place-input.js?v=56bbb9a';
-import { Button, Card, Chip, Field, IconButton, Segmented, Sheet, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=56bbb9a';
+import { actions, store, useTrip } from '../store.js?v=8a35ae3';
+import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=8a35ae3';
+import { hasModule, resolveType } from '../lib/templates.js?v=8a35ae3';
+import { symbolOf } from '../lib/fx.js?v=8a35ae3';
+import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=8a35ae3';
+import { navLinks } from '../lib/places.js?v=8a35ae3';
+import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
+import { Button, Card, Chip, Field, IconButton, Segmented, Sheet, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -207,6 +207,7 @@ function bookingBody(b, snap) {
     return html`<p class="booking__title">🏨 ${b.name || 'לינה'}</p>
       ${b.address ? html`<p class="booking__line">📍 <bdi>${b.address}</bdi></p>` : null}
       <p class="booking__line">${[b.check_in && `צ׳ק־אין ${wall(b.check_in)}`, b.check_out && `צ׳ק־אאוט ${wall(b.check_out)}`].filter(Boolean).join(' · ')}</p>
+      ${b.ref ? html`<p class="booking__line" data-testid="booking-ref">🔖 קוד הזמנה <b dir="ltr">${b.ref}</b></p>` : null}
       ${b.pay ? html`<p class="booking__line">💳 ${PAY[b.pay] || b.pay}${b.price ? ` · ${b.price}` : ''}</p>` : null}
       ${b.cancel ? html`<p class="booking__line">↩️ ${b.cancel}</p>` : null}
       ${b.note ? html`<p class="booking__line muted">📝 ${b.note}</p>` : null}
@@ -215,6 +216,7 @@ function bookingBody(b, snap) {
   }
   return html`<p class="booking__title">🎟️ ${b.title || 'הזמנה'}</p>
     ${b.at ? html`<p class="booking__line">🕗 ${wall(b.at)}</p>` : null}
+    ${b.ref ? html`<p class="booking__line" data-testid="booking-ref">🔖 קוד הזמנה <b dir="ltr">${b.ref}</b></p>` : null}
     ${b.note ? html`<p class="booking__line muted">📝 ${b.note}</p>` : null}
     ${b.url ? html`<a class="booking__link" href=${b.url} target="_blank" rel="noopener noreferrer">קישור ↗</a>` : null}`;
 }
@@ -360,12 +362,14 @@ function BookingSheet({ open, data, trip, onClose, onSave }) {
           <p class="field__label">תשלום</p>
           <div class="sched-quick">${['onsite', 'organizer', 'paid'].map((k) => html`<${Chip} key=${k} active=${b.pay === k} onClick=${() => set('pay')(k)}>${PAY[k]}</${Chip}>`)}</div>
           <${Field} label="מחיר (לא חובה)"><${TextInput} value=${b.price || ''} maxlength="60" placeholder="₪1,054 לאדם" onInput=${set('price')} /></${Field}>
+          <${Field} label="קוד הזמנה (לא חובה)" hint="מה שמראים בדלפק — כולם יראו אותו כאן, גם בלי קליטה"><${TextInput} dir="ltr" value=${b.ref || ''} maxlength="30" placeholder="HM3K2L" onInput=${set('ref')} data-testid="booking-ref-input" /></${Field}>
           <${Field} label="ביטול"><${TextInput} value=${b.cancel || ''} maxlength="120" placeholder="ביטול חינם עד 3 ימים לפני" onInput=${set('cancel')} /></${Field}>
           <${Field} label="קישור (לא חובה)"><${TextInput} type="url" dir="ltr" value=${b.url || ''} maxlength="500" placeholder="https://…" onInput=${set('url')} /></${Field}>`
         : null}
       ${kind === 'other'
         ? html`<${Field} label="מה הוזמן?"><${TextInput} value=${b.title || ''} maxlength="60" placeholder="שולחן במסעדה, שייט, קארטינג…" onInput=${set('title')} /></${Field}>
           <${Field} label="מתי"><${TextInput} type="datetime-local" value=${b.at || ''} onInput=${set('at')} /></${Field}>
+          <${Field} label="קוד הזמנה (לא חובה)"><${TextInput} dir="ltr" value=${b.ref || ''} maxlength="30" onInput=${set('ref')} data-testid="booking-ref-input" /></${Field}>
           <${Field} label="קישור (לא חובה)"><${TextInput} type="url" dir="ltr" value=${b.url || ''} maxlength="500" onInput=${set('url')} /></${Field}>`
         : null}
       <${Field} label="הערה (לא חובה)"><${TextInput} value=${b.note || ''} maxlength="200" onInput=${set('note')} /></${Field}>

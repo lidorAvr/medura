@@ -544,14 +544,17 @@ export function balances(snap) {
   });
 }
 
-/** Who pays whom. Rows are balances() (keyed by member_id) or partyBalances() (keyed by `key` — a person of a
- *  couple that pays each their own part is `${member_id}::${person}`); from/to are those keys. */
-export function settlePlan(balancesArr) {
-  const rows = list(balancesArr)
+/** settlePlan's rows in agorot: [{id, c (− owes, + gets), i}] — id is the party key (or member_id). */
+function planRows(balancesArr) {
+  return list(balancesArr)
     .filter((b) => b && (b.key ?? b.member_id) != null)
     .map((b, i) => ({ id: b.key ?? b.member_id, c: toCents(b.balance), i }));
+}
+
+/** The pairing itself, in agorot, nothing dropped or rounded: the largest debtor pays the largest creditor. */
+function pairUp(rows) {
   const debtors = rows.filter((r) => r.c < 0).map((r) => ({ ...r, c: -r.c }));
-  const creditors = rows.filter((r) => r.c > 0);
+  const creditors = rows.filter((r) => r.c > 0).map((r) => ({ ...r }));
   const largest = (xs) =>
     xs.reduce((best, x) => (x.c > 0 && (!best || x.c > best.c || (x.c === best.c && x.i < best.i)) ? x : best), null);
   const out = [];
@@ -562,9 +565,91 @@ export function settlePlan(balancesArr) {
     const x = Math.min(d.c, c.c);
     d.c -= x;
     c.c -= x;
-    if (x >= 100 && d.id !== c.id) out.push({ from: d.id, to: c.id, amount: Math.round(x / 100) });
+    out.push({ from: d.id, to: c.id, c: x });
   }
   return out;
+}
+
+/** Whole shekels, nothing under ₪1, nobody paying themselves. */
+const wholeTransfers = (pairs) =>
+  pairs.filter((t) => t.c >= 100 && t.from !== t.to).map((t) => ({ from: t.from, to: t.to, amount: Math.round(t.c / 100) }));
+
+/** Who pays whom. Rows are balances() (keyed by member_id) or partyBalances() (keyed by `key` — a person of a
+ *  couple that pays each their own part is `${member_id}::${person}`); from/to are those keys.
+ *  The pairing for a given set of balances — the screens show tripPlan(snap), which keeps it steady. */
+export function settlePlan(balancesArr) {
+  return wholeTransfers(pairUp(planRows(balancesArr)));
+}
+
+/**
+ * The trip's settle-up plan, steady: who pays whom is decided by the expenses alone (the plan as if nobody had
+ * transferred anything yet), and a transfer — also one still waiting for its ✓ — only shrinks its own row. So one
+ * "שילמתי" never reshuffles who everybody else pays. A transfer made off the plan (to someone else, or more than
+ * its row) moves only what it must: every planned row keeps what both its sides still have open, the rest is
+ * paired as usual. Same shape as settlePlan (whole shekels, nothing under ₪1, largest first); with no transfers
+ * it IS settlePlan(partyBalances(snap)).
+ */
+export function tripPlan(snap) {
+  const now = partyBalances(snap);
+  const pot = potPaymentIds(snap);
+  const moved = list(snap?.payments).filter((p) => p && !pot.has(p.id));
+  if (!moved.length) return settlePlan(now);
+  const planned = pairUp(planRows(partyBalances({ ...snap, payments: [] })));
+  // 1. every transfer comes off its own row (a couple's side that named nobody: equally, as partyBalances does)
+  const byId = membersById(list(snap?.members));
+  const sides = (memberId, person, cents) => {
+    const m = byId.get(memberId);
+    if (!m) return [];
+    if (!splitsMoney(m)) return [{ id: memberId, c: cents }];
+    const names = namesOf(m);
+    if (person && names.includes(person)) return [{ id: `${memberId}::${person}`, c: cents }];
+    return allocateCents(cents, names.map((n) => ({ member_id: n, weight: 1 }))).map((x) => ({ id: `${memberId}::${x.member_id}`, c: x.cents }));
+  };
+  // a row is shown in whole shekels, so paying it may run a few agorot over: those count as paid exactly
+  const over = new Map();
+  const byTime = (a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''));
+  for (const p of [...moved].sort(byTime)) {
+    const cents = toCents(p.amount);
+    const from = sides(p.from_member, p.from_person, cents);
+    const to = sides(p.to_member, p.to_person, cents);
+    let i = 0;
+    let j = 0;
+    while (i < from.length && j < to.length) {
+      const x = Math.min(from[i].c, to[j].c);
+      const row = planned.find((t) => t.from === from[i].id && t.to === to[j].id && t.c > 0);
+      if (row) {
+        const extra = x - Math.min(row.c, x);
+        const shown = Math.round(row.c / 100) * 100;
+        row.c -= x - extra;
+        // only paying the row as it was SHOWN (whole shekels) is a rounding overshoot; paying some other amount over it is real
+        if (extra > 0 && extra < 100 && x === shown) {
+          over.set(row.from, (over.get(row.from) || 0) - extra);
+          over.set(row.to, (over.get(row.to) || 0) + extra);
+        }
+      }
+      from[i].c -= x;
+      to[j].c -= x;
+      if (from[i].c <= 0) i += 1;
+      if (j < to.length && to[j].c <= 0) j += 1;
+    }
+  }
+  // 2. a planned row stays as long as both its sides still have that much open
+  const open = new Map(planRows(now).map((r) => [r.id, r.c + (over.get(r.id) || 0)]));
+  const kept = [];
+  for (const t of planned) {
+    const x = Math.min(t.c, Math.max(0, -(open.get(t.from) || 0)), Math.max(0, open.get(t.to) || 0));
+    if (x <= 0) continue;
+    open.set(t.from, open.get(t.from) + x);
+    open.set(t.to, open.get(t.to) - x);
+    kept.push({ from: t.from, to: t.to, c: x });
+  }
+  // 3. whatever is still open (a transfer off the plan) is paired as usual
+  for (const t of pairUp([...open].map(([id, c], i) => ({ id, c, i })))) {
+    const same = kept.find((k) => k.from === t.from && k.to === t.to);
+    if (same) same.c += t.c;
+    else kept.push(t);
+  }
+  return wholeTransfers(kept.sort((a, b) => b.c - a.c));       // largest first, as settlePlan's rows are
 }
 
 // ───────────────────────── couples & families inside one profile (SPEC §19) ─────────────────────────
@@ -711,7 +796,7 @@ export function settleNets(plan) {
  *  (a transfer inside the profile cancels out). `plan` defaults to the trip's plan. */
 export function memberNets(snap, plan = null) {
   const nets = new Map();
-  for (const t of plan || settlePlan(partyBalances(snap))) {
+  for (const t of plan || tripPlan(snap)) {
     const from = partyOf(t.from).member_id;
     const to = partyOf(t.to).member_id;
     nets.set(from, (nets.get(from) || 0) - t.amount);
@@ -727,7 +812,7 @@ export function memberNets(snap, plan = null) {
 export function myNet(snap, plan = null) {
   const meId = snap?.me?.member_id;
   if (meId == null) return 0;
-  const p = plan || settlePlan(partyBalances(snap));
+  const p = plan || tripPlan(snap);
   const me = list(snap?.members).find((m) => m && m.id === meId);
   const person = snap.me?.person || null;
   if (person && splitsMoney(me) && namesOf(me).includes(person)) return settleNets(p).get(`${meId}::${person}`) || 0;
@@ -833,7 +918,7 @@ const HEADER_WORDS = {
   veg: ['ירקות', 'ירק', 'פירות', 'פרי', 'סלטים', 'סלט', 'vegetables', 'veggies', 'fruit', 'fruits', 'produce'],
   pantry: ['מזווה', 'רטבים', 'רוטב', 'שימורים', 'מכולת', 'יבשים', 'לחמים', 'לחם', 'מאפים', 'pantry', 'bakery', 'sauces'],
   snacks: ['נשנושים', 'נשנוש', 'חטיפים', 'מתוקים', 'ממתקים', 'קינוחים', 'פיצוחים', 'snacks', 'sweets', 'desserts'],
-  drinks: ['שתייה', 'שתיה', 'משקאות', 'אלכוהול', 'drinks', 'beverages', 'alcohol'],
+  drinks: ['שתייה', 'שתיה', 'משקאות', 'משקאות חריפים', 'אלכוהול', 'דיוטי פרי', 'דיוטי', 'duty free', 'drinks', 'beverages', 'alcohol'],
   grill: ['מנגל', 'בישול', 'מטבח', 'גריל', 'כלי בישול', 'grill', 'cooking', 'kitchen'],
   dispo: ['חד פעמי', 'חד פעמיים', 'חדפ', 'disposables', 'tableware'],
   gear: ['ציוד', 'קמפינג', 'לינה', 'ישיבה', 'אוהלים', 'gear', 'equipment', 'camping'],
@@ -851,7 +936,7 @@ const ITEM_WORDS = {
   snacks: ['חטיפים', 'חטיף', 'במבה', 'ביסלי', 'שוקולד', 'עוגיות', 'עוגה', 'גומי', 'גרעינים', 'פיצוחים', 'ממתקים',
     'מרשמלו', 'ופלים', 'לואקר', 'בוטנים', 'פופקורן'],
   drinks: ['מים', 'שתייה', 'שתיה', 'קולה', 'ספרייט', 'בירה', 'בירות', 'יין', 'בריזר', 'וודקה', 'ערק', 'אלכוהול',
-    'סודה', 'קרח', 'משקאות', 'מיץ'],
+    'סודה', 'קרח', 'משקאות', 'מיץ', 'ויסקי', 'וויסקי', 'גין', 'רום', 'טקילה', 'ליקר', 'שמפניה', 'פרוסקו', 'קוקטייל', 'קוקטיילים', 'שוטים', 'אבסולוט'],
   grill: ['מנגל', 'פחמים', 'חומר מדליק', 'מדליק', 'נפנף', 'מלקחיים', 'מחבת', 'מחבתות', 'סיר', 'סירים', 'גזייה', 'גזיה',
     'בלון גז', 'גז', 'פינגאן', 'פקל קפה', 'קרש חיתוך', 'קרשי חיתוך', 'סכין', 'סכינים', 'מזלג', 'מזלגות', 'רשת',
     'שיפודי עץ', 'שיפודים', 'תבלינים', 'תבלין', 'קומקום', 'מצית', 'מצתים', 'גפרורים', 'מלח', 'פפריקה'],
@@ -1046,7 +1131,7 @@ const FIRST_PERSON_RE = new RegExp(`^(?:ו?(?:אני|אנחנו)\\s+(?:מביא|
 const FIRST_PERSON_BARE_RE = /^(?:אני|עלי)\s*[:：\-–—]\s*/u;
 const NAME_VERB_RE = new RegExp(`^(?:מביא|מביאה|מביאים|לוקח|לוקחת|לוקחים|קונה|קונים|יביא|תביא|יביאו|יקח|ייקח|תיקח|תקח|יקנה|תקנה|אחראי|אחראית|דואג|דואגת|על)${SLASH_SUFFIX}(?=$|[^\\p{L}])(?:\\s+את(?=\\s))?\\s*[:：\\-–—]?\\s*`, 'u');
 const WHO_VERB_TAIL_RE = new RegExp(`\\s+(?:מביא|מביאה|מביאים|לוקח|לוקחת|לוקחים|קונה|קונים|יביא|תביא|יקח|ייקח|תיקח|יקנה|תקנה|אחראי|אחראית|דואג|דואגת)${SLASH_SUFFIX}$`, 'u');
-const ME_RE = /^(?:אני|עליי|עלי|אנחנו|עלינו)$/u;
+const ME_RE = /^(?:(?:סגור\s+)?(?:אני|עליי|עלי|אנחנו|עלינו)(?:\s+(?:כבר\s+)?על\s+(?:זה|כך|זה\s+כבר))?)$/u;   // "- אני על זה", "סגור, אני על זה"
 
 // "צריך: פחמים, מצתים" / "לקנות: ..." — an intro before a comma list, not an item
 const LIST_INTRO_RE = /^(?:מה\s+)?(?:עוד\s+)?(?:(?:צריך|צריכים|צריכה|חסר|חסרים|חסרה)(?:\s+(?:לקנות|להביא|לקחת|לארוז))?|לקנות|להביא|לקחת|לארוז|קונים|מביאים|לוקחים|אורזים|קניות|רשימת\s+קניות|גם|shopping|to\s+buy|to\s+bring|need|buy|bring)$/iu;
@@ -1931,7 +2016,7 @@ function summaryAfter(snap) {
   if (stats.rides) lines.push(`🚗 ${hebrewCount(stats.rides, 'רכב', 'רכבים')}`);
   if (on('money') && stats.spent > 0) {
     lines.push(`💸 ${formatMoney(stats.spent)} סה״כ · ${formatMoney(stats.perPerson)} לאדם`);
-    const plan = settlePlan(partyBalances(snap));
+    const plan = groupPlan(snap);
     lines.push('');
     if (!plan.length) lines.push('🎉 כולם מאוזנים — אין צורך בהעברות');
     else {
@@ -2054,6 +2139,12 @@ function summaryMine(snap, memberId) {
   return lines.join('\n');
 }
 
+/** The plan as the group hears it (the WhatsApp summaries): a transfer inside one profile — a couple that pays
+ *  each their own part settling between themselves — is theirs alone, and stays out. */
+function groupPlan(snap) {
+  return tripPlan(snap).filter((t) => partyOf(t.from).member_id !== partyOf(t.to).member_id);
+}
+
 function summarySettle(snap) {
   const trip = snap?.trip || {};
   const totals = tripTotals(snap);
@@ -2062,7 +2153,7 @@ function summarySettle(snap) {
     lines.push('עוד לא נרשמו הוצאות 🧾');
     return lines.join('\n');
   }
-  const plan = settlePlan(partyBalances(snap));
+  const plan = groupPlan(snap);
   lines.push(`🧾 סה״כ הוצאות: ${formatMoney(totals.spent)}`);
   lines.push(`👥 לאדם: ${formatMoney(totals.perHead)} (${hebrewCount(totals.heads, 'איש', 'אנשים')})`);
   lines.push('');
@@ -2444,7 +2535,7 @@ export function myInbox(snap, meId) {
     out.push({ kind: 'ride_invite', key: `inv-${ride.id}`, ride, seats: p?.seats ?? 1 });
   }
   const items = new Map(list(snap.items).map((i) => [i.id, i]));
-  for (const pl of list(snap.pledges)) {
+  for (const pl of over ? [] : list(snap.pledges)) {
     if (pl.member_id !== meId || !pl.assigned_by || pl.assigned_by === meId || pl.accepted_at) continue;
     const item = items.get(pl.item_id);
     if (item && item.status === 'active') {

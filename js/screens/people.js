@@ -5,19 +5,19 @@
 // (add a placeholder profile, remove a member).
 import { html } from 'htm/preact';
 import { useState, useMemo, useEffect, useLayoutEffect } from 'preact/hooks';
-import { useTrip, useStore, actions, store } from '../store.js?v=56bbb9a';
+import { useTrip, useStore, actions, store } from '../store.js?v=8a35ae3';
 import {
   Avatar, AvatarStack, Button, Card, CopyButton, EmptyState, Field, Pill, Sheet, ShareButton, Skeleton,
   TextArea, TextInput, Toggle, confirmDialog, Fold, OverBanner, tripOver,
-} from '../ui/components.js?v=56bbb9a';
-import { Icon } from '../ui/icons.js?v=56bbb9a';
-import { hebrewError, toApiError } from '../api/errors.js?v=56bbb9a';
+} from '../ui/components.js?v=8a35ae3';
+import { Icon } from '../ui/icons.js?v=8a35ae3';
+import { hebrewError, toApiError } from '../api/errors.js?v=8a35ae3';
 import {
   adminPersons, adminVoteCounts, balances, buildInviteText, displayName, formatMoney, formatQty, headcountTotal,
   hebrewCount, inviteUrl, isAdmin, memberNets, membersById, personPhone, personsOf, presence, rideModel, timeAgo, whatsappChatUrl,
   whatsappShareUrl, splitsItems, splitsMoney,
-} from '../lib/logic.js?v=56bbb9a';
-import { ProfileForm } from './me.js?v=56bbb9a';
+} from '../lib/logic.js?v=8a35ae3';
+import { ProfileForm } from './me.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -271,7 +271,7 @@ function Stats({ snap }) {
   return html`<section class="hero ppl-hero" aria-label="מי מגיע">
     <div class="ppl-hero__top">
       <div class="ppl-hero__text">
-        <span class="ppl-hero__kicker">החבר'ה סביב המדורה 🔥</span>
+        <span class="ppl-hero__kicker">${!snap.trip?.settings?.type || snap.trip.settings.type === 'camping' ? "החבר'ה סביב המדורה 🔥" : "החבר'ה של הטיול"}</span>
         <h1 class="ppl-hero__line" aria-label=${parts.join(' · ')}>
           <span class="ppl-hero__part ppl-hero__part--lead">${parts[0]}</span>
           ${parts.length > 1

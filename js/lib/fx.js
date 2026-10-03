@@ -19,14 +19,19 @@ export const symbolOf = (code) => (!code || code === 'ILS' ? '₪' : CURRENCIES.
 
 const cache = new Map();
 
-/** ₪ per 1 unit of `code` on `ymd` ('YYYY-MM-DD'; future/empty → latest). Resolves null when unavailable. */
+const RATE_TIMEOUT_MS = 8000;
+
+/** ₪ per 1 unit of `code` on `ymd` ('YYYY-MM-DD'; future/empty → latest). Resolves null when unavailable
+ *  (also when the answer takes more than RATE_TIMEOUT_MS). */
 export async function rateOn(code, ymd) {
   if (!code || code === 'ILS') return 1;
   const today = new Date().toISOString().slice(0, 10);
   const day = ymd && ymd <= today ? ymd : 'latest';
   const key = `${code}@${day}`;
   if (cache.has(key)) return cache.get(key);
-  const p = fetch(`https://api.frankfurter.dev/v1/${day}?base=${encodeURIComponent(code)}&symbols=ILS`)
+  // never left hanging: on a connection that stalls, the form says "type the rate" after a few seconds
+  const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(RATE_TIMEOUT_MS) : undefined;
+  const p = fetch(`https://api.frankfurter.dev/v1/${day}?base=${encodeURIComponent(code)}&symbols=ILS`, { signal })
     .then((r) => (r.ok ? r.json() : null))
     .then((j) => {
       const v = Number(j?.rates?.ILS);

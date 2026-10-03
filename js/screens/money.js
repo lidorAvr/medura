@@ -3,22 +3,22 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=56bbb9a';
-import { href, navigate } from '../router.js?v=56bbb9a';
+import { actions, store, useTrip } from '../store.js?v=8a35ae3';
+import { href, navigate } from '../router.js?v=8a35ae3';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
   memberNets, membersById, openMoneyRequests, partyBalances, partyName, partyOf, payingMembers, personPhone, personsOf,
-  settleNets, settlePlan, splitsMoney, timeAgo, tripTotals, whatsappChatUrl,
-} from '../lib/logic.js?v=56bbb9a';
+  settleNets, splitsMoney, timeAgo, titleSimilarity, tripPlan, tripTotals, whatsappChatUrl, whatsappShareUrl,
+} from '../lib/logic.js?v=8a35ae3';
 import {
   Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, Fold, MemberPicker, MoneyInput, OverBanner, Pill,
   ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=56bbb9a';
-import { Icon } from '../ui/icons.js?v=56bbb9a';
-import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=56bbb9a';
-import { MoneyRequests, payMethodsOf } from './money-requests.js?v=56bbb9a';
-import { expenseTagsFor } from '../lib/templates.js?v=56bbb9a';
-import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=56bbb9a';
+} from '../ui/components.js?v=8a35ae3';
+import { Icon } from '../ui/icons.js?v=8a35ae3';
+import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=8a35ae3';
+import { MoneyRequests, payMethodsOf } from './money-requests.js?v=8a35ae3';
+import { expenseTagsFor } from '../lib/templates.js?v=8a35ae3';
+import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=8a35ae3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -137,7 +137,10 @@ function useSheetState() {
 }
 
 function scrollToId(id) {
-  document.getElementById(id)?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+  const el = document.getElementById(id);
+  const fold = el?.closest('details');            // a trip that's over keeps its sections folded: open the one asked for
+  if (fold) fold.open = true;
+  el?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +168,7 @@ export default function MoneyScreen({ route }) {
     const person = snap.me?.person || null;
     const split = splitsMoney(me) && Boolean(person) && (me.people || []).includes(person);
     const myKey = split ? `${me.id}::${person}` : me.id;
-    const plan = settlePlan(pbals);
+    const plan = tripPlan(snap);
     return {
       bals,
       pbals,
@@ -188,6 +191,14 @@ export default function MoneyScreen({ route }) {
       navigate(`/t/${tripId}/money`, { replace: true });
     }
   }, [ready, route.query.new]);
+
+  // Deep link: #/t/<id>/money?show=requests ("לתשלום" on a request, from the home inbox) lands on the requests —
+  // the amount that was just read — not on the hero's net, which is another number (testers 2026-10-02).
+  useEffect(() => {
+    if (!ready || route.query.show !== 'requests') return;
+    requestAnimationFrame(() => scrollToId('money-requests'));
+    navigate(`/t/${tripId}/money`, { replace: true });
+  }, [ready, route.query.show]);
 
   // Deep link: #/t/<id>/money?pay=me (the home "✓ שילמתי") opens "I paid" for my (first) transfer in the plan.
   useEffect(() => {
@@ -237,7 +248,7 @@ export default function MoneyScreen({ route }) {
   const onPaymentSaved = () => {
     const after = store.get().snap;
     if (!after || after.trip?.id !== tripId) return;
-    if (myNet <= -EVEN_BELOW && Math.abs(netOf(settlePlan(partyBalances(after)))) < EVEN_BELOW) fireConfetti();
+    if (myNet <= -EVEN_BELOW && Math.abs(netOf(tripPlan(after))) < EVEN_BELOW) fireConfetti();
   };
 
   const confirmPayment = async (p) => {
@@ -648,12 +659,11 @@ function SettleRow({ t, trip, me, admin, from, to, toPay, nameOf, isMine, onPay 
   } else if (mineIn) {
     const myPhone = me.phone ? prettyPhone(me.phone) : '';
     const fromPhone = phoneOf(from, fromPerson);
+    // no phone on their profile (one the organiser added): the same words, and WhatsApp asks whom to send them to
+    const nudgeText = `לפי ההתחשבנות במדורה (${tripLabel}) נשאר ${formatMoney(t.amount)} להעביר לי${myPhone ? ` — אפשר בביט ל-${myPhone}` : ''} 🙏`;
     const nudge = fromPhone
-      ? whatsappChatUrl(
-        fromPhone,
-        `היי! 🙂 לפי ההתחשבנות במדורה (${tripLabel}) נשאר ${formatMoney(t.amount)} להעביר לי${myPhone ? ` — אפשר בביט ל-${myPhone}` : ''} 🙏`,
-      )
-      : null;
+      ? whatsappChatUrl(fromPhone, `היי! 🙂 ${nudgeText}`)
+      : whatsappShareUrl(`היי ${nameOf(t.from)}! 🙂 ${nudgeText}`);
     actionsNode = html`<div class="settle-row__actions">
       <${Button} variant="secondary" onClick=${() => onPay({ kind: 'received', from: t.from, to: t.to, amount: t.amount })}>קיבלתי ✓</${Button}>
       ${nudge
@@ -947,10 +957,22 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
       if (v) {
         setRate(Math.round(v * 10000) / 10000);
         setRateState('auto');
+        setErrors((e) => (e.amount ? { ...e, amount: null } : e));
       } else setRateState('failed');
     });
     return () => { alive = false; };
   }, [cur, spentOn, foreign]);
+
+  // "הוספת הוצאה" pressed while the rate is still on its way (a slow connection): it saves the moment the rate is
+  // here — or says what's missing — instead of doing nothing visible
+  const [queued, setQueued] = useState(false);
+  useEffect(() => {
+    if (!queued) return;
+    if (!open) { setQueued(false); return; }               // the sheet was closed meanwhile: nothing is saved behind its back
+    if (rateState === 'loading') return;
+    setQueued(false);
+    save();
+  }, [queued, rateState, open]);
 
   const chosenIds = chosen.map((c) => c.member_id);
   const setChosenIds = (ids) => setChosen(ids.map((id) => chosen.find((c) => c.member_id === id) || { member_id: id }));
@@ -963,6 +985,18 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
   const customWeights = mode === 'members' && chosen.some((c) => c.weight != null && Number(c.weight) !== (Number(byId.get(c.member_id)?.headcount) || 1));
   const perHead = valid && !customWeights ? tripTotals({ members: participants, expenses: [{ amount: amountIls }] }).perHead : null;
   const heads = headcountTotal(participants);
+
+  // A new expense that looks like a money request's purchase: recorded again it counts twice (testers 2026-10-02).
+  // "כבר שילמתי" requests have their expense already; a collection's purchase is recorded from the request itself,
+  // so the money in its pot is counted with it.
+  const reqTwin = !editing && title.trim().length > 1
+    ? (snap.money_requests || []).map((q) => {
+        if (!titleSimilarity(title, q.title)) return null;
+        const e = q.expense_id ? snap.expenses.find((x) => x.id === q.expense_id) : null;
+        if (e) return { q, expense: e };
+        return !q.expense_id && q.pot !== false ? { q, expense: null } : null;
+      }).find(Boolean) || null
+    : null;
 
   const payer = byId.get(paidBy);
   const canPickPayer = admin;
@@ -977,6 +1011,7 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
 
   const save = async () => {
     if (saving || deleting) return; // Enter in a field while a call is in flight
+    if (foreign && rateState === 'loading') return setQueued(true);        // goes through when the rate is here
     const errs = {};
     const amountErr = foreign
       ? (!(orig > 0) ? 'כמה זה עלה?' : !(rate > 0) ? 'חסר שער — הקלידו אותו ידנית' : moneyError(amountIls))
@@ -985,7 +1020,12 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
     if (!title.trim()) errs.title = 'על מה ההוצאה?';
     if (mode === 'members' && !chosen.length) errs.members = 'בחרו לפחות משתתף/ת אחד/ת';
     setErrors(errs);
-    if (Object.keys(errs).length) return;
+    if (Object.keys(errs).length) {
+      // the field that's wrong may be scrolled out of sight (the button sits at the bottom): bring it back
+      requestAnimationFrame(() => document.querySelector('.money-form .field__error')
+        ?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'center' }));
+      return;
+    }
 
     const payload = {
       title: title.trim(),
@@ -1018,7 +1058,9 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
     if (saving || deleting) return;
     const ok = await confirmDialog({
       title: 'למחוק את ההוצאה?',
-      text: `״${exp.title}״ · ${formatMoney(exp.amount)} — החלוקה תתעדכן לכולם.`,
+      // transfers already made stay as they are: the plan is recomputed around them (testers 2026-10-03)
+      text: `״${exp.title}״ · ${formatMoney(exp.amount)} — החלוקה תתעדכן לכולם.${snap.payments.length
+        ? ' העברות שכבר נרשמו נשארות, אז אם כבר שילמו על ההוצאה הזו — אחרי המחיקה בודקים את ההתחשבנות (ייתכן שמישהו ״קיבל יותר מדי״).' : ''}`,
       confirmText: 'כן, למחוק',
       danger: true,
     });
@@ -1032,7 +1074,7 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
 
   const footer = html`
     <${Button} variant="secondary" onClick=${onClose} disabled=${saving || deleting}>ביטול</${Button}>
-    <${Button} variant="primary" icon="check" loading=${saving} disabled=${deleting} onClick=${save} data-testid="expense-save">
+    <${Button} variant="primary" icon="check" loading=${saving || queued} disabled=${deleting} onClick=${save} data-testid="expense-save">
       ${editing ? 'שמירה' : 'הוספת הוצאה'}
     </${Button}>`;
 
@@ -1073,6 +1115,14 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
           onInput=${(e) => { setTitle(e.target.value); if (errors.title) setErrors({ ...errors, title: null }); }}
         />
       </${Field}>
+      ${reqTwin
+        ? html`<div class="mreq-warn small" role="note" data-testid="expense-request-twin">
+            ${reqTwin.expense
+              ? html`<span>כבר רשומה הוצאה ״${reqTwin.expense.title}״ (${formatMoney(reqTwin.expense.amount)}) — היא נרשמה עם בקשת התשלום. אם זו אותה קנייה, לא רושמים אותה שוב.</span>`
+              : html`<span>יש בקשת תשלום ״${reqTwin.q.title}״ שהכסף שלה מחכה בקופה. אם זו הקנייה שלה — רושמים אותה מהבקשה (🧾 רישום הקנייה), כדי שמה שנאסף ייספר.</span>`}
+            <${Button} size="sm" variant="secondary" onClick=${() => { onClose(); scrollToId('money-requests'); }}>לבקשות התשלום</${Button}>
+          </div>`
+        : null}
 
       <${Field} label="מי שילם?" hint=${canPickPayer ? 'כמנהל/ת אפשר לרשום הוצאה גם בשם מישהו אחר' : null}>
         ${canPickPayer
@@ -1119,7 +1169,8 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
             value=${mode}
             onChange=${(v) => {
               setMode(v);
-              if (v === 'members' && chosen.length <= 1) setChosen(members.map((m) => ({ member_id: m.id })));
+              // starts from whoever shares "כולם": the exempt aren't ticked (they can be added by hand)
+              if (v === 'members' && chosen.length <= 1) setChosen(payingMembers(snap).map((m) => ({ member_id: m.id })));
               if (errors.members) setErrors({ ...errors, members: null });
             }}
             options=${[
@@ -1128,7 +1179,10 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
             ]}
           />
           ${mode === 'members'
-            ? html`<${MemberPicker} members=${members} value=${chosenIds} onChange=${(ids) => { setChosenIds(ids); if (errors.members) setErrors({ ...errors, members: null }); }} multi label="מי משתתף/ת?" />`
+            ? html`<${MemberPicker} members=${members} value=${chosenIds} onChange=${(ids) => { setChosenIds(ids); if (errors.members) setErrors({ ...errors, members: null }); }} multi label="מי משתתף/ת?"
+                tags=${new Map((snap.trip.settings?.money?.exempt || []).map((id) => [id, '🎁 פטור/ה']))} />
+              ${chosenIds.some((id) => (snap.trip.settings?.money?.exempt || []).includes(id))
+                ? html`<p class="tiny muted" data-testid="expense-exempt-note">🎁 מי שפטור/ה וסומן/ה כאן — כן משלם/ת על ההוצאה הזו</p>` : null}`
             : null}
         </div>
       </${Field}>

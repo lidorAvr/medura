@@ -3,8 +3,8 @@
 import { html } from 'htm/preact';
 import { render, cloneElement, isValidElement, toChildArray } from 'preact';
 import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
-import { Icon } from './icons.js?v=56bbb9a';
-import { whatsappShareUrl, displayName, tripOver } from '../lib/logic.js?v=56bbb9a';
+import { Icon } from './icons.js?v=8a35ae3';
+import { whatsappShareUrl, displayName, tripOver } from '../lib/logic.js?v=8a35ae3';
 
 // ---------------------------------------------------------------------------
 // helpers (module-private)
@@ -351,9 +351,16 @@ export function confirmDialog({ title = 'בטוח?', text = '', confirmText = '�
     const host = document.createElement('div');
     portalRoot().appendChild(host);
     let settled = false;
+    // leaving the screen ("חזרה") answers no — the question must not stay over another screen, still live.
+    // Only a change of path counts: a deep link dropping its own query (navigate(…, {replace})) is the same screen.
+    const pathOf = () => location.hash.split('?')[0];
+    const askedAt = pathOf();
+    const onRoute = () => { if (pathOf() !== askedAt) onDone(false); };
+    window.addEventListener('hashchange', onRoute);
     const onDone = (value) => {
       if (settled) return;
       settled = true;
+      window.removeEventListener('hashchange', onRoute);
       resolve(value);
       setTimeout(() => {
         render(null, host);
@@ -764,7 +771,8 @@ export function ColorPicker({ value, onChange, label = 'בחירת צבע' }) {
 }
 
 /** Single (`value` = id) or multi (`value` = [ids]) member selection. */
-export function MemberPicker({ members = [], value, onChange, multi, label = 'בחירת משתתפים' }) {
+/** `tags`: optional Map member_id → short text shown after the name (e.g. "🎁 פטור/ה"). */
+export function MemberPicker({ members = [], value, onChange, multi, label = 'בחירת משתתפים', tags = null }) {
   const selected = multi ? new Set(Array.isArray(value) ? value : []) : null;
   const isOn = (id) => (multi ? selected.has(id) : value === id);
   const toggle = (id) => {
@@ -791,6 +799,7 @@ export function MemberPicker({ members = [], value, onChange, multi, label = 'ב
       return html`<button type="button" key=${m.id} class=${cx('member-opt', on && 'is-on')} aria-pressed=${on ? 'true' : 'false'} onClick=${() => toggle(m.id)}>
         <${Avatar} member=${m} size=${30} />
         <span class="member-opt__name">${memberName(m)}</span>
+        ${tags?.get(m.id) ? html`<span class="member-opt__tag tiny muted">${tags.get(m.id)}</span>` : null}
         ${on ? html`<span class="member-opt__check" aria-hidden="true"><${Icon} name="check" size=${14} /></span>` : null}
       </button>`;
     })}

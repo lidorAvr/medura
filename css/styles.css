@@ -1629,6 +1629,8 @@ html.no-nav .fab { bottom: calc(var(--safe-bottom) + 20px); }
 /* a screen with a FAB keeps its last row clear of it; toasts rise above it (ux G4, M6) */
 body:has(.fab) .screen { padding-bottom: 88px; }
 body:has(.fab) .toasts { bottom: calc(var(--nav-h) + var(--safe-bottom) + 86px); }
+/* the money screen: the transfers' buttons ("שילמתי ✓" / "קיבלתי ✓") live low on the screen — toasts come from the top there */
+body:has(.screen.money) .toasts { bottom: auto; top: calc(var(--topbar-h) + var(--safe-top) + 10px); }
 
 /* ---------- the trip is over: one line on every tab (ux A3) ---------- */
 .over-banner {
@@ -1904,3 +1906,5 @@ html.no-nav .toasts { bottom: calc(var(--safe-bottom) + 18px); }
 .tour-points li span { font-size: 1.375rem; }
 .topbar__help { width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--surface); color: var(--muted); font: inherit; font-weight: 800; font-size: 1rem; cursor: pointer; }
 .tab-guide__tip { padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); font-size: 0.90625rem; line-height: 1.5; }
+
+.member-opt__tag { margin-inline-start: 2px; white-space: nowrap; }
