@@ -2,10 +2,10 @@
 // summary and every push also go there. Two steps: address → 6-digit code.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore } from '../store.js?v=6fb25aa';
-import { navigate } from '../router.js?v=6fb25aa';
-import { hebrewError, toApiError } from '../api/errors.js?v=6fb25aa';
-import { Button, Card, Field, TextInput } from './components.js?v=6fb25aa';
+import { actions, store, useStore } from '../store.js?v=853199b';
+import { navigate } from '../router.js?v=853199b';
+import { hebrewError, toApiError } from '../api/errors.js?v=853199b';
+import { Button, Card, Field, TextInput } from './components.js?v=853199b';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
 const RESEND_S = 30;
@@ -25,7 +25,7 @@ export async function linkThisDevice() {
  * mode 'gate'   — first visit to a trip: verify an e-mail before using it.
  * mode 'signin' — "כבר הצטרפתי ממכשיר אחר": verify → this device joins the profiles of that e-mail.
  */
-export function EmailGate({ mode: purpose = 'gate', initialEmail = '', onLater = null }) {
+export function EmailGate({ mode: purpose = 'gate', initialEmail = '', onLater = null, tripId = null }) {
   const mode = useStore((s) => s.mode);
   const signin = purpose === 'signin';
   const inline = purpose === 'inline';
@@ -94,7 +94,8 @@ export function EmailGate({ mode: purpose = 'gate', initialEmail = '', onLater =
     if (signin) {
       if (linked.length) {
         actions.toast('התחברת ✅ ברוכים השבים!', 'success', 3200);
-        navigate(`/t/${linked[0].trip_id}`, { replace: true });
+        if (tripId && linked.some((l) => l.trip_id === tripId)) await actions.openTrip(tripId, { force: true });   // the link I opened
+        else navigate(`/t/${linked[0].trip_id}`, { replace: true });
       } else {
         setStep('none');
       }

@@ -2,7 +2,7 @@
 // Every method is a thin camelCase wrapper around one RPC from SPEC §4 with the exact
 // `p_*` parameter names. All failures are normalized to ApiError via toApiError.
 
-import { ApiError, FLIGHT_ERROR_CODES, flightFailure, flightInput, toApiError } from './errors.js?v=6fb25aa';
+import { ApiError, FLIGHT_ERROR_CODES, flightFailure, flightInput, toApiError } from './errors.js?v=853199b';
 
 const POLL_MS = 45000;
 
@@ -206,6 +206,7 @@ export function createSupabaseApi({ client, url, anonKey, pollMs = POLL_MS, getC
     voteAdmin: (candidateId, on) => rpc('vote_admin', { p_candidate: candidateId, p_on: Boolean(on) }),
 
     upsertCategory: (tripId, cat) => rpc('upsert_category', { p_trip: tripId, p_cat: cat }),
+    setSecret: (kind, id, secret) => rpc('set_secret', { p_kind: kind, p_id: id, p_secret: Boolean(secret) }),
     deleteCategory: (categoryId) => rpc('delete_category', { p_category: categoryId }),
 
     addItem: (tripId, item) => rpc('add_item', { p_trip: tripId, p_item: item }),

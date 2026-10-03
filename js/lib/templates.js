@@ -4,7 +4,7 @@
 // trips from before families keep their flat `type` and are mapped by resolveType (nothing is rewritten).
 // Everything here is a suggestion: the admin edits, deletes and toggles all of it later.
 // Pure data + tiny helpers (no DOM, no API) so the logic tests can check it.
-import { adminPersons } from './logic.js?v=6fb25aa';
+import { adminPersons } from './logic.js?v=853199b';
 
 /**
  * Features the creator picks for a trip (defaults by type) and admins switch on/off later ("⚙️ מה יש בטיול").
@@ -125,7 +125,7 @@ export const TRIP_TYPES = [
     categories: [cat('📄', 'מסמכים'), cat('🎁', 'הפתעות'), cat('👕', 'תלבושות ומיתוג'), cat('🍾', 'שתייה ומסיבה'), cat('🎵', 'מוזיקה וציוד'), cat('📋', 'משימות')],
     items: [
       it('מסמכים', 'דרכון בתוקף (6 חודשים לפחות)', 'each'), it('מסמכים', 'ביטוח נסיעות', 'each'),
-      it('משימות', 'להזמין לינה', 'task'), it('משימות', 'להזמין פעילות (שייט / קארטינג / מסעדה)', 'task'),
+      it('משימות', 'להזמין לינה', 'task'), it('משימות', 'להחליט על פעילויות ולהזמין מראש', 'task'),
       it('משימות', 'סרטון ברכות מהחברים והמשפחה', 'task'), it('משימות', 'לגבות תקציב משותף', 'task'),
       it('תלבושות ומיתוג', 'חולצות מודפסות לקבוצה', 'buy'), it('תלבושות ומיתוג', 'תחפושת / אביזר לחתן או לכלה', 'buy'),
       it('הפתעות', 'הפתעה לחתן / לכלה', 'task'), it('שתייה ומסיבה', 'משחקי שתייה'), it('מוזיקה וציוד', 'רמקול נייד'),
@@ -426,7 +426,7 @@ const FAMILY_DEFS = [
         placeholder: LEGACY.bachelor.placeholder, placeholderAbroad: 'למשל: הרווקים של דניאל בבוקרשט 🥂',
         replace: true, categories: LEGACY.bachelor.categories.filter((c) => c.name !== 'מסמכים'),
         items: [
-          it('משימות', 'להזמין לינה', 'task'), it('משימות', 'להזמין פעילות (שייט / קארטינג / מסעדה)', 'task'),
+          it('משימות', 'להזמין לינה', 'task'), it('משימות', 'להחליט על פעילויות ולהזמין מראש', 'task'),
           it('משימות', 'סרטון ברכות מהחברים והמשפחה', 'task'), it('משימות', 'לגבות תקציב משותף', 'task'),
           it('תלבושות ומיתוג', 'חולצות מודפסות לקבוצה', 'buy'), it('תלבושות ומיתוג', 'תחפושת / אביזר לחתן', 'buy'),
           it('הפתעות', 'הפתעה לחתן', 'task'), it('שתייה ומסיבה', 'משחקי שתייה'), it('מוזיקה וציוד', 'רמקול נייד'),
@@ -596,6 +596,8 @@ export function composeType(family, subtype, where, custom) {
 
   let categories = uniqBy([...(own ? [] : f.categories), ...(s.categories || [])], (x) => normKey(x.name));
   if (abroad && !categories.some((x) => x.name === DOCS.name)) categories = [...categories, DOCS];
+  // a surprise category of a celebration is hidden from the guest of honour once there is one (settings.groom)
+  if (f.key === 'celebrate') categories = categories.map((x) => (x.name === 'הפתעות' ? { ...x, secret: true } : x));
   const items = uniqBy([...(own ? [] : f.items), ...(s.items || []), ...(abroad ? DOC_ITEMS : [])], (x) => normKey(x.t));
   const packing = uniqBy([...(abroad ? ABROAD_PACKING : (s.packing || f.packing)), ...(s.packingExtra || [])], normKey);
 
@@ -622,6 +624,89 @@ export function composeType(family, subtype, where, custom) {
     modules, arrival, ask, categories: categories.map((x) => ({ ...x })),
     items: items.map((x) => ({ ...x })), packing, expenseTags,
     schedule: days.single, days,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// "What matters in this trip?" — focus packs (the new-trip wizard's lists step). The organiser ticks what matters and
+// each pack adds its own category + items (lists, tasks, documents); un-ticking takes them out again. Nothing here
+// is final: the organiser edits every row afterwards (js/ui/list-editor.js).
+// ---------------------------------------------------------------------------
+
+const pack = (key, emoji, label, hint, cats, items, where = null, families = null) => ({ key, emoji, label, hint, cats, items, where, families });
+/** The packs a trip type offers: where = 'abroad' | 'il' | null (both); families = null (all) or a list of family keys. */
+export const FOCUS_PACKS = [
+  pack('party', '🍾', 'מסיבה וחיי לילה', 'מועדון, ברים, שתייה', [cat('🍾', 'מסיבה ובילויים')], [
+    it('מסיבה ובילויים', 'להחליט על מועדון / בר ולהזמין שולחן מראש', 'task'), it('מסיבה ובילויים', 'רמקול נייד'),
+    it('מסיבה ובילויים', 'משחקי שתייה / קלפים'), it('מסיבה ובילויים', 'שוטים וכוסות', 'buy'), it('מסיבה ובילויים', 'שתייה לדירה / לחדר', 'buy'),
+  ], null, ['celebrate', 'abroad', 'custom']),
+  pack('food', '🍽️', 'אוכל ומסעדות', 'ארוחות, שולחנות, מסעדות מקומיות', [cat('🍽️', 'אוכל ומסעדות')], [
+    it('אוכל ומסעדות', 'להזמין מסעדה לערב חגיגי', 'task'), it('אוכל ומסעדות', 'לאסוף המלצות למסעדות מקומיות', 'task'),
+    it('אוכל ומסעדות', 'להחליט איך משלמים במסעדות (חשבון אחד / כל אחד)', 'task'),
+  ]),
+  pack('casino', '🎰', 'קזינו', 'מזומן, כניסה, תקציב', [cat('🎰', 'קזינו')], [
+    it('קזינו', 'לקבוע תקציב מוסכם לקזינו', 'task'), it('קזינו', 'מזומן לקזינו', 'each'), it('קזינו', 'תעודה מזהה / דרכון לכניסה', 'each'),
+  ], 'abroad', ['celebrate', 'abroad', 'custom']),
+  pack('sights', '🏛️', 'תיירות ואטרקציות', 'סיורים, מוזיאונים, מקומות לראות', [cat('🏛️', 'אטרקציות וסיורים')], [
+    it('אטרקציות וסיורים', 'לבחור 3–4 אטרקציות ולסדר אותן ביומנים', 'task'), it('אטרקציות וסיורים', 'כרטיסים מראש (אם צריך)', 'task'),
+    it('אטרקציות וסיורים', 'סיור רגלי / עם מדריך', 'task'),
+  ]),
+  pack('activities', '🎯', 'פעילויות', 'קארטינג, מטווח, ספורט', [cat('🎯', 'פעילויות')], [
+    it('פעילויות', 'להחליט על פעילות אחת-שתיים ולהזמין מראש', 'task'), it('פעילויות', 'ביגוד / נעליים מתאימות', 'each'),
+  ], null, ['celebrate', 'abroad', 'custom', 'work']),
+  pack('spa', '🧖', 'ספא ורגיעה', 'ספא, בריכה, יום מנוחה', [cat('🧖', 'ספא ורגיעה')], [
+    it('ספא ורגיעה', 'להזמין ספא / בריכה', 'task'), it('ספא ורגיעה', 'בגד ים ומגבת', 'each'),
+  ]),
+  pack('surprise', '🎁', 'הפתעות ומתנה', 'הפתעה, סרטון, מתנה משותפת', [{ ...cat('🎁', 'הפתעות'), secret: true }, cat('📋', 'משימות')], [
+    it('הפתעות', 'הפתעה לחתן / לכלה', 'task'), it('משימות', 'סרטון ברכות מהחברים והמשפחה', 'task'), it('משימות', 'לפתוח קופה למתנה', 'task'),
+  ], null, ['celebrate']),
+  pack('outfit', '👕', 'תלבושות ומיתוג', 'חולצות, אביזרים, תחפושת', [cat('👕', 'תלבושות ומיתוג')], [
+    it('תלבושות ומיתוג', 'חולצות מודפסות לקבוצה', 'buy'), it('תלבושות ומיתוג', 'תחפושת / אביזר לחתן או לכלה', 'buy'),
+  ], null, ['celebrate']),
+  pack('transport', '🚕', 'הסעות והעברות', 'מהשדה, בעיר, חזרה הביתה', [cat('🚕', 'הסעות והעברות'), cat('📋', 'משימות')], [
+    it('משימות', 'לסגור מונית / העברה מהשדה אל המלון', 'task'), it('הסעות והעברות', 'אפליקציית מוניות מקומית (Bolt / Uber)', 'each'),
+    it('משימות', 'לסגור איך חוזרים הביתה מהשדה', 'task'),
+  ], 'abroad'),
+  pack('money', '💶', 'כסף ומט״ח', 'מזומן, כרטיסים, קופה משותפת', [cat('💶', 'כסף ומט״ח'), cat('📋', 'משימות')], [
+    it('כסף ומט״ח', 'כרטיס אשראי בלי עמלת מט״ח', 'each'), it('כסף ומט״ח', 'קצת מזומן מקומי', 'each'),
+    it('משימות', 'להחליט אם פותחים קופה משותפת של מזומן', 'task'),
+  ], 'abroad'),
+  pack('docs', '📄', 'מסמכים וביטוח', 'דרכון, ביטוח, אישורים', [cat('📄', 'מסמכים')], [
+    it('מסמכים', 'דרכון בתוקף (6 חודשים לפחות)', 'each'), it('מסמכים', 'ביטוח נסיעות', 'each'),
+    it('מסמכים', 'כרטיסי טיסה — מודפסים ובנייד', 'each'), it('מסמכים', 'אישור הזמנת הלינה (שמור גם בלי קליטה)', 'each'),
+    it('מסמכים', 'צילום הדרכון בנייד', 'each'),
+  ], 'abroad'),
+  pack('flights', '✈️', 'טיסות', 'צ׳ק־אין, כבודה, מושבים', [cat('📋', 'משימות')], [
+    it('משימות', 'צ׳ק־אין אונליין לכולם', 'task'), it('משימות', 'לוודא כבודה והזמנת מושבים', 'task'),
+  ], 'abroad'),
+  pack('bbq', '🔥', 'אש ובישול', 'מנגל, בשר, תבלינים', [cat('🔥', 'מנגל ובישול'), cat('🥩', 'בשר ועוף')], [
+    it('בשר ועוף', 'בשר למנגל', 'buy'), it('מנגל ובישול', 'פחמים ומצית', 'buy'), it('מנגל ובישול', 'מלקחיים ורשת'),
+  ], 'il', ['camping', 'stay', 'celebrate']),
+  pack('kids', '🧒', 'ילדים', 'משחקים, חטיפים, בטיחות', [cat('🧒', 'ילדים')], [
+    it('ילדים', 'משחקים וספרים'), it('ילדים', 'חטיפים וממתקים', 'buy'), it('ילדים', 'תרופות וערכת עזרה ראשונה לילדים'),
+  ], null, ['camping', 'stay', 'abroad']),
+  pack('pool', '🏊', 'בריכה וג׳קוזי', 'מגבות, בגדי ים, ציוד מים', [cat('🏊', 'בריכה ומים')], [
+    it('בריכה ומים', 'מגבות לבריכה', 'each'), it('בריכה ומים', 'מצופים וצעצועי מים'),
+  ], 'il', ['stay', 'celebrate']),
+  pack('trek', '🥾', 'מסלול וציוד שטח', 'מים, ניווט, בטיחות', [cat('🥾', 'ציוד שטח'), cat('💊', 'עזרה ראשונה')], [
+    it('ציוד שטח', 'מים — 3 ליטר לאדם', 'each'), it('ציוד שטח', 'מפה / ניווט מחובר', 'task'), it('עזרה ראשונה', 'ערכת עזרה ראשונה'),
+  ], 'il', ['camping']),
+];
+
+/** The focus packs for a composed trip type (see FOCUS_PACKS). */
+export function focusPacksFor(composed) {
+  if (!composed) return [];
+  return FOCUS_PACKS.filter((p) => (!p.where || p.where === composed.where) && (!p.families || p.families.includes(composed.family)));
+}
+
+/** A pack as the list editor holds it: {categories: [{name, emoji}], items: [{title, type, needed, category_name}]}. */
+export function packSeed(p) {
+  const emojiOf = new Map(p.cats.map((c) => [c.name, c.emoji]));
+  const names = new Set(p.cats.map((c) => c.name));
+  const cats = [...p.cats, ...p.items.filter((x) => !names.has(x.c)).map((x) => ({ name: x.c, emoji: '📋' }))];
+  return {
+    categories: uniqBy(cats, (c) => c.name).map((c) => ({ name: c.name, emoji: emojiOf.get(c.name) || c.emoji || '📦', ...(c.secret ? { secret: true } : {}) })),
+    items: p.items.map((x) => ({ title: x.t, type: x.k, needed: x.n, category_name: x.c })),
   };
 }
 

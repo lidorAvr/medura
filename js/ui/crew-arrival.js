@@ -3,9 +3,10 @@
 // from what the members already told the app (prefs.transport, rides, seats, prefs.travel) — nothing new is stored.
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { actions } from '../store.js?v=6fb25aa';
-import { displayName, formatTime, hebrewCount, rideModel } from '../lib/logic.js?v=6fb25aa';
-import { Avatar, Button, Card, Chip } from './components.js?v=6fb25aa';
+import { actions } from '../store.js?v=853199b';
+import { displayName, formatTime, hebrewCount, rideModel } from '../lib/logic.js?v=853199b';
+import { Avatar, Button, Card, Chip } from './components.js?v=853199b';
+import { withIds } from './arrive-with.js?v=853199b';
 
 const SELF = { own: '🧍 מגיעים בדרך שלהם', drop: '🙋 מקפיצים אותם', transit: '🚆 ברכבת / באוטובוס', park: '🅿️ חונים בשדה' };
 
@@ -33,23 +34,25 @@ export function crewArrival(snap) {
     const from = m.prefs?.transport?.from || null;
     const flight = m.prefs?.travel?.out?.flight ? `✈️ ${String(m.prefs.travel.out.flight).toUpperCase()}${m.prefs.travel.out.at ? ` · ${timeOf(m.prefs.travel.out.at)}` : ''}` : null;
     const r = model.myRide;
+    const together = withIds(members, m.id).map((id) => members.find((x) => x.id === id)).filter(Boolean).map(displayName);
+    const withText = together.length ? `🤝 יחד עם ${together.join(', ')}` : '';
     if (r) {
       const kind = r.kind || 'car';
       const emoji = kind === 'taxi' ? '🚕' : kind === 'meet' ? '🚆' : '🚗';
       const what = kind === 'taxi' ? 'מונית משותפת' : kind === 'meet' ? 'נקודת מפגש' : mode === 'park' ? 'חונים בשדה' : 'נוהג/ת';
       const room = kind === 'meet' ? hebrewCount(r.taken, 'מצטרף/ת', 'מצטרפים') : r.free ? hebrewCount(r.free, 'מקום פנוי', 'מקומות פנויים') : 'מלא';
-      const detail = [r.from_text && `מ־${r.from_text}`, r.depart_at && timeOf(r.depart_at), flight].filter(Boolean).join(' · ');
+      const detail = [withText, r.from_text && `מ־${r.from_text}`, r.depart_at && timeOf(r.depart_at), flight].filter(Boolean).join(' · ');
       return { member: m, group: 'drive', text: `${emoji} ${what} · ${room}`, detail, free: kind === 'meet' ? 0 : r.free };
     }
     if (model.mySeat) {
       const kind = model.mySeat.kind || 'car';
       const who = displayName(model.mySeat.driver);
-      return { member: m, group: 'in', text: `✅ ${kind === 'taxi' ? 'במונית של' : kind === 'meet' ? 'בנקודת המפגש של' : 'ברכב של'} ${who}`, detail: [model.mySeat.depart_at && timeOf(model.mySeat.depart_at), flight].filter(Boolean).join(' · ') };
+      return { member: m, group: 'in', text: `✅ ${kind === 'taxi' ? 'במונית של' : kind === 'meet' ? 'בנקודת המפגש של' : 'ברכב של'} ${who}`, detail: [withText, model.mySeat.depart_at && timeOf(model.mySeat.depart_at), flight].filter(Boolean).join(' · ') };
     }
-    if (model.myAsk) return { member: m, group: 'seek', text: `⏳ ביקש/ה מקום אצל ${displayName(model.myAsk.driver)}`, detail: flight || '' };
-    if (mode === 'need' || mode === 'taxi') return { member: m, group: 'seek', text: mode === 'taxi' ? '🚕 מחפש/ת מונית משותפת' : '🙋 מחפש/ת מקום', detail: [from && `מ־${from}`, flight].filter(Boolean).join(' · ') };
-    if (SELF[mode]) return { member: m, group: 'other', text: SELF[mode], detail: flight || '' };
-    return { member: m, group: 'unset', text: '❓ עוד לא בחרו', detail: flight || '' };
+    if (model.myAsk) return { member: m, group: 'seek', text: `⏳ ביקש/ה מקום אצל ${displayName(model.myAsk.driver)}`, detail: [withText, flight].filter(Boolean).join(' · ') };
+    if (mode === 'need' || mode === 'taxi') return { member: m, group: 'seek', text: mode === 'taxi' ? '🚕 מחפש/ת מונית משותפת' : '🙋 מחפש/ת מקום', detail: [withText, from && `מ־${from}`, flight].filter(Boolean).join(' · ') };
+    if (SELF[mode]) return { member: m, group: 'other', text: SELF[mode], detail: [withText, flight].filter(Boolean).join(' · ') };
+    return { member: m, group: 'unset', text: '❓ עוד לא בחרו', detail: [withText, flight].filter(Boolean).join(' · ') };
   });
   const counts = Object.fromEntries(ARRIVAL_GROUPS.map((g) => [g.key, rows.filter((x) => x.group === g.key).length]));
   const people = (g) => rows.filter((x) => x.group === g).reduce((n, x) => n + (Number(x.member.headcount) || 1), 0);

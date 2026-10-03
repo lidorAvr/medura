@@ -4,8 +4,8 @@
 // shortcut on the settle-up card (money.js).
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { actions } from '../store.js?v=6fb25aa';
-import { Button, Card, Segmented, confirmDialog } from './components.js?v=6fb25aa';
+import { actions } from '../store.js?v=853199b';
+import { Button, Card, Segmented, confirmDialog } from './components.js?v=853199b';
 
 const names = (m) => (m?.people || []).filter(Boolean);
 

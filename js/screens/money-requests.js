@@ -4,15 +4,15 @@
 // Money collected before buying stays "בקופה" (out of the settle-up) until the purchase is recorded.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { actions, store } from '../store.js?v=6fb25aa';
-import { href } from '../router.js?v=6fb25aa';
+import { actions, store } from '../store.js?v=853199b';
+import { href } from '../router.js?v=853199b';
 import {
   actorName, balanceSettled, balances, displayName, expenseShares, formatMoney, headcountTotal, hebrewCount, moneyPots,
   partyBalances, personPhone, personsOf, titleSimilarity, whatsappChatUrl,
-} from '../lib/logic.js?v=6fb25aa';
+} from '../lib/logic.js?v=853199b';
 import {
   Avatar, Button, Card, CopyButton, Field, MemberPicker, MoneyInput, Segmented, Sheet, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=6fb25aa';
+} from '../ui/components.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const METHOD = { bit: '📱 ביט', paybox: '📦 פייבוקס', bank: '🏦 העברה בנקאית', cash: '💵 מזומן' };
@@ -93,7 +93,7 @@ export function MoneyRequests({ snap, me, admin }) {
     // nothing asked yet (ux M4): one text link, no card, no paragraph
     return html`<section id="money-requests" class="money-anchor mreq-empty" data-testid="money-requests">
       <button type="button" class="link mreq-empty__link" onClick=${() => setSheet(true)}>💰 בקשת תשלום מראש +</button>
-      <${RequestSheet} open=${sheet} snap=${snap} me=${me} onClose=${() => setSheet(false)} />
+      <${RequestSheet} open=${sheet} snap=${snap} me=${me} admin=${admin} onClose=${() => setSheet(false)} />
     </section>`;
   }
   return html`<section id="money-requests" class="money-anchor" data-testid="money-requests">
@@ -109,7 +109,7 @@ export function MoneyRequests({ snap, me, admin }) {
           ${showClosed ? html`<ul class="mreq-list">${restClosed.map(row)}</ul>` : null}`
         : null}
     </${Card}>
-    <${RequestSheet} open=${sheet} snap=${snap} me=${me} onClose=${() => setSheet(false)} />
+    <${RequestSheet} open=${sheet} snap=${snap} me=${me} admin=${admin} onClose=${() => setSheet(false)} />
   </section>`;
 }
 
@@ -323,7 +323,7 @@ function AddToRequestSheet({ q, member, suggested, fixed, onClose }) {
   </${Sheet}>`;
 }
 
-function RequestSheet({ open, snap, me, onClose }) {
+function RequestSheet({ open, snap, me, admin = false, onClose }) {
   const others = (snap.members || []).filter((m) => m.id !== me.id);
   const exempt = new Set(Array.isArray(snap.trip?.settings?.money?.exempt) ? snap.trip.settings.money.exempt : []);
   const iAmExempt = exempt.has(me.id);
@@ -331,6 +331,7 @@ function RequestSheet({ open, snap, me, onClose }) {
   const asked = new Set((snap.money_requests || []).filter((q) => q.status === 'open' && q.expense_id).map((q) => q.expense_id));
   const myExpenses = (snap.expenses || []).filter((e) => e.paid_by === me.id && !asked.has(e.id))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8);
+  const groomId = snap.trip?.settings?.groom || null;
   const [title, setTitle] = useState('');
   const [mode, setMode] = useState('per_person');
   const [amount, setAmount] = useState(null);
@@ -343,12 +344,13 @@ function RequestSheet({ open, snap, me, onClose }) {
   // purchase twice once it's recorded for real (testers 2026-10-02)
   const [paid, setPaid] = useState(null);
   const [withMe, setWithMe] = useState(true);
+  const [secret, setSecret] = useState(false);          // a surprise: hidden from the guest of honour (groom mode)
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useLayoutEffect(() => {
     if (!open) return;
-    setTitle(''); setMode('per_person'); setAmount(null); setExpId(null); setPaid(null); setWithMe(!iAmExempt);
+    setTitle(''); setMode('per_person'); setAmount(null); setExpId(null); setPaid(null); setWithMe(!iAmExempt); setSecret(false);
     setWho(others.filter((x) => !exempt.has(x.id)).map((x) => x.id)); setDue(''); setNote(''); setError(null); setBusy(false);
     setM({ bit: me.phone || '', paybox: '', bank: '', cash: false });
     // how I like to get paid, saved once in my profile
@@ -395,11 +397,12 @@ function RequestSheet({ open, snap, me, onClose }) {
     if (mode !== 'expense' && paid === null) return setError('כבר שילמת על זה, או שאוספים לפני הקנייה? בוחרים אחת למעלה');
     setBusy(true);
     const methods = { bit: m.bit.trim(), paybox: m.paybox.trim(), bank: m.bank.trim(), cash: m.cash };
-    const body = { title: title.trim(), note: note.trim() || null, due: due || null, members: chosen.map((x) => x.id), methods };
+    const body = { title: title.trim(), note: note.trim() || null, due: due || null, members: chosen.filter((x) => !(secret && x.id === groomId)).map((x) => x.id), methods };
     if (mode === 'expense') body.expense = exp.id;
     else Object.assign(body, { [mode]: amount, already_paid: paid }, mode === 'total' ? { include_me: withMe } : {});
     const res = await actions.run(async (api) => {
       const id = await api.createMoneyRequest(snap.trip.id, body);
+      if (secret && groomId) await api.setSecret('request', id, true);
       api.saveAccount?.({ prefs: { pay: methods } }).catch(() => {});           // remembered for next time
       return id;
     }, { success: sentText(chosen) });
@@ -465,6 +468,9 @@ function RequestSheet({ open, snap, me, onClose }) {
               <${Button} size="sm" variant="secondary" href=${href(`/t/${snap.trip.id}/people`)} onClick=${onClose}>👥 למסך החבר׳ה</${Button}>
             </div>`}
       </${Field}>
+      ${admin && groomId
+        ? html`<${Toggle} checked=${secret} onChange=${(v) => { setSecret(v); if (v) setWho((w) => w.filter((id) => id !== groomId)); }} label="🤫 הפתעה — בלי החוגג/ת"
+            hint=${secret ? 'הבקשה לא תוצג לחוגג/ת בכלל, והוא/היא לא יתבקשו לשלם' : 'למשל קופה למתנה: הבקשה והסכום יוסתרו ממנו/ה'} data-testid="request-secret" />` : null}
       <${Field} label="עד מתי? (לא חובה)" hint="כולל תזכורת עדינה בבוקר למי שעוד לא שילם"><${TextInput} type="date" value=${due} onInput=${(e) => setDue(e.target.value)} /></${Field}>
       <details class="mreq-form__how" data-testid="mreq-methods">
         <summary class="mreq-form__how-row">

@@ -9,7 +9,7 @@
 //           Typed text and a picked name are both cut to it, so a long OSM name never fails a save.
 import { html } from 'htm/preact';
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'preact/hooks';
-import { createSearcher, navLinks, placeEmoji, ATTRIBUTION } from '../lib/places.js?v=6fb25aa';
+import { createSearcher, navLinks, placeEmoji, ATTRIBUTION } from '../lib/places.js?v=853199b';
 
 let seq = 0;
 export const PLACE_MAX = 80;
@@ -53,12 +53,24 @@ export function PlaceInput({
   const trimmed = q.trim();
   const showFree = trimmed.length > 0;
   const count = filtered.length + (showFree ? 1 : 0);
-  const listOpen = open && !value && (filtered.length > 0 || (trimmed.length >= 2 && (busy || searched === trimmed)));
+  // Hebrew for a place abroad: the as-you-type service (Photon) knows it only in English — a Hebrew name finds
+  // something in Israel instead. Nominatim answers Hebrew but may only be asked on purpose, so the list offers
+  // "חפשו בעברית" (Enter does the same) rather than guessing while typing.
+  const hebAbroad = where === 'abroad' && /[֐-׿]/.test(trimmed) && trimmed.length >= 2;
+  const offerHeb = hebAbroad && searched !== trimmed && !busy;
+  const listOpen = open && !value && (filtered.length > 0 || offerHeb || (trimmed.length >= 2 && (busy || searched === trimmed)));
 
   function run(textNow, full) {
     const my = ++token.current;
     const t = textNow.trim();
     if (t.length < 2) {
+      searcher.cancel();
+      setBusy(false);
+      setResults([]);
+      setSearched('');
+      return;
+    }
+    if (!full && where === 'abroad' && /[֐-׿]/.test(t)) {       // see hebAbroad: asked on purpose only
       searcher.cancel();
       setBusy(false);
       setResults([]);
@@ -192,7 +204,7 @@ export function PlaceInput({
         ${value.address && value.address !== value.name ? html`<div class="place-card__addr">${value.address}</div>` : null}
         ${links.waze || links.maps
           ? html`<div class="place-card__nav">
-              ${links.waze ? html`<a class="btn btn--secondary btn--sm" href=${links.waze} target="_blank" rel="noopener noreferrer"><span class="emoji-icon" aria-hidden="true">🚙</span><span class="btn__label">Waze</span></a>` : null}
+              ${links.waze && where !== 'abroad' ? html`<a class="btn btn--secondary btn--sm" href=${links.waze} target="_blank" rel="noopener noreferrer"><span class="emoji-icon" aria-hidden="true">🚙</span><span class="btn__label">Waze</span></a>` : null}
               ${links.maps ? html`<a class="btn btn--secondary btn--sm" href=${links.maps} target="_blank" rel="noopener noreferrer"><span class="emoji-icon" aria-hidden="true">🗺️</span><span class="btn__label">מפות</span></a>` : null}
             </div>`
           : null}
@@ -244,6 +256,14 @@ export function PlaceInput({
     </div>
     <div class=${cx('place__pop', !listOpen && 'is-hidden')}>
       <ul id=${listId} class="place__list" role="listbox" aria-label="הצעות למקום">
+        ${listOpen && offerHeb
+          ? html`<li role="option" aria-selected="false" class="place__opt place__opt--heb" data-testid=${`${testid}-heb`}
+              onMouseDown=${(e) => e.preventDefault()} onClick=${() => run(q, true)}>
+              <span class="place__opt-emoji" aria-hidden="true">🔎</span>
+              <span class="place__opt-text"><span class="place__opt-name">חפשו ״${trimmed}״ בעברית</span>
+                <span class="place__opt-addr">או לחצו Enter · בחו״ל ההצעות בזמן הקלדה הן באנגלית</span></span>
+            </li>`
+          : null}
         ${listOpen
           ? filtered.map((p, i) => html`<li
               id=${`${uid}-o${i}`}

@@ -6,15 +6,16 @@
 // (asking for one happens on the rides tab); the footer's action stays in reach.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore, useTrip } from '../store.js?v=6fb25aa';
-import { href, navigate } from '../router.js?v=6fb25aa';
-import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=6fb25aa';
-import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=6fb25aa';
-import { flightFit } from '../lib/flights.js?v=6fb25aa';
-import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
-import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=6fb25aa';
-import { seatsFor } from './rides.js?v=6fb25aa';
-import { AIRPORTS, arrivalQuestion, tripType, welcomeSteps } from '../lib/templates.js?v=6fb25aa';
+import { actions, store, useStore, useTrip } from '../store.js?v=853199b';
+import { href, navigate } from '../router.js?v=853199b';
+import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=853199b';
+import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=853199b';
+import { flightFit } from '../lib/flights.js?v=853199b';
+import { PlaceInput } from '../ui/place-input.js?v=853199b';
+import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=853199b';
+import { seatsFor } from './rides.js?v=853199b';
+import { WithPicker } from '../ui/arrive-with.js?v=853199b';
+import { AIRPORTS, arrivalQuestion, tripType, welcomeSteps } from '../lib/templates.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;
@@ -131,6 +132,7 @@ function Wizard({ snap, me, start }) {
   const ownSeats = Math.min(2, seatsFor('car', me));         // what's left next to my own profile, 2 at most
   const [seats, setSeats] = useState(myRide?.seats ?? (mode === 'park' ? 0 : ownSeats));
   const [organise, setOrganise] = useState(Boolean(myRide && myRide.kind === 'taxi'));
+  const [together, setTogether] = useState(() => (Array.isArray(t.with) ? t.with : []));   // who I arrive with (optional)
   const [depart, setDepart] = useState(myRide?.depart_at ? ilWall(new Date(myRide.depart_at)).hm : '');
   const [late, setLate] = useState(Boolean(prefs.arrival));
   const [arrival, setArrival] = useState(prefs.arrival || '');
@@ -195,10 +197,11 @@ function Wizard({ snap, me, start }) {
     setErrors(errs);
     if (Object.keys(errs).length) return false;
     const coords = fromPlace && fromNow === fromPlace.name ? { from_lat: fromPlace.lat, from_lon: fromPlace.lon } : {};
-    const transport = !mode ? null
+    const transport0 = !mode ? null
       : mode === 'car' ? { mode: 'car' }
         : asksFrom ? { mode, from: fromNow || null, ...coords }
           : { mode };
+    const transport = transport0 && together.length ? { ...transport0, with: together } : transport0;
     let ok = await run((api) => api.updateMember(me.id, { prefs: { transport, arrival: aq.askLate && late ? arrival : null } }));
     if (ok && abroad) ok = await saveTravel({ airport });
     if (ok && rideKind) {
@@ -424,6 +427,8 @@ function Wizard({ snap, me, start }) {
                 ${organise ? '☑️' : '⬜'} אני מזמין/ה את המונית — יש מקום לעוד
               </button>`
             : null}
+          ${mode && mode !== 'seat' && (snap.members || []).length > 2
+            ? html`<${WithPicker} members=${snap.members} meId=${me.id} value=${together} onChange=${setTogether} label="🤝 מגיעים יחד עם מישהו? (לא חובה)" />` : null}
           ${asksFrom
             ? html`<div>
                 <${PlaceInput} label="יוצאים מ…" value=${fromPlace} text=${fromText} where="il" nav=${false}

@@ -544,6 +544,63 @@ export function balances(snap) {
   });
 }
 
+/** The trip's shared cash pot (settings.money.pot) when it is on and its keeper is a member: {keeper, currency,
+ *  per_person, note}, else null. */
+export function potSettings(snap) {
+  const pot = snap?.trip?.settings?.money?.pot;
+  if (!pot || typeof pot !== 'object' || !list(snap?.members).some((m) => m && m.id === pot.keeper)) return null;
+  const per = toNum(pot.per_person);
+  return { keeper: pot.keeper, currency: typeof pot.currency === 'string' ? pot.currency : 'ILS',
+    per_person: per > 0 ? per : null, note: typeof pot.note === 'string' && pot.note ? pot.note : null };
+}
+
+/**
+ * The shared cash pot (SPEC §8.7a). A contribution is an ordinary payment to the keeper (payments.pot) and an
+ * expense paid out of it is the keeper's (expenses.from_pot) — so balances()/tripPlan() need nothing new: the keeper
+ * ends up owing the contributors what is left, and the final settle-up refunds exactly that.
+ * `opts.rate` (₪ per 1 unit of the pot currency, e.g. today's) adds the amounts in that currency and the progress
+ * toward per_person; `opts.meId` (default snap.me.member_id) fills myPut / myPending.
+ * Everything in ₪ (money is ₪ in the database); put = confirmed, pending = sent but not confirmed yet.
+ */
+export function potModel(snap, opts = {}) {
+  const cfg = potSettings(snap);
+  if (!cfg) return { on: false, keeper: null, keeperId: null, currency: null, perPerson: null, note: null, rate: null,
+    collected: 0, confirmed: 0, pending: 0, spent: 0, left: 0, rows: [], myPut: 0, myPending: 0, count: 0, spentCount: 0,
+    collectedFx: null, spentFx: null, leftFx: null, targetIls: null };
+  const meId = opts.meId ?? snap?.me?.member_id ?? null;
+  const rate = Number(opts.rate) > 0 ? Number(opts.rate) : null;
+  const keeper = list(snap?.members).find((m) => m && m.id === cfg.keeper);
+  const gifts = list(snap?.payments).filter((p) => p && p.pot === true && p.to_member === cfg.keeper);
+  const spends = list(snap?.expenses).filter((e) => e && e.from_pot === true);
+  const put = new Map();
+  const wait = new Map();
+  for (const p of gifts) {
+    const into = p.status === 'confirmed' ? put : wait;
+    into.set(p.from_member, (into.get(p.from_member) || 0) + toCents(p.amount));
+  }
+  const sum = (m) => [...m.values()].reduce((s, c) => s + c, 0);
+  const confirmedC = sum(put);
+  const pendingC = sum(wait);
+  const spentC = spends.reduce((s, e) => s + toCents(e.amount), 0);
+  const targetIls = rate && cfg.per_person ? fromCents(Math.round(cfg.per_person * rate * 100)) : null;
+  const fx = (c) => (rate ? Math.round(c / rate) / 100 : null);
+  const rows = list(snap?.members).filter((m) => m && m.id !== cfg.keeper).map((m) => {
+    const putC = put.get(m.id) || 0;
+    const pendC = wait.get(m.id) || 0;
+    const all = putC + pendC;
+    return { member: m, member_id: m.id, put: fromCents(putC), pending: fromCents(pendC),
+      pct: targetIls ? Math.min(100, Math.round((all / (targetIls * 100)) * 100)) : null };
+  });
+  return {
+    on: true, keeper, keeperId: cfg.keeper, currency: cfg.currency, perPerson: cfg.per_person, note: cfg.note, rate,
+    collected: fromCents(confirmedC + pendingC), confirmed: fromCents(confirmedC), pending: fromCents(pendingC),
+    spent: fromCents(spentC), left: fromCents(confirmedC + pendingC - spentC),
+    rows, myPut: fromCents(put.get(meId) || 0), myPending: fromCents(wait.get(meId) || 0),
+    count: gifts.length, spentCount: spends.length, targetIls,
+    collectedFx: fx(confirmedC + pendingC), spentFx: fx(spentC), leftFx: fx(confirmedC + pendingC - spentC),
+  };
+}
+
 /** settlePlan's rows in agorot: [{id, c (− owes, + gets), i}] — id is the party key (or member_id). */
 function planRows(balancesArr) {
   return list(balancesArr)

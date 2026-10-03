@@ -3,16 +3,16 @@
 // share to WhatsApp) and polls (create, vote, live result bars, close / delete).
 import { html } from 'htm/preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { useTrip, actions } from '../store.js?v=6fb25aa';
+import { useTrip, actions } from '../store.js?v=853199b';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, IconButton, MemberPicker, Pill,
   ProgressBar, Segmented, Sheet, ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog, OverBanner, tripOver,
-} from '../ui/components.js?v=6fb25aa';
-import { Icon } from '../ui/icons.js?v=6fb25aa';
+} from '../ui/components.js?v=853199b';
+import { Icon } from '../ui/icons.js?v=853199b';
 import {
   actorName, displayName, membersById, pinnedNotices, visibleNotifications, pollResults, timeAgo, formatDate, formatDateTime,
   formatTime, hebrewCount,
-} from '../lib/logic.js?v=6fb25aa';
+} from '../lib/logic.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';
@@ -466,7 +466,8 @@ function Composer({ snap, me, tripId, startOpen }) {
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setBusy(true);
-    const audience = mode === 'some' ? picked : null;
+    const groomId = snap.trip.settings?.groom || null;
+    const audience = mode === 'some' ? picked : mode === 'nogroom' ? others.filter((m) => m.id !== groomId).map((m) => m.id) : null;
     const id = await actions.run(
       (api) => api.sendAnnouncement(tripId, { title: t, body: b || null, audience, urgent, digest: !urgent && when === 'digest' }),
       { success: urgent ? 'ההודעה הדחופה נשלחה 🔴' : when === 'digest' ? 'ההודעה באפליקציה עכשיו, ובמייל ובהתראה — בסיכום של 09:30 ☀️' : 'ההודעה נשלחה 📣' },
@@ -548,6 +549,7 @@ function Composer({ snap, me, tripId, startOpen }) {
           }}
           options=${[
             { value: 'all', label: '👥 לכולם' },
+            ...(snap.trip.settings?.groom && snap.trip.settings.groom !== me.id ? [{ value: 'nogroom', label: '🤫 בלי החוגג/ת' }] : []),
             { value: 'some', label: '🎯 רק לחלק' },
           ]}
         />

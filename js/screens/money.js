@@ -3,22 +3,23 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=6fb25aa';
-import { href, navigate } from '../router.js?v=6fb25aa';
+import { actions, store, useTrip } from '../store.js?v=853199b';
+import { href, navigate } from '../router.js?v=853199b';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
-  memberNets, membersById, openMoneyRequests, partyBalances, partyName, partyOf, payingMembers, personPhone, personsOf,
+  memberNets, membersById, openMoneyRequests, partyBalances, partyName, partyOf, payingMembers, personPhone, personsOf, potSettings,
   settleNets, splitsMoney, timeAgo, titleSimilarity, tripPlan, tripTotals, whatsappChatUrl, whatsappShareUrl,
-} from '../lib/logic.js?v=6fb25aa';
+} from '../lib/logic.js?v=853199b';
 import {
   Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, Fold, MemberPicker, MoneyInput, OverBanner, Pill,
-  ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=6fb25aa';
-import { Icon } from '../ui/icons.js?v=6fb25aa';
-import { CURRENCIES, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=6fb25aa';
-import { MoneyRequests, payMethodsOf } from './money-requests.js?v=6fb25aa';
-import { expenseTagsFor } from '../lib/templates.js?v=6fb25aa';
-import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=6fb25aa';
+  ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
+} from '../ui/components.js?v=853199b';
+import { Icon } from '../ui/icons.js?v=853199b';
+import { CURRENCIES, dayOf, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=853199b';
+import { MoneyRequests, payMethodsOf } from './money-requests.js?v=853199b';
+import { FxToggle, PotCard, PotSetupLink, useFx } from './money-pot.js?v=853199b';
+import { expenseTagsFor } from '../lib/templates.js?v=853199b';
+import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -158,6 +159,7 @@ export default function MoneyScreen({ route }) {
   const [busyId, setBusyId] = useState(null);
   const flashTimer = useRef(0);
   useEffect(() => () => clearTimeout(flashTimer.current), []);
+  const fx = useFx(snap);                                // ₪ + a foreign currency at each day's rate (SPEC §8.7b)
 
   const model = useMemo(() => {
     if (!ready) return null;
@@ -285,6 +287,7 @@ export default function MoneyScreen({ route }) {
         onConfirm=${confirmPayment}
         onDelete=${deletePayment}
         bare=${over}
+        fx=${fx}
       />`
     : null;
   const expenses = html`<${ExpensesSection}
@@ -295,7 +298,9 @@ export default function MoneyScreen({ route }) {
     flashId=${flashId}
     onOpen=${(expense) => openExpense({ expense })}
     onAdd=${active ? () => openExpense({}) : null}
+    onQuick=${over ? null : (tag) => openExpense({ tag })}
     bare=${over}
+    fx=${fx}
   />`;
   const table = active ? html`<${MembersTable} snap=${snap} me=${me} balById=${balById} pbals=${pbals} myKey=${myKey} nets=${nets} mnets=${mnets} />` : null;
   // open = something is still to pay or to confirm (a share the settle-up covered isn't)
@@ -305,6 +310,11 @@ export default function MoneyScreen({ route }) {
   // Once the trip is over (A2): the same, folded to one row each, no FAB.
   return html`<div class="screen money">
     <${OverBanner} trip=${snap.trip} text="סוגרים חשבון" />
+    <${FxToggle} fx=${fx} />
+    ${potSettings(snap)
+      ? html`<${PotCard} snap=${snap} me=${me} admin=${admin} over=${over} busyId=${busyId} onConfirm=${confirmPayment}
+          onSpend=${() => openExpense({ fromPot: true })} />`
+      : null}
     <${Hero}
       snap=${snap}
       me=${me}
@@ -318,6 +328,7 @@ export default function MoneyScreen({ route }) {
       active=${active}
       over=${over}
       onAdd=${() => openExpense({})}
+      onQuick=${over ? null : (tag) => openExpense({ tag })}
     />
 
     <${LateJoinNote} snap=${snap} me=${me} byId=${byId} />
@@ -334,6 +345,7 @@ export default function MoneyScreen({ route }) {
           isMine=${isMine}
           onPay=${openPay}
           over=${over}
+          fx=${fx}
         />`
       : null}
 
@@ -355,7 +367,8 @@ export default function MoneyScreen({ route }) {
         ${table ? html`<${Fold} emoji="⚖️" title="מאזן לפי חבר׳ה" count=${snap.members.length} data-testid="fold-table">${table}</${Fold}>` : null}`}
 
     ${admin
-      ? html`<a class="money-settings small" href=${href(`/t/${tripId}/trip?edit=1&section=money`)} data-testid="money-settings">⚙️ מטבעות · פטורים ‹</a>`
+      ? html`<a class="money-settings small" href=${href(`/t/${tripId}/trip?edit=1&section=money`)} data-testid="money-settings">⚙️ מטבעות · פטורים ‹</a>
+        ${!over && !potSettings(snap) ? html`<${PotSetupLink} snap=${snap} />` : null}`
       : null}
 
     ${!over && active ? html`<${Fab} icon="🧾" label="הוצאה חדשה" onClick=${() => openExpense({})} />` : null}
@@ -413,7 +426,7 @@ const HOW_STEPS = [
   ['🤝', 'בסוף רואים מי מעביר למי, ומסמנים ״שילמתי ✓״'],
 ];
 
-function Hero({ snap, me, mine, net = 0, oursNet = null, totals, plan, isMine, nameOf, active, onAdd, over = false }) {
+function Hero({ snap, me, mine, net = 0, oursNet = null, totals, plan, isMine, nameOf, active, onAdd, onQuick = null, over = false }) {
   // the plan's own number (whole shekels) — the same one the transfers below add up to
   const state = !active ? 'empty' : net >= EVEN_BELOW ? 'credit' : net <= -EVEN_BELOW ? 'debt' : 'even';
   const animated = useCountUp(Math.abs(net));
@@ -431,6 +444,7 @@ function Hero({ snap, me, mine, net = 0, oursNet = null, totals, plan, isMine, n
       <div class="money-hero__cta">
         <${Button} variant="primary" icon="plus" onClick=${onAdd}>הוספת הוצאה ראשונה</${Button}>
       </div>
+      ${onQuick && tripTags(snap.trip) ? html`<${QuickChips} tags=${tripTags(snap.trip)} onQuick=${onQuick} />` : null}
     </section>`;
   }
 
@@ -528,7 +542,7 @@ function LateJoinNote({ snap, me, byId }) {
 // settle plan: who pays whom
 // ---------------------------------------------------------------------------
 
-function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, isMine, onPay, over }) {
+function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, isMine, onPay, over, fx }) {
   const trip = snap.trip;
   const rank = (t) => (isMine(t.from) ? 0 : isMine(t.to) ? 1 : 2);
   const rows = [...plan].sort((a, b) => rank(a) - rank(b));
@@ -576,6 +590,7 @@ function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, isMine, onPay, 
               nameOf=${nameOf}
               isMine=${isMine}
               onPay=${onPay}
+              fx=${fx}
             />`)}
           </ul>
           ${others.length
@@ -583,7 +598,7 @@ function SettleCard({ snap, me, admin, plan, bals, byId, nameOf, isMine, onPay, 
                 <ul class="settle-list">
                   ${others.map((t) => html`<${SettleRow} key=${`${t.from}>${t.to}`} t=${t} trip=${trip} me=${me} admin=${admin}
                     from=${byId.get(partyOf(t.from).member_id)} to=${byId.get(partyOf(t.to).member_id)}
-                    toPay=${payMethodsOf(snap, partyOf(t.to).member_id)} nameOf=${nameOf} isMine=${isMine} onPay=${onPay} />`)}
+                    toPay=${payMethodsOf(snap, partyOf(t.to).member_id)} nameOf=${nameOf} isMine=${isMine} onPay=${onPay} fx=${fx} />`)}
                 </ul>
               </${Fold}>`
             : null}
@@ -614,7 +629,7 @@ function PayStyle({ snap, me }) {
   </div>`;
 }
 
-function SettleRow({ t, trip, me, admin, from, to, toPay, nameOf, isMine, onPay }) {
+function SettleRow({ t, trip, me, admin, from, to, toPay, nameOf, isMine, onPay, fx }) {
   const mineOut = isMine(t.from);
   const mineIn = !mineOut && isMine(t.to);
   // inside one profile (a couple that pays each their own part, §19): "עידו → נועה · בתוך הזוג"
@@ -678,7 +693,7 @@ function SettleRow({ t, trip, me, admin, from, to, toPay, nameOf, isMine, onPay 
       ${mineIn ? html`<span class="settle-row__tag">💚 מגיע לך</span>` : null}
       ${inside ? html`<span class="settle-row__tag settle-row__inside" data-testid="settle-inside">💑 בתוך ${(from?.people || []).length > 2 ? 'המשפחה' : 'הזוג'}</span>` : null}
     </span>
-    <${Money} value=${t.amount} class="settle-row__amount" />`;
+    <span class="settle-row__sum"><${Money} value=${t.amount} class="settle-row__amount" />${fx?.tag(t.amount)}</span>`;
 
   return html`<li class=${cx('settle-row', mineOut && 'is-out', mineIn && 'is-in')} data-testid="settle-row">
     ${admin && !mineOut && !mineIn
@@ -694,7 +709,7 @@ function SettleRow({ t, trip, me, admin, from, to, toPay, nameOf, isMine, onPay 
 // payments
 // ---------------------------------------------------------------------------
 
-function PaymentsSection({ snap, me, admin, byId, nameOf, sideKey, busyId, onConfirm, onDelete, bare }) {
+function PaymentsSection({ snap, me, admin, byId, nameOf, sideKey, busyId, onConfirm, onDelete, bare, fx }) {
   const [all, setAll] = useState(false);
   const list = [...snap.payments].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   const shown = all ? list : list.slice(0, PAYMENTS_PREVIEW);
@@ -721,7 +736,7 @@ function PaymentsSection({ snap, me, admin, byId, nameOf, sideKey, busyId, onCon
         return html`<li key=${p.id} class="pay-row" data-testid="payment-row" data-status=${p.status}>
           <div class="pay-row__main">
             <span class="pay-row__who"><span class="money-name">${nameOf(sideKey(p.from_member, p.from_person))}</span> ${nameOf(sideKey(p.from_member, p.from_person)) === YOU ? 'העברת' : 'העביר/ה'} ל<span class="money-name">${nameOf(sideKey(p.to_member, p.to_person)) === YOU ? 'ך' : nameOf(sideKey(p.to_member, p.to_person))}</span></span>
-            <span class="pay-row__sub">${m.emoji} ${m.label}${p.note ? html` · <span class="pay-row__note">${p.note}</span>` : null} · ${timeAgo(p.created_at)}</span>
+            <span class="pay-row__sub">${p.pot ? html`<span class="pot-tag" data-testid="pot-tag" title="קופה משותפת">🪙 לקופה · </span>` : null}${m.emoji} ${m.label}${p.note ? html` · <span class="pay-row__note">${p.note}</span>` : null} · ${timeAgo(p.created_at)}</span>
             ${canConfirm
               ? html`<${Button} size="sm" icon="check" class="pay-row__confirm" loading=${busy} onClick=${() => onConfirm(p)}>
                   ${p.to_member === me.id ? 'הכסף הגיע' : 'אישור קבלה'}
@@ -730,6 +745,7 @@ function PaymentsSection({ snap, me, admin, byId, nameOf, sideKey, busyId, onCon
           </div>
           <div class="pay-row__end">
             <${Money} value=${p.amount} class="pay-row__amount" />
+            ${fx?.tag(p.amount, dayOf(p.created_at))}
             <${Pill} tone=${confirmed ? 'success' : 'warning'}>${confirmed ? 'אושר ✅' : 'נשלח ⏳'}</${Pill}>
             ${canDelete
               ? html`<button type="button" class="link pay-row__delete" aria-label="מחיקת ההעברה" disabled=${busy} onClick=${() => onDelete(p)}>מחיקה</button>`
@@ -761,12 +777,20 @@ function splitText(expense, snap) {
   return `כולם · ${hebrewCount(headcountTotal(payers), 'איש', 'אנשים')}${out.length ? ` · ${out.map(displayName).join(', ')} פטור/ה 🎁` : ''}`;
 }
 
+/** One tap on a kind of expense (the trip type's tags) opens the new-expense sheet with it chosen — me paying, split among everyone. */
+function QuickChips({ tags, onQuick }) {
+  return html`<div class="h-scroll money-quick" role="group" aria-label="הוצאה מהירה" data-testid="expense-quick">
+    <span class="money-quick__label tiny muted">➕ מהר:</span>
+    ${tags.map((t) => html`<${Chip} key=${t.n} data-tag=${t.n} onClick=${() => onQuick(t.n)}><span aria-hidden="true">${t.e}</span> ${t.n}</${Chip}>`)}
+  </div>`;
+}
+
 function sortExpenses(list) {
   return [...list].sort((a, b) => String(b.spent_on).localeCompare(String(a.spent_on))
     || String(b.created_at).localeCompare(String(a.created_at)));
 }
 
-function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd, bare }) {
+function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd, onQuick, bare, fx }) {
   const cats = new Map(snap.categories.map((c) => [c.id, c]));
   const all = sortExpenses(snap.expenses);
   const tags = tripTags(snap.trip);
@@ -785,6 +809,7 @@ function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd, bare 
       <span class="spacer"></span>
       ${all.length ? html`<span class="money-section__sum" data-testid="expenses-sum">סה״כ <${Money} value=${shown} /></span>` : null}
     </div>
+    ${tags && onQuick ? html`<${QuickChips} tags=${tags} onQuick=${onQuick} />` : null}
     ${used.length
       ? html`<div class="h-scroll money-tag-filter" role="group" aria-label="סינון לפי סוג" data-testid="expense-tag-filter">
           <${Chip} active=${!active} onClick=${() => setFilter(null)} data-tag="">הכל</${Chip}>
@@ -817,11 +842,12 @@ function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd, bare 
                 <span class="list-row__main">
                   <span class="list-row__title">${e.title}</span>
                   <span class="list-row__sub">${who} · <span class="exp-row__split" data-testid="expense-split">${splitText(e, snap)}</span></span>
-                  <span class="list-row__sub exp-row__meta">${dayLabel(e.spent_on)}${tag ? html` · <span class="exp-row__tag" data-testid="expense-tag">${tag.e} ${tag.n}</span>` : null}${e.note ? html` · <span class="exp-row__note">📝 ${e.note}</span>` : null}</span>
+                  <span class="list-row__sub exp-row__meta">${e.from_pot ? html`<span class="pot-tag" data-testid="pot-tag" title="שולם מהקופה">🪙 מהקופה · </span>` : null}${dayLabel(e.spent_on)}${tag ? html` · <span class="exp-row__tag" data-testid="expense-tag">${tag.e} ${tag.n}</span>` : null}${e.note ? html` · <span class="exp-row__note">📝 ${e.note}</span>` : null}</span>
                 </span>
                 <span class="exp-row__end">
                   <${Money} value=${e.amount} class="exp-row__amount" data-testid="expense-amount" />
                   ${e.currency ? html`<span class="exp-row__orig num" dir="ltr">${symbolOf(e.currency)}${Number(e.orig_amount).toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>` : null}
+                  ${fx?.code && e.currency !== fx.code ? fx.tag(e.amount, dayOf(e.spent_on), e) : null}
                   ${myShare > 0 ? html`<span class="exp-row__mine">${splitsMoney(me) ? 'חלקכם' : 'חלקך'} <${Money} value=${myShare} /></span>` : null}
                 </span>
               </button>
@@ -909,6 +935,7 @@ function ExpenseSheet({ open, data, snap, me, admin, onClose, onSaved, onDeletin
     open=${open}
     exp=${exp}
     editing=${editing}
+    preset=${data || null}
     snap=${snap}
     me=${me}
     admin=${admin}
@@ -918,7 +945,7 @@ function ExpenseSheet({ open, data, snap, me, admin, onClose, onSaved, onDeletin
   />`;
 }
 
-function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, onDeleting }) {
+function ExpenseForm({ open, exp, editing, preset, snap, me, admin, onClose, onSaved, onDeleting }) {
   const members = snap.members;
   const byId = membersById(members);
   const initialChosen = exp && exp.split_mode === 'members'
@@ -934,10 +961,14 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
   const foreign = cur !== 'ILS';
   const amountIls = foreign ? (orig > 0 && rate > 0 ? toShekels(orig, rate) : null) : amount;
   const [title, setTitle] = useState(exp?.title || '');
-  const [paidBy, setPaidBy] = useState(exp?.paid_by || me.id);
+  // paid out of the shared cash pot (SPEC §8.7a): the keeper is the payer — only the keeper, or an admin for them
+  const potCfg = potSettings(snap);
+  const canPot = Boolean(potCfg) && (potCfg.keeper === me.id || admin);
+  const [fromPot, setFromPot] = useState(Boolean(exp ? exp.from_pot && potCfg : preset?.fromPot && canPot));
+  const [paidBy, setPaidBy] = useState(exp?.paid_by || (!exp && preset?.fromPot && canPot ? potCfg.keeper : me.id));
   const [categoryId, setCategoryId] = useState(exp?.category_id || null);
   const tags = tripTags(snap.trip);
-  const [tag, setTag] = useState(exp?.tag || null);
+  const [tag, setTag] = useState(exp?.tag || (!exp && tags && preset?.tag ? preset.tag : null));   // a quick chip starts with its tag
   const tagChips = tags ? (tag && !tags.some((t) => t.n === tag) ? [...tags, tagOf(tags, tag)] : tags) : null;
   const [mode, setMode] = useState(exp?.split_mode === 'members' ? 'members' : 'all');
   const [chosen, setChosen] = useState(initialChosen);
@@ -946,6 +977,7 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [secret, setSecret] = useState(Boolean(exp?.secret));       // groom mode: a surprise (a gift…), hidden from the guest of honour
 
   // the day's rate, automatically (unless typed by hand, or kept from a saved expense)
   useEffect(() => {
@@ -999,7 +1031,7 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
     : null;
 
   const payer = byId.get(paidBy);
-  const canPickPayer = admin;
+  const canPickPayer = admin && !fromPot;
   // a couple that pays each their own part (§19): which of them paid — me by default, "ביחד" = together
   const myPerson = (me.people || []).includes(snap.me?.person) ? snap.me.person : null;
   const payerSplits = splitsMoney(payer);
@@ -1007,6 +1039,15 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
   const pickPayer = (id) => {
     setPaidBy(id);
     setPayPerson(exp && id === exp.paid_by ? exp.paid_by_person ?? null : id === me.id ? myPerson : null);
+  };
+  const togglePot = (on) => {
+    setFromPot(on);
+    pickPayer(on ? potCfg.keeper : exp?.paid_by || me.id);
+    // a pot kept in euros: the receipt is most likely in euros too
+    if (on && potCfg.currency !== 'ILS' && offered.includes(potCfg.currency) && !foreign && !amount) {
+      setCur(potCfg.currency);
+      if (rateState !== 'manual') setRateState('idle');
+    }
   };
 
   const save = async () => {
@@ -1038,14 +1079,20 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
       spent_on: spentOn || todayYmd(),
       split_mode: mode,
     };
-    if (canPickPayer) payload.paid_by = paidBy;
+    if (potCfg || exp?.from_pot) payload.from_pot = fromPot && Boolean(potCfg);
+    if (canPickPayer || fromPot) payload.paid_by = paidBy;
     if (payerSplits) payload.paid_by_person = (payer.people || []).includes(payPerson) ? payPerson : null;
     if (mode === 'members') {
       payload.members = chosen.map((c) => (c.weight != null ? { member_id: c.member_id, weight: Number(c.weight) } : { member_id: c.member_id }));
     }
     setSaving(true);
     const res = await actions.run(
-      (api) => (editing ? api.updateExpense(exp.id, payload) : api.addExpense(snap.trip.id, payload)),
+      async (api) => {
+        const id = await (editing ? api.updateExpense(exp.id, payload) : api.addExpense(snap.trip.id, payload));
+        const eid = editing ? exp.id : id;
+        if (admin && snap.trip.settings?.groom && Boolean(exp?.secret) !== secret) await api.setSecret('expense', eid, secret);
+        return id;
+      },
       { success: editing ? 'ההוצאה עודכנה ✏️' : 'ההוצאה נוספה 🧾 החשבון התעדכן' },
     );
     setSaving(false);
@@ -1124,6 +1171,12 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
           </div>`
         : null}
 
+      ${canPot || (exp?.from_pot && potCfg)
+        ? html`<div class="pot-toggle" data-testid="expense-from-pot">
+            <${Toggle} checked=${fromPot} onChange=${togglePot} disabled=${!canPot} label="💵 שולם מהקופה" hint=${fromPot ? `המזומן יצא מהקופה של ${displayName(byId.get(potCfg.keeper))} — לא נרשם חוב` : 'מזומן מהקופה המשותפת'} />
+          </div>`
+        : null}
+
       <${Field} label="מי שילם?" hint=${canPickPayer ? 'כמנהל/ת אפשר לרשום הוצאה גם בשם מישהו אחר' : null}>
         ${canPickPayer
           ? html`<${MemberPicker} members=${members} value=${paidBy} onChange=${(id) => id && pickPayer(id)} label="מי שילם?" />`
@@ -1197,6 +1250,10 @@ function ExpenseForm({ open, exp, editing, snap, me, admin, onClose, onSaved, on
         byId=${byId}
         me=${me}
       />
+
+      ${admin && snap.trip.settings?.groom
+        ? html`<${Toggle} checked=${secret} onChange=${setSecret} label="🤫 הפתעה — בלי החוגג/ת"
+            hint="למשל מתנה: ההוצאה לא תוצג לחוגג/ת" data-testid="expense-secret" />` : null}
 
       <div class="grid-2 money-form__extra">
         <${Field} label="מתי?">

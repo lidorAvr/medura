@@ -7,8 +7,8 @@
 // Every call loads a fresh copy, runs one RPC against it, and saves only on success —
 // so a failed call never leaves partial changes behind (like a SQL transaction).
 
-import { ApiError, flightFailure, flightInput } from './errors.js?v=6fb25aa';
-import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=6fb25aa';
+import { ApiError, flightFailure, flightInput } from './errors.js?v=853199b';
+import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=853199b';
 import {
   DEMO_VERSION,
   DEFAULT_CATEGORIES,
@@ -19,7 +19,7 @@ import {
   buildDemoSeed,
   demoFlight,
   jerusalemYmd,
-} from './demo-seed.js?v=6fb25aa';
+} from './demo-seed.js?v=853199b';
 
 export const DEMO_STORAGE_KEY = 'medura:demo:v1';
 export const DEMO_UID_KEY = 'medura:demo:uid';
@@ -45,12 +45,12 @@ const K = {
   tripBrief: ['id', 'name', 'emoji', 'location', 'starts_at', 'ends_at'],
   memberBrief: ['id', 'display_name', 'emoji', 'color', 'role'],
   unclaimed: ['id', 'display_name', 'headcount', 'people', 'emoji', 'color'],
-  category: ['id', 'name', 'emoji', 'sort', 'default_buyer_id', 'note'],
-  item: ['id', 'category_id', 'title', 'note', 'type', 'qty', 'unit', 'per_person', 'needed', 'status', 'done', 'done_at', 'reject_reason', 'created_by', 'approved_by', 'sort', 'created_at', 'updated_at', 'due_at', 'by_person', 'each_qty'],
+  category: ['id', 'name', 'emoji', 'sort', 'default_buyer_id', 'note', 'secret'],
+  item: ['id', 'category_id', 'title', 'note', 'type', 'qty', 'unit', 'per_person', 'needed', 'status', 'done', 'done_at', 'reject_reason', 'created_by', 'approved_by', 'sort', 'created_at', 'updated_at', 'due_at', 'by_person', 'each_qty', 'secret'],
   pledge: ['id', 'item_id', 'member_id', 'qty', 'done', 'assigned_by', 'accepted_at', 'created_at', 'by_person', 'split', 'person_qty', 'done_people'],
-  expense: ['id', 'title', 'amount', 'paid_by', 'category_id', 'note', 'split_mode', 'created_by', 'spent_on', 'created_at', 'currency', 'orig_amount', 'rate', 'tag', 'paid_by_person'],
+  expense: ['id', 'title', 'amount', 'paid_by', 'category_id', 'note', 'split_mode', 'created_by', 'spent_on', 'created_at', 'currency', 'orig_amount', 'rate', 'tag', 'paid_by_person', 'secret', 'from_pot'],
   share: ['expense_id', 'member_id', 'weight'],
-  payment: ['id', 'from_member', 'to_member', 'amount', 'method', 'note', 'status', 'created_by', 'created_at', 'confirmed_at', 'from_person', 'to_person'],
+  payment: ['id', 'from_member', 'to_member', 'amount', 'method', 'note', 'status', 'created_by', 'created_at', 'confirmed_at', 'from_person', 'to_person', 'pot'],
   notification: ['id', 'kind', 'title', 'body', 'audience', 'author_member', 'urgent', 'link', 'created_at', 'by_person'],
   read: ['notification_id', 'member_id', 'read_at'],
   vote: ['voter_id', 'candidate_id'],
@@ -59,7 +59,7 @@ const K = {
   ride: ['id', 'driver_member', 'seats', 'from_text', 'depart_at', 'note', 'kind', 'to_text', 'created_at', 'from_lat', 'from_lon', 'to_lat', 'to_lon'],
   rideSeat: ['ride_id', 'member_id', 'seats', 'status', 'requested_by'],
   profileRequest: ['id', 'member_id', 'name', 'person', 'email', 'merging', 'created_at'],
-  moneyRequest: ['id', 'requested_by', 'title', 'note', 'due', 'methods', 'status', 'created_at', 'expense_id', 'self_amount', 'linked_expense', 'by_person', 'pot'],
+  moneyRequest: ['id', 'requested_by', 'title', 'note', 'due', 'methods', 'status', 'created_at', 'expense_id', 'self_amount', 'linked_expense', 'by_person', 'pot', 'secret'],
   moneyRequestMember: ['request_id', 'member_id', 'amount', 'payment_id'],
   moneyRequestPart: ['request_id', 'member_id', 'person', 'amount', 'payment_id'],
   invite: ['id', 'name', 'member_id', 'invited_by', 'invited_by_name', 'created_at', 'email_hint'],
@@ -345,6 +345,13 @@ function settingsVal(v) {
     if (given(m, 'tags') && (!Array.isArray(m.tags) || m.tags.length > 12 || !m.tags.every((t) => isObj(t)
         && typeof t.n === 'string' && cpLen(t.n.trim()) >= 1 && cpLen(t.n.trim()) <= 20
         && (t.e == null || (typeof t.e === 'string' && cpLen(t.e) <= 8))))) bad();
+    // the shared cash pot: {keeper, currency, per_person, note}; null = off (SPEC §8.7a)
+    if (has(m, 'pot') && m.pot !== null) {
+      const pt = m.pot;
+      if (!isObj(pt) || typeof pt.keeper !== 'string' || typeof pt.currency !== 'string' || !/^[A-Z]{3}$/.test(pt.currency)) bad();
+      if (given(pt, 'per_person') && (typeof pt.per_person !== 'number' || !(pt.per_person > 0 && pt.per_person <= 100000))) bad();
+      if (given(pt, 'note') && (typeof pt.note !== 'string' || cpLen(pt.note) > 120)) bad();
+    }
     out.money = { ...m };
   }
   return jsonSize(out, 4000);
@@ -693,6 +700,11 @@ function canSeeNotification(n, me, admin, uid = null) {
     (n.kind === 'announcement' && admin)
   );
 }
+
+/** Groom mode: is this the one the surprises are for (trips.settings.groom)? */
+const isGroom = (db, tripId, memberId) => Boolean(memberId) && String(byId(db.trips, tripId)?.settings?.groom ?? '') === String(memberId);
+/** An item is secret by itself or through its category (SQL _item_secret). */
+const itemSecret = (db, item) => Boolean(item.secret) || Boolean(db.categories.find((c) => c.id === item.category_id)?.secret);
 
 function canSeeItem(item, me, admin) {
   return item.status !== 'rejected' || admin || item.created_by === me.id;
@@ -1159,6 +1171,12 @@ function insertItem(ctx, trip, me, f, pledgeQty, sort) {
   return item;
 }
 
+/** SQL _pot_keeper: settings.money.pot.keeper, null when the trip has no pot. */
+function potKeeper(db, tripId) {
+  const pot = db.trips.find((t) => t.id === tripId)?.settings?.money?.pot;
+  return isObj(pot) ? pot.keeper : null;
+}
+
 function expenseFields(db, tripId, p, creating) {
   reqObj(p);
   const out = {};
@@ -1186,6 +1204,7 @@ function expenseFields(db, tripId, p, creating) {
   if (isObj(p) && 'paid_by_person' in p) out.paid_by_person = p.paid_by_person == null ? null : reqText(p.paid_by_person, 1, 40);
   if (has(p, 'category_id')) out.category_id = categoryRef(db, tripId, p.category_id);
   if (has(p, 'note')) out.note = optText(p.note, 500);
+  if (given(p, 'from_pot')) out.from_pot = toBool(p.from_pot);
   if (has(p, 'tag')) out.tag = optText(p.tag, 20); // a light per-trip-type tag ("טיסות"); balances ignore it
   if (given(p, 'spent_on')) out.spent_on = dateVal(p.spent_on);
   if (given(p, 'split_mode')) out.split_mode = oneOf(p.split_mode, SPLIT_MODES);
@@ -1458,7 +1477,7 @@ const RPC = {
       if (cats.length > 20 || !cats.every((c) => isObj(c) && typeof c.name === 'string' && cpLen(c.name) >= 1
           && cpLen(c.name) <= 40 && (c.emoji == null || (typeof c.emoji === 'string' && cpLen(c.emoji) <= 16)))) bad();
       const seen = new Set();
-      startCats = cats.filter((c) => !seen.has(c.name) && seen.add(c.name)).map((c) => ({ name: c.name, emoji: c.emoji || null }));
+      startCats = cats.filter((c) => !seen.has(c.name) && seen.add(c.name)).map((c) => ({ name: c.name, emoji: c.emoji || null, secret: c.secret === true }));
     }
     const now = ctx.now();
     const trip = {
@@ -1489,7 +1508,7 @@ const RPC = {
     startCats.forEach((c, i) => {
       db.categories.push({
         id: newId(), trip_id: trip.id, name: c.name, emoji: c.emoji, sort: i + 1,
-        default_buyer_id: null, note: null, created_at: ctx.now(),
+        default_buyer_id: null, note: null, secret: c.secret === true, created_at: ctx.now(),
       });
     });
     bump(ctx, trip.id);
@@ -1651,13 +1670,14 @@ const RPC = {
     const trip = byId(db.trips, tripId);
     const inTrip = (r) => r.trip_id === tripId;
 
-    const itemRows = db.items.filter((i) => inTrip(i) && canSeeItem(i, me, admin)).sort(bySort);
+    const groom = isGroom(db, tripId, me.id);
+    const itemRows = db.items.filter((i) => inTrip(i) && canSeeItem(i, me, admin) && !(groom && itemSecret(db, i))).sort(bySort);
     const visibleItems = new Set(itemRows.map((i) => i.id));
     const authored = new Set(db.notifications.filter((n) => inTrip(n) && n.author_member === me.id).map((n) => n.id));
 
     return {
       trip: { ...pick(trip, K.trip), info: { ...clone(DEFAULT_TRIP_INFO), ...(trip.info || {}) }, settings: { ...DEFAULT_TRIP_SETTINGS, ...(trip.settings || {}) } },
-      me: { member_id: me.id, role, user_id: uid, person: link?.person ?? null, admin, server_now: ctx.now() },
+      me: { member_id: me.id, role, user_id: uid, person: link?.person ?? null, admin, groom, server_now: ctx.now() },
       members: membersOf(db, tripId).sort(byCreated).map((m) => {
         const unknown = linksOf(db, m.id).filter((l) => l.person == null);
         const hidesPresence = (l) => {
@@ -1685,16 +1705,16 @@ const RPC = {
           unknown_seen_at: unknownSeen ? toMinute(unknownSeen) : null,
         };
       }),
-      categories: db.categories.filter(inTrip).sort(bySort).map((c) => pick(c, K.category)),
-      items: itemRows.map((i) => pick(i, K.item)),
+      categories: db.categories.filter((c) => inTrip(c) && !(groom && c.secret)).sort(bySort).map((c) => ({ ...pick(c, K.category), secret: Boolean(c.secret) })),
+      items: itemRows.map((i) => ({ ...pick(i, K.item), secret: Boolean(i.secret) })),
       pledges: db.pledges.filter((p) => inTrip(p) && visibleItems.has(p.item_id)).sort(byCreated)
         .map((p) => ({ ...pick(p, K.pledge), done_people: p.done_people || [] })),
       expenses: db.expenses
-        .filter(inTrip)
+        .filter((e) => inTrip(e) && !(groom && e.secret))
         .sort((a, b) => cmp(b.spent_on, a.spent_on) || newest(a, b))
-        .map((e) => pick(e, K.expense)),
-      expense_shares: db.expense_shares.filter(inTrip).map((s) => pick(s, K.share)),
-      payments: db.payments.filter(inTrip).sort(newest).map((p) => pick(p, K.payment)),
+        .map((e) => ({ ...pick(e, K.expense), secret: Boolean(e.secret), from_pot: e.from_pot === true })),
+      expense_shares: db.expense_shares.filter((x) => inTrip(x) && !(groom && byId(db.expenses, x.expense_id)?.secret)).map((x) => pick(x, K.share)),
+      payments: db.payments.filter(inTrip).sort(newest).map((p) => ({ ...pick(p, K.payment), pot: p.pot === true })),
       notifications: db.notifications
         .filter((n) => inTrip(n) && canSeeNotification(n, me, admin, ctx.uid))
         .sort(newest)
@@ -1724,9 +1744,9 @@ const RPC = {
         .sort((a, b) => cmp(a.depart_at ?? '￿', b.depart_at ?? '￿') || byCreated(a, b))
         .map((r) => pick(r, K.ride)),
       ride_seats: db.ride_seats.filter(inTrip).sort(byCreated).map((s) => pick(s, K.rideSeat)),
-      money_requests: db.money_requests.filter(inTrip).sort(byCreated).map((q) => pick(q, K.moneyRequest)),
-      money_request_members: db.money_request_members.filter(inTrip).map((x) => pick(x, K.moneyRequestMember)),
-      money_request_parts: db.money_request_parts.filter(inTrip).map((x) => pick(x, K.moneyRequestPart)),
+      money_requests: db.money_requests.filter((q) => inTrip(q) && !(groom && q.secret)).sort(byCreated).map((q) => ({ ...pick(q, K.moneyRequest), secret: Boolean(q.secret) })),
+      money_request_members: db.money_request_members.filter((x) => inTrip(x) && !(groom && byId(db.money_requests, x.request_id)?.secret)).map((x) => pick(x, K.moneyRequestMember)),
+      money_request_parts: db.money_request_parts.filter((x) => inTrip(x) && !(groom && byId(db.money_requests, x.request_id)?.secret)).map((x) => pick(x, K.moneyRequestPart)),
       profile_requests: db.profile_requests
         .filter((r) => inTrip(r) && r.status === 'pending' && (r.member_id === me.id || admin))
         .sort(byCreated)
@@ -1809,7 +1829,19 @@ const RPC = {
     const f = tripFields(patch, false);
     for (const [k, v] of Object.entries(f)) {
       if (k === 'info') trip.info = { ...clone(DEFAULT_TRIP_INFO), ...(trip.info || {}), ...v };
-      else if (k === 'settings') trip.settings = { ...DEFAULT_TRIP_SETTINGS, ...(trip.settings || {}), ...v };
+      else if (k === 'settings') {
+        // money is merged key by key too (a partial save elsewhere never drops the cash pot, the tags …)
+        const was = trip.settings?.money;
+        const money = isObj(v.money) && isObj(was) ? { ...was, ...v.money } : v.money;
+        const pot = money?.pot;
+        if (isObj(pot)) {
+          if (!membersOf(ctx.db, tripId).some((m) => m.id === pot.keeper)) bad();
+          // the keeper holds the money: it can't change hands while the pot has rows
+          const rows = ctx.db.payments.some((x) => x.trip_id === tripId && x.pot) || ctx.db.expenses.some((x) => x.trip_id === tripId && x.from_pot);
+          if (isObj(was?.pot) && was.pot.keeper !== pot.keeper && rows) bad();
+        }
+        trip.settings = { ...DEFAULT_TRIP_SETTINGS, ...(trip.settings || {}), ...v, ...(money === undefined ? {} : { money }) };
+      }
       else trip[k] = v;
     }
     // the trip moved to other days: the cars' departures move with it (same hour, same day relative to the start)
@@ -2639,6 +2671,7 @@ const RPC = {
     if (given(cat, 'sort')) f.sort = toInt(cat.sort, -1000000, 1000000);
     if (has(cat, 'default_buyer_id')) f.default_buyer_id = cat.default_buyer_id === null ? null : memberRef(db, tripId, cat.default_buyer_id);
     if (has(cat, 'note')) f.note = optText(cat.note, 500);
+    if (has(cat, 'secret')) f.secret = cat.secret === true;
 
     let row;
     if (given(cat, 'id')) {
@@ -2650,12 +2683,25 @@ const RPC = {
       const siblings = db.categories.filter((c) => c.trip_id === tripId);
       row = {
         id: newId(), trip_id: tripId, name: f.name, emoji: f.emoji ?? '📦', sort: f.sort ?? nextSort(siblings),
-        default_buyer_id: f.default_buyer_id ?? null, note: f.note ?? null, created_at: ctx.now(),
+        default_buyer_id: f.default_buyer_id ?? null, note: f.note ?? null, secret: f.secret === true, created_at: ctx.now(),
       };
       db.categories.push(row);
     }
     bump(ctx, tripId);
     return row.id;
+  },
+
+  // Mark something a surprise (or not): an item, a category, a money request or an expense. Admins only.
+  set_secret(ctx, kind, id, secret) {
+    const { db } = ctx;
+    const table = { item: db.items, category: db.categories, request: db.money_requests, expense: db.expenses }[kind];
+    if (!table) bad();
+    const row = byId(table, id);
+    if (!row) fail('not_found');
+    requireAdmin(ctx, row.trip_id);
+    row.secret = secret === true;
+    bump(ctx, row.trip_id);
+    return null;
   },
 
   delete_category(ctx, categoryId) {
@@ -2705,12 +2751,12 @@ const RPC = {
     // Validate everything first (all-or-nothing).
     const prepared = list.map((raw) => {
       reqObj(raw);
-      const { category_id: catId, category_name: catName, category_emoji: catEmoji, ...rest } = raw;
+      const { category_id: catId, category_name: catName, category_emoji: catEmoji, category_secret: catSecret, ...rest } = raw;
       const f = itemFields(db, tripId, rest, true);
       let category = null;
       if (catId !== undefined && catId !== null && catId !== '') category = { id: categoryRef(db, tripId, catId) };
       else if (typeof catName === 'string' && catName.trim()) {
-        category = { name: reqText(catName, 1, 40), emoji: catEmoji ? reqText(catEmoji, 1, 16) : null };
+        category = { name: reqText(catName, 1, 40), emoji: catEmoji ? reqText(catEmoji, 1, 16) : null, secret: catSecret === true };
       } else if (catName != null && typeof catName !== 'string') bad();
       // SQL: a member who isn't in the trip (any more) is ignored
       const target = raw.assign_to != null && raw.assign_to !== '' ? byId(db.members, raw.assign_to) : null;
@@ -2732,7 +2778,7 @@ const RPC = {
         id = newId();
         db.categories.push({
           id, trip_id: tripId, name: c.name, emoji: c.emoji || '📦', sort: nextSort(siblings),
-          default_buyer_id: null, note: null, created_at: ctx.now(),
+          default_buyer_id: null, note: null, secret: c.secret === true, created_at: ctx.now(),
         });
       }
       resolved.set(key, id);
@@ -3031,7 +3077,12 @@ const RPC = {
     const { db } = ctx;
     const me = requireMember(ctx, tripId);
     const f = expenseFields(db, tripId, exp, true);
-    const paidBy = f.paid_by ?? me.id;
+    // paid out of the cash pot: the keeper is the payer (only the keeper, or an admin for them)
+    const fromPot = f.from_pot === true;
+    const keeper = potKeeper(db, tripId);
+    if (fromPot && !keeper) bad();
+    const paidBy = f.paid_by ?? (fromPot ? keeper : me.id);
+    if (fromPot && paidBy !== keeper) bad();
     if (paidBy !== me.id && !amAdmin(ctx, me)) fail('forbidden');
     // who of the paying profile paid (§19): as given (null = together), else me when I'm the payer
     let paidByPerson = null;
@@ -3059,6 +3110,7 @@ const RPC = {
       rate: f.rate ?? null,
       tag: f.tag ?? null,
       paid_by_person: paidByPerson,
+      from_pot: fromPot,
     };
     db.expenses.push(row);
     if (mode === 'members') replaceShares(ctx, row, f.members);
@@ -3089,9 +3141,11 @@ const RPC = {
       if (!shares.length) bad();
     }
     const oldPaidBy = exp.paid_by;
-    for (const k of ['title', 'amount', 'paid_by', 'category_id', 'note', 'spent_on', 'currency', 'orig_amount', 'rate', 'tag']) {
+    for (const k of ['title', 'amount', 'paid_by', 'category_id', 'note', 'spent_on', 'currency', 'orig_amount', 'rate', 'tag', 'from_pot']) {
       if (f[k] !== undefined) exp[k] = f[k];
     }
+    // an expense paid out of the pot is the keeper's
+    if (exp.from_pot && (f.from_pot !== undefined || f.paid_by !== undefined) && exp.paid_by !== potKeeper(db, exp.trip_id)) bad();
     if (f.paid_by_person !== undefined) {
       if (f.paid_by_person !== null && !personOf(byId(db.members, exp.paid_by), f.paid_by_person)) bad();
       exp.paid_by_person = f.paid_by_person;
@@ -3121,6 +3175,9 @@ const RPC = {
     const from = given(pay, 'from_member') ? memberRef(db, tripId, pay.from_member) : me.id;
     if (!given(pay, 'to_member')) bad();
     const to = memberRef(db, tripId, pay.to_member);
+    // a contribution to the cash pot goes to its keeper, from someone else
+    const pot = given(pay, 'pot') && toBool(pay.pot);
+    if (pot && (potKeeper(db, tripId) !== to || from === to)) bad();
     // who of a profile sent / got it (§19); partner → partner inside one profile: both named, not the same
     const mine = myPersonIn(ctx, me);
     const personArg = (key, memberId) => {
@@ -3141,7 +3198,7 @@ const RPC = {
     const row = {
       id: newId(), trip_id: tripId, from_member: from, to_member: to, amount, method, note, status,
       created_by: me.id, created_at: now, confirmed_at: status === 'confirmed' ? now : null,
-      from_person: fromPerson, to_person: toPerson,
+      from_person: fromPerson, to_person: toPerson, pot,
     };
     db.payments.push(row);
     linkPaymentToRequests(ctx, row);
@@ -3868,7 +3925,7 @@ const RPC = {
         .filter(({ p, i }) => i && i.status === 'active' && pledgeOpen(i.type, i.done, p.done) && itemOnIn(trip, i.type))
         .sort((a, b) => bySort(a.i, b.i) || cmp(a.i.id, b.i.id));
       const unclaimed = [...items.values()].filter((i) => i.status === 'active' && ['buy', 'bring', 'task'].includes(i.type)
-        && itemOnIn(trip, i.type) && !db.pledges.some((p) => p.item_id === i.id));
+        && itemOnIn(trip, i.type) && !(isGroom(db, trip.id, m.id) && itemSecret(db, i)) && !db.pledges.some((p) => p.item_id === i.id));
 
       return {
         trip: {
@@ -4196,6 +4253,7 @@ export function createDemoApi(options = {}) {
     voteAdmin: (candidateId, on) => call('vote_admin', candidateId, Boolean(on)),
 
     upsertCategory: (tripId, cat) => call('upsert_category', tripId, cat),
+    setSecret: (kind, id, secret) => call('set_secret', kind, id, Boolean(secret)),
     deleteCategory: (categoryId) => call('delete_category', categoryId),
 
     addItem: (tripId, item) => call('add_item', tripId, item),

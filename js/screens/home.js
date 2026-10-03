@@ -3,8 +3,8 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=6fb25aa';
-import { href, navigate } from '../router.js?v=6fb25aa';
+import { actions, useTrip } from '../store.js?v=853199b';
+import { href, navigate } from '../router.js?v=853199b';
 import {
   actorName,
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
@@ -12,18 +12,19 @@ import {
   visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats, adminPersons, personsOf,
   departureOf, myRideText, pinnedNotices, myInbox, tripPlan, moneyPots, myNet, openMoneyRequests, partyBalances,
   partyName, partyOf, splitsMoney,
-} from '../lib/logic.js?v=6fb25aa';
+} from '../lib/logic.js?v=853199b';
 import {
   Avatar, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js?v=6fb25aa';
-import { Icon } from '../ui/icons.js?v=6fb25aa';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=6fb25aa';
-import { InboxCard } from '../ui/inbox.js?v=6fb25aa';
-import { payMethodsOf } from './money-requests.js?v=6fb25aa';
-import { AlbumSheet } from './trip-extras.js?v=6fb25aa';
-import { hebrewError } from '../api/errors.js?v=6fb25aa';
-import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=6fb25aa';
+} from '../ui/components.js?v=853199b';
+import { Icon } from '../ui/icons.js?v=853199b';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=853199b';
+import { InboxCard } from '../ui/inbox.js?v=853199b';
+import { CloneSheet } from '../ui/clone-sheet.js?v=853199b';
+import { payMethodsOf } from './money-requests.js?v=853199b';
+import { AlbumSheet } from './trip-extras.js?v=853199b';
+import { hebrewError } from '../api/errors.js?v=853199b';
+import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 3;
@@ -601,6 +602,7 @@ const prettyPhone = (phone) => {
  */
 function AfterCard({ snap, me, isAdmin, onAlbum }) {
   const trip = snap.trip;
+  const [cloning, setCloning] = useState(false);
   const money = hasModule(trip, 'money');
   const bals = money ? balances(snap) : [];
   // the same plan the money screen shows (a couple that pays each their own part settles per person)
@@ -715,6 +717,10 @@ function AfterCard({ snap, me, isAdmin, onAlbum }) {
 
   return html`<section class="after" data-testid="after">
     ${moneyBody}
+    ${isAdmin
+      ? html`<div class="after__again" data-testid="after-again"><${Button} variant="secondary" block onClick=${() => setCloning(true)}>🔁 לעשות את זה שוב — טיול חדש מהרשימות האלה</${Button}>
+          <${CloneSheet} open=${cloning} tripId=${trip.id} name=${trip.name} snap=${snap} onClose=${() => setCloning(false)} /></div>`
+      : null}
     <div class="after__photos">
       ${album
         ? html`<a class="after__row" href=${album} target="_blank" rel="noopener"><span>📸 לאלבום התמונות</span><${Icon} name="chevron-left" size=${16} /></a>`

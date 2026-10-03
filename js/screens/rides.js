@@ -4,16 +4,17 @@
 // picks which ways a trip offers (settings.arrival). Used on the rides tab, the trip screen and the wizard.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=6fb25aa';
-import { navigate } from '../router.js?v=6fb25aa';
-import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel, tripPhase } from '../lib/logic.js?v=6fb25aa';
-import { AIRPORTS, ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=6fb25aa';
-import { CrewArrival } from '../ui/crew-arrival.js?v=6fb25aa';
-import { findFlight, flightCode, flightDest, flightFit, hmOf, isFlightNumber, isYmd, legDate, travelFromFlight } from '../lib/flights.js?v=6fb25aa';
-import { hasCoords, navLinks } from '../lib/places.js?v=6fb25aa';
-import { FlightLive, LookupNote, nearOf, tripDays, useFlightLookup, wall, whereOf } from './trip-extras.js?v=6fb25aa';
-import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
-import { Avatar, Button, Card, Chip, Field, OverBanner, Sheet, Skeleton, Stepper, TextInput, confirmDialog, tripOver } from '../ui/components.js?v=6fb25aa';
+import { actions, useTrip } from '../store.js?v=853199b';
+import { navigate } from '../router.js?v=853199b';
+import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel, tripPhase } from '../lib/logic.js?v=853199b';
+import { AIRPORTS, ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=853199b';
+import { CrewArrival } from '../ui/crew-arrival.js?v=853199b';
+import { WithPicker, withIds } from '../ui/arrive-with.js?v=853199b';
+import { findFlight, flightCode, flightDest, flightFit, hmOf, isFlightNumber, isYmd, legDate, travelFromFlight } from '../lib/flights.js?v=853199b';
+import { hasCoords, navLinks } from '../lib/places.js?v=853199b';
+import { FlightLive, LookupNote, nearOf, tripDays, useFlightLookup, wall, whereOf } from './trip-extras.js?v=853199b';
+import { PlaceInput } from '../ui/place-input.js?v=853199b';
+import { Avatar, Button, Card, Chip, Field, OverBanner, Sheet, Skeleton, Stepper, TextInput, confirmDialog, tripOver } from '../ui/components.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const ok = (fn) => async (api) => {
@@ -122,6 +123,12 @@ function MyArrival({ snap, me, onOffer }) {
   else if (mode && MODE_STATUS[mode]) status = MODE_STATUS[mode];
   const seeking = !model.myRide && !model.mySeat && (SEEK_MODES.includes(mode) || model.myAsk);
   const change = () => setMode(null);
+  // "who I come with": saved right away; the crew card shows the link to everyone
+  const saveWith = async (ids) => {
+    const t = me.prefs?.transport || {};
+    await actions.run(ok((api) => api.updateMember(me.id, { prefs: { transport: { ...t, with: ids } } })), { success: ids.length ? 'סימנו שאתם מגיעים יחד 🤝' : 'עודכן' });
+  };
+  const mineWith = (Array.isArray(me.prefs?.transport?.with) ? me.prefs.transport.with : []);
   return html`<${Card} emoji="🧭" title=${fly ? 'איך אני מגיע/ה לשדה?' : 'איך אני מגיע/ה?'} class="my-arrival" data-testid="my-arrival">
     ${status
       ? html`<div class="my-arrival__row"><b class="my-arrival__status" data-testid="my-arrival-status">${status}</b>
@@ -150,6 +157,7 @@ function MyArrival({ snap, me, onOffer }) {
             ${AIRPORTS.find((a) => a.iata === iata)?.label || iata} <span dir="ltr">${iata}</span></${Chip}>`)}
         </div>`
       : null}
+    ${(status || mode) ? html`<${WithPicker} members=${snap.members} meId=${me.id} value=${mineWith} onChange=${saveWith} />` : null}
     ${seeking ? html`<${RideOffers} snap=${snap} me=${me} />` : null}
   </${Card}>`;
 }

@@ -4,19 +4,19 @@
 // Also exports small helpers that shopping.js and import.js reuse.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=6fb25aa';
-import { navigate, href } from '../router.js?v=6fb25aa';
+import { actions, useTrip } from '../store.js?v=853199b';
+import { navigate, href } from '../router.js?v=853199b';
 import {
   actorName, buildSummaryText, dueInfo, displayName, eachSplitOf, formatQty, headcountTotal, hebrewCount, itemEffectiveQty,
   itemProgress, membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
   ilIso as ilIsoDue, ilWall as ilWallDue,
-} from '../lib/logic.js?v=6fb25aa';
+} from '../lib/logic.js?v=853199b';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, OverBanner, Pill, ProgressBar,
   Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=6fb25aa';
-import { Icon } from '../ui/icons.js?v=6fb25aa';
-import { hasModule, itemTypeOn } from '../lib/templates.js?v=6fb25aa';
+} from '../ui/components.js?v=853199b';
+import { Icon } from '../ui/icons.js?v=853199b';
+import { hasModule, itemTypeOn } from '../lib/templates.js?v=853199b';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by shopping.js and import.js)
@@ -624,9 +624,12 @@ function CategoryGroup({ group, stat, ctx }) {
     count=${stat && stat.total ? `${stat.covered}/${stat.total}` : undefined}
     collapsible
     class=${cx('ls-cat', complete && 'is-complete')}
-    right=${buyer
+    right=${html`${buyer
       ? html`<span class="ls-cat__buyer small" title=${`קונה ברירת מחדל: ${displayName(buyer)}`}>קונה: ${displayName(buyer)}</span>`
-      : null}
+      : null}${ctx.isAdmin && cat && ctx.model.snap.trip.settings?.groom
+      ? html`<button type="button" class=${cx('ls-cat__secret', cat.secret && 'is-on')} data-testid="cat-secret" aria-pressed=${cat.secret ? 'true' : 'false'}
+          title=${cat.secret ? 'הקטגוריה מוסתרת מהחוגג/ת — לחיצה לביטול' : 'להסתיר את כל הקטגוריה מהחוגג/ת'}
+          onClick=${() => runOk((api) => api.setSecret('category', cat.id, !cat.secret), { success: cat.secret ? 'הקטגוריה גלויה לכולם' : 'הקטגוריה מוסתרת מהחוגג/ת 🤫' })}>🤫</button>` : null}`}
   >
     <div class="list ls-list">
       ${stat && stat.total
@@ -745,6 +748,7 @@ function ItemRow({ item, ctx }) {
       <span class="ls-row__main">
         <span class="ls-row__title">
           <span class="ls-row__name">${item.title}</span>
+          ${ctx.isAdmin && (item.secret || ctx.model.catById.get(item.category_id)?.secret) ? html`<span class="ls-secret" title="הפתעה — מוסתר מהחוגג/ת" aria-label="הפתעה">🤫</span>` : null}
           ${qtyText ? html`<span class="ls-qty num">${qtyText}</span>` : null}
         </span>
         <span class="ls-row__meta">
@@ -1404,6 +1408,11 @@ function ItemDetails({ item, ctx, busy, act, onEdit, onReject }) {
     ${canEdit || canDelete
       ? html`<div class="ls-details__manage">
           ${canEdit ? html`<${Button} variant="secondary" icon="edit" onClick=${onEdit}>עריכה</${Button}>` : null}
+          ${isAdmin && model.snap.trip.settings?.groom
+            ? html`<${Button} variant=${item.secret || cat?.secret ? 'accent' : 'secondary'} loading=${busy === 'secret'} data-testid="item-secret"
+                disabled=${Boolean(cat?.secret && !item.secret)}
+                onClick=${() => act('secret', (api) => api.setSecret('item', item.id, !item.secret), { success: item.secret ? 'הפריט גלוי לכולם' : 'מוסתר מהחוגג/ת 🤫' })}>
+                🤫 ${item.secret ? 'מוסתר מהחוגג/ת — ביטול' : cat?.secret ? 'הקטגוריה מוסתרת' : 'הסתרה מהחוגג/ת'}</${Button}>` : null}
           ${isAdmin && item.status === 'proposed' ? html`<${Button} variant="secondary" icon="x" onClick=${onReject}>דחייה</${Button}>` : null}
           ${canDelete ? html`<${Button} variant="ghost" icon="trash" class="ls-danger-ghost" loading=${busy === 'delete'} onClick=${remove}>מחיקה</${Button}>` : null}
         </div>`

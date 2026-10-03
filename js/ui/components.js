@@ -3,8 +3,8 @@
 import { html } from 'htm/preact';
 import { render, cloneElement, isValidElement, toChildArray } from 'preact';
 import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
-import { Icon } from './icons.js?v=6fb25aa';
-import { whatsappShareUrl, displayName, tripOver } from '../lib/logic.js?v=6fb25aa';
+import { Icon } from './icons.js?v=853199b';
+import { whatsappShareUrl, displayName, tripOver } from '../lib/logic.js?v=853199b';
 
 // ---------------------------------------------------------------------------
 // helpers (module-private)
@@ -706,14 +706,14 @@ export function EmptyState({ emoji = '🏕️', title, text, action }) {
   </div>`;
 }
 
-export function Section({ title, emoji, count, right, collapsible, defaultOpen = true, children, class: klass }) {
+export function Section({ title, emoji, count, right, collapsible, defaultOpen = true, children, class: klass, ...rest }) {
   const [open, setOpen] = useState(defaultOpen !== false);
   const bodyId = useUid();
   const heading = html`
     ${emoji ? html`<span class="section__emoji" aria-hidden="true">${emoji}</span>` : null}
     <span class="section__text">${title}</span>
     ${count !== undefined && count !== null && count !== '' ? html`<span class="section__count num">${count}</span>` : null}`;
-  return html`<section class=${cx('section', collapsible && 'section--collapsible', !open && 'is-closed', klass)}>
+  return html`<section class=${cx('section', collapsible && 'section--collapsible', !open && 'is-closed', klass)} ...${rest}>
     <div class="section__head">
       <h2 class="section__title">
         ${collapsible

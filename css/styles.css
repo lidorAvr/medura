@@ -1908,3 +1908,10 @@ html.no-nav .toasts { bottom: calc(var(--safe-bottom) + 18px); }
 .tab-guide__tip { padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); font-size: 0.90625rem; line-height: 1.5; }
 
 .member-opt__tag { margin-inline-start: 2px; white-space: nowrap; }
+
+/* the arrival card: bigger tap targets for "how do I get there", and the "arriving together" picker */
+.my-arrival__opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.my-arrival__opts .btn { min-height: 52px; white-space: normal; text-align: center; justify-content: center; }
+.my-arrival__opts[role="group"] { display: flex; flex-wrap: wrap; }
+.arrive-with { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.crew-arrival__text .small { overflow-wrap: anywhere; }

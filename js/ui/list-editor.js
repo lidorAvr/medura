@@ -5,9 +5,9 @@
 //   <ListEditor value onChange allowedTypes=['buy','bring','each','task'] showPacking />
 //   toSeed(value) → what create_trip / add_items_bulk take: {categories, items, packing}
 import { html } from 'htm/preact';
-import { useRef, useState } from 'preact/hooks';
-import { DRAFT_TYPES } from './draft-rows.js?v=6fb25aa';
-import { confirmDialog } from './components.js?v=6fb25aa';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { DRAFT_TYPES } from './draft-rows.js?v=853199b';
+import { confirmDialog } from './components.js?v=853199b';
 
 const MAX_CATEGORIES = 20;
 const MAX_ITEMS = 300;
@@ -21,7 +21,7 @@ const nextKey = () => `li${++keySeq}`;
 /** The editor's value from a tripSeed(): categories, items (with keys) and the personal packing list. */
 export function fromSeed(seed) {
   return {
-    categories: (seed.categories || []).map((c) => ({ name: c.name, emoji: c.emoji || '📦' })),
+    categories: (seed.categories || []).map((c) => ({ name: c.name, emoji: c.emoji || '📦', ...(c.secret ? { secret: true } : {}) })),
     items: (seed.items || []).map((x) => ({
       k: nextKey(), title: x.title, type: x.type || 'bring', needed: x.needed || 1, category_name: x.category_name || null,
     })),
@@ -32,7 +32,7 @@ export function fromSeed(seed) {
 /** Back to what create_trip + add_items_bulk take. Blank titles and unnamed categories are dropped. */
 export function toSeed(value) {
   const cats = value.categories.filter((c) => String(c.name).trim()).slice(0, MAX_CATEGORIES)
-    .map((c) => ({ name: String(c.name).trim().slice(0, NAME_MAX), emoji: c.emoji || '📦' }));
+    .map((c) => ({ name: String(c.name).trim().slice(0, NAME_MAX), emoji: c.emoji || '📦', ...(c.secret ? { secret: true } : {}) }));
   const names = new Set(cats.map((c) => c.name));
   const emojiOf = new Map(cats.map((c) => [c.name, c.emoji]));
   const items = value.items.filter((x) => String(x.title).trim() && names.has(x.category_name)).map((x) => ({
@@ -40,6 +40,25 @@ export function toSeed(value) {
     category_name: x.category_name, category_emoji: emojiOf.get(x.category_name) || null,
   }));
   return { categories: cats, items, packing: value.packing.map((p) => String(p).trim()).filter(Boolean).slice(0, 80) };
+}
+
+/**
+ * Tick / un-tick a focus pack (templates.js FOCUS_PACKS): adds its categories (when missing) and items (not twice), each
+ * marked with `pack` so un-ticking takes out exactly what ticking brought — items the organiser added themselves stay,
+ * and so does a category that has anything else in it.
+ */
+export function applyPack(value, key, seed, on) {
+  if (on) {
+    const have = new Set(value.categories.map((c) => c.name));
+    const categories = [...value.categories, ...seed.categories.filter((c) => !have.has(c.name)).map((c) => ({ ...c, pack: key }))];
+    const taken = new Set(value.items.map((x) => `${x.category_name}|${String(x.title).trim()}`));
+    const items = [...value.items, ...seed.items.filter((x) => !taken.has(`${x.category_name}|${x.title}`))
+      .map((x) => ({ k: nextKey(), ...x, pack: key }))].slice(0, MAX_ITEMS);
+    return { ...value, categories: categories.slice(0, MAX_CATEGORIES), items };
+  }
+  const items = value.items.filter((x) => x.pack !== key);
+  const used = new Set(items.map((x) => x.category_name));
+  return { ...value, items, categories: value.categories.filter((c) => c.pack !== key || used.has(c.name)) };
 }
 
 export const countOf = (value) => ({
@@ -65,11 +84,32 @@ function AddLine({ placeholder, label, onAdd, max = TITLE_MAX }) {
   </form>`;
 }
 
-export function ListEditor({ value, onChange, allowedTypes = ['buy', 'bring', 'each', 'task'], showPacking = true, showLists = true }) {
+/** "מה חשוב לכם בטיול הזה?" — the focus packs as chips; `picked` is the set of ticked keys. */
+export function PackPicker({ packs, picked, onToggle }) {
+  if (!packs.length) return null;
+  return html`<section class="lied__packs" data-testid="pack-picker" aria-labelledby="lied-packs-h">
+    <h2 class="lied__h" id="lied-packs-h">מה חשוב לכם בטיול הזה?</h2>
+    <p class="muted small">סמנו — ונוסיף את הרשימות, המשימות והמסמכים המתאימים. אפשר לשנות הכול למטה, וגם אחר כך.</p>
+    <div class="lied__packchips" role="group" aria-label="מה חשוב בטיול">
+      ${packs.map((p) => html`<button type="button" key=${p.key} class=${`lied__pack${picked.has(p.key) ? ' is-on' : ''}`} data-pack=${p.key}
+        aria-pressed=${picked.has(p.key) ? 'true' : 'false'} title=${p.hint} onClick=${() => onToggle(p)}>
+        <span aria-hidden="true">${p.emoji}</span> ${p.label}</button>`)}
+    </div>
+  </section>`;
+}
+
+export function ListEditor({ value, onChange, allowedTypes = ['buy', 'bring', 'each', 'task'], showPacking = true, showLists = true, showSecret = false }) {
   const [openCat, setOpenCat] = useState(() => value.categories[0]?.name ?? null);
   const [emojiFor, setEmojiFor] = useState(null);
   const total = useRef(0);
   total.current = value.items.length;
+  // a pack that was just ticked opens its first category, so the organiser sees what came in
+  const seenNames = useRef(new Set(value.categories.map((c) => c.name)));
+  useEffect(() => {
+    const added = value.categories.filter((c) => !seenNames.current.has(c.name) && c.pack);
+    seenNames.current = new Set(value.categories.map((c) => c.name));
+    if (added.length) setOpenCat(added[0].name);
+  }, [value.categories]);
   const types = DRAFT_TYPES.filter((t) => allowedTypes.includes(t.value));
   const patch = (p) => onChange({ ...value, ...p });
 
@@ -142,6 +182,9 @@ export function ListEditor({ value, onChange, allowedTypes = ['buy', 'bring', 'e
           <button type="button" class="lied__count-pill" aria-expanded=${open ? 'true' : 'false'} aria-label=${`${c.name}: ${rows.length} פריטים — פתיחה וסגירה`}
             onClick=${() => setOpenCat(open ? null : c.name)}>${rows.length}</button>
           <span class="lied__ctrls">
+            ${showSecret ? html`<button type="button" class=${`lied__secret${c.secret ? ' is-on' : ''}`} aria-pressed=${c.secret ? 'true' : 'false'}
+              aria-label=${c.secret ? `${c.name}: הפתעה — מוסתרת מהחוגג/ת (לחיצה לביטול)` : `סימון ${c.name} כהפתעה — להסתיר מהחוגג/ת`} title="הפתעה — מוסתר מהחוגג/ת"
+              data-testid="cat-secret" onClick=${() => patch({ categories: value.categories.map((x, i) => (i === idx ? { ...x, secret: !x.secret } : x)) })}>🤫</button>` : null}
             <button type="button" aria-label=${`הזזת ${c.name} למעלה`} disabled=${idx === 0} onClick=${() => moveCategory(idx, -1)}>▲</button>
             <button type="button" aria-label=${`הזזת ${c.name} למטה`} disabled=${idx === value.categories.length - 1} onClick=${() => moveCategory(idx, 1)}>▼</button>
             <button type="button" class="lied__del" aria-label=${`מחיקת הקטגוריה ${c.name}`} onClick=${() => removeCategory(idx)}>✕</button>

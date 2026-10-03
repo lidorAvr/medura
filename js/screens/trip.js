@@ -4,25 +4,25 @@
 // only: the album on top, schedule / rules / notes folded to rows, no weather, navigation, invite or rides.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=6fb25aa';
+import { actions, useTrip } from '../store.js?v=853199b';
 import {
   AIRPORTS, ARRIVAL_MODES, FAMILIES, MODULES, arrivalOf, composeType, dayCount, hasLists, hasModule, resolveType, schedulePlan,
   schedulePresets,
-} from '../lib/templates.js?v=6fb25aa';
-import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=6fb25aa';
-import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
-import { CURRENCIES } from '../lib/fx.js?v=6fb25aa';
-import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=6fb25aa';
-import { href, navigate } from '../router.js?v=6fb25aa';
+} from '../lib/templates.js?v=853199b';
+import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=853199b';
+import { PlaceInput } from '../ui/place-input.js?v=853199b';
+import { CURRENCIES } from '../lib/fx.js?v=853199b';
+import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=853199b';
+import { href, navigate } from '../router.js?v=853199b';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, adminPersons,
   rideModel, tripOver,
-} from '../lib/logic.js?v=6fb25aa';
+} from '../lib/logic.js?v=853199b';
 import {
-  Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, Fold, IconButton, OverBanner, Sheet,
+  Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, Fold, IconButton, MemberPicker, OverBanner, Sheet,
   ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=6fb25aa';
-import { Icon } from '../ui/icons.js?v=6fb25aa';
+} from '../ui/components.js?v=853199b';
+import { Icon } from '../ui/icons.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';
@@ -557,7 +557,9 @@ function WhenWhere({ trip, isAdmin, onEdit, readOnly = false }) {
         : trip.location,
     });
   }
-  const hasNav = !readOnly && (links.waze || links.maps || links.site);
+  // abroad, Waze is no use (the drive is in another country's streets and the group flies there): Google Maps only
+  const abroad = trip.settings?.where === 'abroad';
+  const hasNav = !readOnly && ((!abroad && links.waze) || links.maps || links.site);
 
   return html`<${Card} emoji="🧭" title="מתי ואיפה" class="trip-where">
     ${facts.length
@@ -576,11 +578,11 @@ function WhenWhere({ trip, isAdmin, onEdit, readOnly = false }) {
         </p>`}
     ${hasNav
       ? html`<div class="trip-nav">
-          ${links.waze
+          ${links.waze && !abroad
             ? html`<${Button} variant="secondary" href=${links.waze} target="_blank" rel="noopener noreferrer" icon="🚙" class="trip-nav__btn">ניווט ב-Waze</${Button}>`
             : null}
           ${links.maps
-            ? html`<${Button} variant="secondary" href=${links.maps} target="_blank" rel="noopener noreferrer" icon="🗺️" class="trip-nav__btn">גוגל מפות</${Button}>`
+            ? html`<${Button} variant="secondary" href=${links.maps} target="_blank" rel="noopener noreferrer" icon="🗺️" class="trip-nav__btn" data-testid="trip-maps">${abroad ? 'ניווט והוראות הגעה (גוגל מפות)' : 'גוגל מפות'}</${Button}>`
             : null}
           ${links.site
             ? html`<${Button} variant="secondary" href=${links.site} target="_blank" rel="noopener noreferrer" icon="link" class="trip-nav__btn">קישור למקום</${Button}>`
@@ -745,6 +747,7 @@ function draftFrom(trip) {
     notes: String(trip.info?.notes ?? ''),
     album_url: String(trip.info?.album_url ?? ''),
     require_approval: trip.settings?.require_approval !== false,
+    groom: String(trip.settings?.groom || ''),
     family: kind.family,
     subtype: kind.subtype,
     where: kind.where,
@@ -856,6 +859,7 @@ function validateDraft(d, trip) {
   if (d.where === 'abroad' || d.arrival.flights) arrival.airport = /^[A-Z]{3}$/.test(d.arrival.airport || '') ? d.arrival.airport : 'TLV';
   const settings = {
     require_approval: !!d.require_approval,
+    groom: d.groom || null,
     type: d.family,
     subtype: d.subtype,
     where: d.where,
@@ -1068,7 +1072,7 @@ function ScheduleEditor({ d, setD, trip, errors, clearError, setRow, dropRow, ad
 }
 
 /** Sections of the edit sheet a link can open at (`?edit=1&section=…`, ux T2); the rest open at the top. */
-const EDIT_SECTIONS = ['details', 'when', 'where', 'schedule', 'rules', 'notes', 'album', 'modules', 'money', 'settings'];
+const EDIT_SECTIONS = ['details', 'when', 'where', 'schedule', 'rules', 'notes', 'album', 'modules', 'money', 'groom', 'settings'];
 
 function EditTripSheet({ open, onClose, trip, snap, section = null }) {
   const [d, setD] = useState(() => draftFrom(trip));
@@ -1392,6 +1396,15 @@ function EditTripSheet({ open, onClose, trip, snap, section = null }) {
               </div>
             </div>`
           : null}
+      </section>
+
+      <section class="trip-edit__group" data-section="groom" data-testid="trip-groom">
+        <h3 class="trip-edit__h">🥂 מי החוגג/ת?</h3>
+        <p class="trip-edit__hint">החתן / הכלה / בעל/ת היומולדת. מה שמסומן כהפתעה (🤫) — פריטים, קופות מתנה, הוצאות והודעות — לא יוצג לו/לה בכלל.</p>
+        <${MemberPicker} members=${snap?.members || []} value=${d.groom || null} onChange=${(id) => set({ groom: id || '' })} label="מי החוגג/ת?" />
+        ${d.groom ? html`<button type="button" class="link small" data-testid="groom-clear" onClick=${() => set({ groom: '' })}>בלי חוגג/ת</button>` : null}
+        ${d.groom && ['owner', 'admin'].includes((snap?.members || []).find((m) => m.id === d.groom)?.role)
+          ? html`<p class="field__error" role="note" data-testid="groom-admin-note">⚠️ ${displayName((snap?.members || []).find((m) => m.id === d.groom))} הוא/היא מנהל/ת — מנהלים רואים את הכול. כדאי להסיר את הרשאות הניהול לפני שמכינים הפתעות.</p>` : null}
       </section>
 
       <section class="trip-edit__group" data-section="settings">

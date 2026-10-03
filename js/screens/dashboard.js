@@ -3,16 +3,17 @@
 // Also serves #/invite/:inviteId (the e-mail / push link of an invitation).
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useStore } from '../store.js?v=6fb25aa';
-import { navigate } from '../router.js?v=6fb25aa';
-import { countdown, formatMoney, hebrewCount, timeAgo, tripPhase } from '../lib/logic.js?v=6fb25aa';
-import { adminParts, cardThings, splitTrips, totals, tripDebt, urgentStrip } from '../lib/overview.js?v=6fb25aa';
-import { Avatar, Button, IconButton, Pill, Section, Sheet, Skeleton, confirmDialog, fireConfetti } from '../ui/components.js?v=6fb25aa';
-import { Icon } from '../ui/icons.js?v=6fb25aa';
-import { EmailGate } from '../ui/email-gate.js?v=6fb25aa';
-import { Entry } from '../ui/account.js?v=6fb25aa';
-import { CodeEntry, Hero, Landing, TripCard, dateRange } from './onboarding.js?v=6fb25aa';
-import { AccountForm } from './me.js?v=6fb25aa';
+import { actions, useStore } from '../store.js?v=853199b';
+import { navigate } from '../router.js?v=853199b';
+import { countdown, formatMoney, hebrewCount, isAdmin, timeAgo, tripPhase } from '../lib/logic.js?v=853199b';
+import { adminParts, cardThings, splitTrips, totals, tripDebt, urgentStrip } from '../lib/overview.js?v=853199b';
+import { Avatar, Button, IconButton, Pill, Section, Sheet, Skeleton, confirmDialog, fireConfetti } from '../ui/components.js?v=853199b';
+import { Icon } from '../ui/icons.js?v=853199b';
+import { EmailGate } from '../ui/email-gate.js?v=853199b';
+import { Entry } from '../ui/account.js?v=853199b';
+import { CodeEntry, Hero, Landing, TripCard, dateRange } from './onboarding.js?v=853199b';
+import { AccountForm } from './me.js?v=853199b';
+import { CloneSheet } from '../ui/clone-sheet.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const REFRESH_MS = 60000;
@@ -112,12 +113,10 @@ function Dashboard({ inviteId, openCode }) {
 
   const rows = Array.isArray(s.overview) ? s.overview : null;
   const byTrip = useMemo(() => new Map((rows || []).map((ov) => [ov?.trip?.id, ov])), [rows]);
-  // a finished trip with money still open stays with "my trips" — a debt never disappears quietly (ux A5)
-  const { current, past } = useMemo(() => {
-    const split = splitTrips(s.trips, now);
-    const owing = (e) => tripDebt(byTrip.get(e.trip.id)) > 1;
-    return { current: [...split.current, ...split.past.filter(owing)], past: split.past.filter((e) => !owing(e)) };
-  }, [s.trips, byTrip]);
+  // "my trips": the nearest first; every finished trip sits in the fold below (2026-10-03). A debt never disappears
+  // quietly (ux A5): the fold says so, and the urgent strip above keeps naming it.
+  const { current, past } = useMemo(() => splitTrips(s.trips, now), [s.trips, byTrip]);
+  const owingPast = past.filter((e) => tripDebt(byTrip.get(e.trip.id)) > 1).length;
   const urgent = useMemo(() => urgentStrip(rows || [], s.invites, now), [rows, s.invites]);
   const sum = useMemo(() => totals(rows || [], now), [rows]);
   const loading = s.overview === undefined;
@@ -150,8 +149,15 @@ function Dashboard({ inviteId, openCode }) {
         </section>`
       : null}
     ${past.length
-      ? html`<${Section} title="טיולים קודמים" emoji="🗂️" count=${past.length} collapsible defaultOpen=${false} class="dash-past">
-          <div class="stack-sm">${past.map((e) => html`<${TripCard} key=${e.trip.id} entry=${e} />`)}</div>
+      ? html`<${Section} title=${owingPast ? `טיולים שהסתיימו · 💸 ${hebrewCount(owingPast, 'עם חשבון פתוח', 'עם חשבון פתוח')}` : 'טיולים שהסתיימו'} emoji="🗂️" count=${past.length}
+          collapsible defaultOpen=${owingPast > 0} class="dash-past" data-testid="dash-past">
+          <div class="stack-sm">${past.map((e) => html`<div class="dash-past__row" key=${e.trip.id}>
+            <${TripCard} entry=${e} />
+            <${CloneButton} entry=${e} />
+            <${DeleteTripButton} entry=${e} />
+            ${tripDebt(byTrip.get(e.trip.id)) > 1
+              ? html`<a class="dash-past__debt small" href=${`#/t/${e.trip.id}/money`} data-testid="dash-past-debt">💸 עוד פתוח: עליך להעביר ${formatMoney(tripDebt(byTrip.get(e.trip.id)))}</a>` : null}
+          </div>`)}</div>
         </${Section}>`
       : null}
     <div class="dash-actions stack">
@@ -270,6 +276,39 @@ function Urgent({ items }) {
 // a trip card
 // ---------------------------------------------------------------------------
 
+/** "🔁 לעשות את זה שוב" for the organisers of a finished trip: a new trip with its structure and lists. */
+function CloneButton({ entry }) {
+  const [open, setOpen] = useState(false);
+  if (!isAdmin(entry.member)) return null;
+  return html`<button type="button" class="dash-trip__del dash-trip__clone" data-testid="dash-trip-clone" aria-label=${`לעשות שוב את ${entry.trip.name}`}
+    title="לעשות את זה שוב" onClick=${(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}>🔁</button>
+    <${CloneSheet} open=${open} tripId=${entry.trip.id} name=${entry.trip.name} onClose=${() => setOpen(false)} />`;
+}
+
+/** A quick 🗑️ for the organisers (only for a trip I'm an admin of): a plain question, then it's gone for everyone. */
+function DeleteTripButton({ entry }) {
+  const [busy, setBusy] = useState(false);
+  if (!isAdmin(entry.member)) return null;
+  const { trip } = entry;
+  const remove = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (busy) return;
+    const yes = await confirmDialog({
+      title: `למחוק את "${trip.name}"?`,
+      text: 'הטיול יימחק לכולם: החברים, הרשימות, ההוצאות וההודעות. אי אפשר לשחזר.',
+      confirmText: 'מחיקה לצמיתות', cancelText: 'ביטול', danger: true,
+    });
+    if (!yes) return;
+    setBusy(true);
+    const done = await actions.run(async (api) => { await api.deleteTrip(trip.id); return true; }, { success: 'הטיול נמחק 🗑️', refresh: false });
+    setBusy(false);
+    if (done) actions.loadTrips();
+  };
+  return html`<button type="button" class="dash-trip__del" data-testid="dash-trip-delete" aria-label=${`מחיקת הטיול ${trip.name}`}
+    title="מחיקת הטיול" disabled=${busy} onClick=${remove}><${Icon} name="trash" size=${18} /></button>`;
+}
+
 function TripBox({ entry, ov, loading, now }) {
   const { trip } = entry;
   const t = ov?.trip ? { ...trip, ...ov.trip } : trip;
@@ -299,6 +338,7 @@ function TripBox({ entry, ov, loading, now }) {
         ${meta ? html`<span class="dash-trip__meta small muted">${meta}</span>` : null}
       </div>
       ${cd?.label ? html`<${Pill} tone=${during ? 'success' : cd.past ? 'default' : 'accent'} class="dash-trip__cd">${cd.label}</${Pill}>` : null}
+      <${DeleteTripButton} entry=${entry} />
     </div>
     ${during
       ? html`<p class="dash-trip__live">עכשיו בטיול 🔥 · תהנו${urgentUnread ? html` · <a href=${`${base}/messages`}>🔴 ${hebrewCount(urgentUnread, 'הודעה דחופה', 'הודעות דחופות')}</a>` : ''}</p>`

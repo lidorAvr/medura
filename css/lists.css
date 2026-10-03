@@ -955,3 +955,8 @@
 /* ---------- "כל אחד מביא" per couple (SPEC §19) ---------- */
 .ls-each-partner { margin: 2px 0 0; color: var(--muted); }
 .ls-each-override { align-self: flex-start; min-height: 44px; margin-top: 2px; }
+
+/* groom mode: the 🤫 mark on a surprise and the category toggle */
+.ls-secret { margin-inline-start: 4px; font-size: 0.9em; }
+.ls-cat__secret { border: 0; background: transparent; width: 34px; height: 34px; border-radius: 10px; cursor: pointer; opacity: 0.45; font-size: 1rem; }
+.ls-cat__secret.is-on { opacity: 1; background: var(--surface-2); }

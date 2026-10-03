@@ -1,25 +1,25 @@
 // Onboarding (SPEC §8.1): landing / new trip / join ("מי אתם?") / link device.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore } from '../store.js?v=6fb25aa';
-import { navigate, href } from '../router.js?v=6fb25aa';
-import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=6fb25aa';
+import { actions, store, useStore } from '../store.js?v=853199b';
+import { navigate, href } from '../router.js?v=853199b';
+import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=853199b';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
-} from '../lib/logic.js?v=6fb25aa';
+} from '../lib/logic.js?v=853199b';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
   confirmDialog, fireConfetti,
-} from '../ui/components.js?v=6fb25aa';
-import { Icon } from '../ui/icons.js?v=6fb25aa';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=6fb25aa';
-import { Entry, cleanPhone } from '../ui/account.js?v=6fb25aa';
+} from '../ui/components.js?v=853199b';
+import { Icon } from '../ui/icons.js?v=853199b';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=853199b';
+import { Entry, cleanPhone } from '../ui/account.js?v=853199b';
 import {
-  AIRPORTS, FAMILIES, MODULES, composeType, hasLists, itemTypeOn, tripSeed, typeModules, wizardCopy,
-} from '../lib/templates.js?v=6fb25aa';
-import { ListEditor, countOf, fromSeed, toSeed } from '../ui/list-editor.js?v=6fb25aa';
-import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
-import { flightFit, hmOf } from '../lib/flights.js?v=6fb25aa';
+  AIRPORTS, FAMILIES, MODULES, composeType, focusPacksFor, hasLists, itemTypeOn, packSeed, tripSeed, typeModules, wizardCopy,
+} from '../lib/templates.js?v=853199b';
+import { ListEditor, PackPicker, applyPack, countOf, fromSeed, toSeed } from '../ui/list-editor.js?v=853199b';
+import { PlaceInput } from '../ui/place-input.js?v=853199b';
+import { flightFit, hmOf } from '../lib/flights.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];
@@ -839,6 +839,7 @@ function NewTrip() {
   const [createdId, setCreatedId] = useState(null);
   // the type's lists, as the organiser shapes them in step 3 (null until they get there; re-seeded when the type/features change)
   const [lists, setLists] = useState(null);
+  const [picked, setPicked] = useState(() => new Set());       // the focus packs ticked in the lists step
   const listsFor = useRef('');
 
   const custom = trip.subtype === 'custom' ? { label: trip.customLabel.trim(), emoji: trip.customEmoji || null } : null;
@@ -954,6 +955,7 @@ function NewTrip() {
       if (listsFor.current !== seedKey) {            // first time here, or the type / features changed since: start from the type's own
         listsFor.current = seedKey;
         setLists(fromSeed(typeSeed));
+        setPicked(new Set());
       }
       go(3);
     } else go(PROFILE);
@@ -1029,7 +1031,13 @@ function NewTrip() {
             <h1>הרשימות של הטיול 📋</h1>
             <p class="muted">הכנו התחלה לפי סוג הטיול — אבל אתם המארגנים, וזה שלכם: שנו שמות, הוסיפו, מחקו וסדרו. אפשר גם אחר כך.</p>
           </div>
-          <${ListEditor} value=${lists} onChange=${setLists} allowedTypes=${allowedTypes} showLists=${allowedTypes.length > 0} showPacking=${Boolean(typeSeed?.settings?.modules?.packing !== false)} />
+          <${PackPicker} packs=${focusPacksFor(composed)} picked=${picked}
+            onToggle=${(p) => {
+              const on = !picked.has(p.key);
+              setLists((v) => applyPack(v, p.key, (() => { const sd = packSeed(p); return { ...sd, items: sd.items.filter((x) => allowedTypes.includes(x.type)) }; })(), on));
+              setPicked((s) => { const n = new Set(s); if (on) n.add(p.key); else n.delete(p.key); return n; });
+            }} />
+          <${ListEditor} value=${lists} onChange=${setLists} allowedTypes=${allowedTypes} showLists=${allowedTypes.length > 0} showSecret=${trip.family === 'celebrate'} showPacking=${Boolean(typeSeed?.settings?.modules?.packing !== false)} />
           <div class="stack">
             <${Button} block onClick=${() => go(PROFILE)} data-testid="wizard-lists-next">${(() => { const c = countOf(lists); return c.items ? `המשך — ${c.items} פריטים ב־${c.categories} קטגוריות` : 'המשך'; })()}</${Button}>
             <button type="button" class="link onb-back-link" onClick=${() => go(2)}><${Icon} name="arrow-right" size=${18} /> חזרה לפרטי הטיול</button>

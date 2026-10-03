@@ -1,7 +1,7 @@
 // "הבית שלי" (SPEC §8.0, §16.2): pure helpers over my_overview() rows — no DOM, no store.
 // Overview row shape: SPEC §16.1 / my_overview(). Every field is read defensively (an older
 // server may send fewer keys).
-import { formatMoney, tripPhase } from './logic.js?v=6fb25aa';
+import { formatMoney, tripPhase } from './logic.js?v=853199b';
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const time = (iso) => {
@@ -177,13 +177,13 @@ export function totals(overviews, now = new Date()) {
   return { owe: Math.round(owe * 100) / 100, owed: Math.round(owed * 100) / 100, answers, next };
 }
 
-/** Order trip cards: live/upcoming first by start, then no-date; past ones separately. */
+/** Order trip cards: live/upcoming first by start (nearest first), then no-date; finished ones (after / past) separately, newest first. */
 export function splitTrips(entries, now = new Date()) {
   const current = [];
   const past = [];
   for (const e of entries || []) {
     if (!e?.trip) continue;
-    (tripPhase(e.trip, now) === 'past' ? past : current).push(e);
+    (['after', 'past'].includes(tripPhase(e.trip, now)) ? past : current).push(e);          // a trip that ended is "finished", the first day too
   }
   current.sort((a, b) => time(a.trip.starts_at) - time(b.trip.starts_at));
   past.sort((a, b) => time(b.trip.starts_at) - time(a.trip.starts_at));

@@ -3,15 +3,15 @@
 // Times here are wall-clock strings ('YYYY-MM-DDTHH:MM', local to the place) — shown as typed.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=6fb25aa';
-import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=6fb25aa';
-import { hasModule, resolveType } from '../lib/templates.js?v=6fb25aa';
-import { symbolOf } from '../lib/fx.js?v=6fb25aa';
-import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=6fb25aa';
-import { navLinks } from '../lib/places.js?v=6fb25aa';
-import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
-import { CHECKIN_HOURS, checkinDue, checkinItem, checkinStatus, syncCheckin } from '../lib/checkin.js?v=6fb25aa';
-import { Button, Card, Chip, Field, IconButton, MemberPicker, Segmented, Sheet, Stepper, TextInput, Toggle, confirmDialog } from '../ui/components.js?v=6fb25aa';
+import { actions, store, useTrip } from '../store.js?v=853199b';
+import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=853199b';
+import { hasModule, resolveType } from '../lib/templates.js?v=853199b';
+import { symbolOf } from '../lib/fx.js?v=853199b';
+import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=853199b';
+import { navLinks } from '../lib/places.js?v=853199b';
+import { PlaceInput } from '../ui/place-input.js?v=853199b';
+import { CHECKIN_HOURS, checkinDue, checkinItem, checkinStatus, syncCheckin } from '../lib/checkin.js?v=853199b';
+import { Button, Card, Chip, Field, IconButton, MemberPicker, Segmented, Sheet, Stepper, TextInput, Toggle, confirmDialog } from '../ui/components.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -111,8 +111,9 @@ export function FlightLive({ row }) {
 }
 
 /** Waze / Maps buttons for a place with coordinates or an address. */
-export function NavButtons({ place }) {
+export function NavButtons({ place, waze = true }) {
   const links = navLinks(place);
+  if (!waze) links.waze = null;                      // a place abroad: Waze is no use there
   if (!links.waze && !links.maps) return null;
   return html`<span class="row wrap" style="gap: 6px">
     ${links.waze ? html`<a class="btn btn--secondary btn--sm" href=${links.waze} target="_blank" rel="noopener noreferrer"><span class="emoji-icon" aria-hidden="true">🚙</span><span class="btn__label">Waze</span></a>` : null}
@@ -228,7 +229,7 @@ function bookingBody(b, snap) {
       ${b.pay ? html`<p class="booking__line">💳 ${PAY[b.pay] || b.pay}${b.price ? ` · ${b.price}` : ''}</p>` : null}
       ${b.cancel ? html`<p class="booking__line">↩️ ${b.cancel}</p>` : null}
       ${b.note ? html`<p class="booking__line muted">📝 ${b.note}</p>` : null}
-      ${where ? html`<div class="booking__line" data-testid="booking-nav"><${NavButtons} place=${where} /></div>` : null}
+      ${where ? html`<div class="booking__line" data-testid="booking-nav"><${NavButtons} place=${where} waze=${snap?.trip?.settings?.where !== 'abroad'} /></div>` : null}
       ${b.url ? html`<a class="booking__link" href=${b.url} target="_blank" rel="noopener noreferrer">לפרטי ההזמנה ↗</a>` : null}`;
   }
   return html`<p class="booking__title">🎟️ ${b.title || 'הזמנה'}</p>

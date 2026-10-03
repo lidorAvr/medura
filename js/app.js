@@ -2,18 +2,18 @@
 import { html } from 'htm/preact';
 import { Component } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { useRoute, href, navigate } from './router.js?v=6fb25aa';
-import { useStore, useTrip, actions, emailRequired } from './store.js?v=6fb25aa';
-import { unreadCount } from './lib/logic.js?v=6fb25aa';
-import { hebrewError } from './api/errors.js?v=6fb25aa';
-import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=6fb25aa';
-import { Icon } from './ui/icons.js?v=6fb25aa';
-import { EmailGate } from './ui/email-gate.js?v=6fb25aa';
-import { Tour, tourDue } from './ui/tour.js?v=6fb25aa';
-import { PendingGate } from './ui/pending.js?v=6fb25aa';
-import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=6fb25aa';
-import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=6fb25aa';
-import { answersOf } from './lib/overview.js?v=6fb25aa';
+import { useRoute, href, navigate } from './router.js?v=853199b';
+import { useStore, useTrip, actions, emailRequired } from './store.js?v=853199b';
+import { unreadCount } from './lib/logic.js?v=853199b';
+import { hebrewError } from './api/errors.js?v=853199b';
+import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=853199b';
+import { Icon } from './ui/icons.js?v=853199b';
+import { EmailGate } from './ui/email-gate.js?v=853199b';
+import { Tour, tourDue } from './ui/tour.js?v=853199b';
+import { PendingGate } from './ui/pending.js?v=853199b';
+import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=853199b';
+import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=853199b';
+import { answersOf } from './lib/overview.js?v=853199b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -22,24 +22,24 @@ const cx = (...a) => a.filter(Boolean).join(' ');
 // ---------------------------------------------------------------------------
 
 const SCREENS = {
-  landing: './screens/dashboard.js?v=6fb25aa',
-  invite: './screens/dashboard.js?v=6fb25aa',
-  new: './screens/onboarding.js?v=6fb25aa',
-  join: './screens/onboarding.js?v=6fb25aa',
-  link: './screens/onboarding.js?v=6fb25aa',
-  home: './screens/home.js?v=6fb25aa',
-  trip: './screens/trip.js?v=6fb25aa',
-  rides: './screens/rides.js?v=6fb25aa',
-  lists: './screens/lists.js?v=6fb25aa',
-  shop: './screens/shopping.js?v=6fb25aa',
-  import: './screens/import.js?v=6fb25aa',
-  build: './screens/build.js?v=6fb25aa',
-  money: './screens/money.js?v=6fb25aa',
-  messages: './screens/messages.js?v=6fb25aa',
-  people: './screens/people.js?v=6fb25aa',
-  me: './screens/me.js?v=6fb25aa',
-  welcome: './screens/welcome.js?v=6fb25aa',
-  signin: './screens/signin.js?v=6fb25aa',
+  landing: './screens/dashboard.js?v=853199b',
+  invite: './screens/dashboard.js?v=853199b',
+  new: './screens/onboarding.js?v=853199b',
+  join: './screens/onboarding.js?v=853199b',
+  link: './screens/onboarding.js?v=853199b',
+  home: './screens/home.js?v=853199b',
+  trip: './screens/trip.js?v=853199b',
+  rides: './screens/rides.js?v=853199b',
+  lists: './screens/lists.js?v=853199b',
+  shop: './screens/shopping.js?v=853199b',
+  import: './screens/import.js?v=853199b',
+  build: './screens/build.js?v=853199b',
+  money: './screens/money.js?v=853199b',
+  messages: './screens/messages.js?v=853199b',
+  people: './screens/people.js?v=853199b',
+  me: './screens/me.js?v=853199b',
+  welcome: './screens/welcome.js?v=853199b',
+  signin: './screens/signin.js?v=853199b',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
@@ -430,7 +430,9 @@ export function App() {
   let body;
   if (route.name === 'notfound') body = html`<${NotFound} />`;
   else if (gated && error.code === 'forbidden') {
-    body = html`<${PendingGate} key=${routeTrip} tripId=${routeTrip} fallback=${html`<${AccessGate} code=${error.code} />`} />`;
+    // a fresh browser (Gmail's, WhatsApp's …) opening a link: the trip is probably mine by e-mail — verify it to link this device
+    const fallback = needEmail ? html`<${EmailGate} mode="signin" tripId=${routeTrip} />` : html`<${AccessGate} code=${error.code} />`;
+    body = html`<${PendingGate} key=${routeTrip} tripId=${routeTrip} fallback=${fallback} />`;
   } else if (gated) body = html`<${AccessGate} code=${error.code} />`;
   else if (emailGate) body = html`<${EmailGate} />`;
   else body = html`<${ScreenHost} route=${route} />`;

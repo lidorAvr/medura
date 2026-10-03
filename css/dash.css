@@ -246,3 +246,12 @@
 /* ---------- simplified dashboard (ux H5) ---------- */
 .dash-trip { cursor: pointer; }
 a.dash-trip__admin { display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; text-decoration: none; color: var(--accent-text); }
+
+/* a quick delete for the organisers (dashboard card / finished-trips row) */
+.dash-trip__del { flex: none; width: 36px; height: 36px; border: 0; border-radius: 12px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.dash-trip__del:hover, .dash-trip__del:focus-visible { background: var(--surface-2); color: var(--danger-text, #b3261e); }
+.dash-past__row { display: flex; align-items: center; gap: 4px; }
+.dash-past__row .trip-card { flex: 1; min-width: 0; }
+
+.dash-past__row { flex-wrap: wrap; }
+.dash-past__debt { flex-basis: 100%; padding: 2px 12px 6px; color: var(--warning-text, #8a5a00); font-weight: 700; }

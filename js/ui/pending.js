@@ -2,10 +2,10 @@
 // the profile's people answer. Polls, and opens the trip the moment the request is approved.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, store } from '../store.js?v=6fb25aa';
-import { navigate } from '../router.js?v=6fb25aa';
-import { formatDate, formatTime } from '../lib/logic.js?v=6fb25aa';
-import { Avatar, Button, Card, Skeleton } from './components.js?v=6fb25aa';
+import { actions, store } from '../store.js?v=853199b';
+import { navigate } from '../router.js?v=853199b';
+import { formatDate, formatTime } from '../lib/logic.js?v=853199b';
+import { Avatar, Button, Card, Skeleton } from './components.js?v=853199b';
 
 const POLL_MS = 15000;
 
@@ -25,7 +25,10 @@ export function PendingGate({ tripId, fallback }) {
       } catch {
         if (!alive) return;
         // approved meanwhile (now a member) → open the trip; otherwise this isn't a pending join
-        const snap = await actions.openTrip(tripId, { force: true }).catch(() => null);
+        // asked quietly: openTrip() clears the error, which un-gates this very screen, so it remounts and asks again, forever
+        const member = await store.get().api.getSnapshot(tripId).then(() => true, () => false);
+        if (!alive) return;
+        const snap = member ? await actions.openTrip(tripId, { force: true }).catch(() => null) : null;
         if (!alive) return;
         if (snap) {
           await actions.loadTrips();

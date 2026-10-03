@@ -709,3 +709,37 @@ ul.list { list-style: none; margin: 0; padding: 0; }
 /* the requester's card: someone joined after the request was sent */
 .mreq__joined { list-style: none; margin: 8px 0 0; padding: 8px 10px; display: grid; gap: 6px; background: var(--surface-2); border-radius: 12px; }
 .mreq__joined li { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- dual-currency display: "≈ €12" next to a ₪ amount (SPEC §8.7b) ---------- */
+.fx { color: var(--muted); font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+.settle-row__sum { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.money-fx { display: flex; justify-content: flex-end; }
+.money-fx .segmented { max-width: 100%; }
+
+/* ---------- quick expense chips ---------- */
+.money-quick { display: flex; align-items: center; gap: 6px; padding-block: 2px 6px; }
+.money-quick__label { flex: none; font-weight: 700; }
+.money-hero--empty .money-quick { justify-content: center; margin-top: 10px; }
+
+/* ---------- shared cash pot (SPEC §8.7a) ---------- */
+.money-pot { display: flex; flex-direction: column; gap: 10px; }
+.pot-edit { margin-inline-start: auto; min-width: 36px; min-height: 36px; font-size: 1rem; }
+.pot-note { margin: 0; }
+.pot-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pot-stat { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 4px; border-radius: 12px; background: var(--surface-2); min-width: 0; }
+.pot-stat__num { font-size: 1.125rem; font-weight: 800; }
+.pot-stat--left { background: var(--accent-soft); }
+.pot-pending { margin: 0; }
+.pot-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pot-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) minmax(40px, 72px) auto; align-items: center; gap: 8px; min-height: 34px; }
+.pot-row.is-me .pot-row__name { font-weight: 800; }
+.pot-row__name { font-size: 0.875rem; }
+.pot-row__bar { min-width: 0; }
+.pot-row__amt { display: flex; flex-direction: column; align-items: flex-end; font-size: 0.875rem; font-weight: 700; line-height: 1.2; }
+.pot-wait { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pot-wait__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 12px; background: var(--warning-soft, var(--surface-2)); font-size: 0.875rem; }
+.pot-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pot-actions > .btn--primary { flex: 1 1 10em; }
+.pot-tag { font-weight: 700; color: var(--accent-text); }
+.pot-toggle { padding: 4px 0; }
+.money-pot-link { align-self: flex-start; min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; color: var(--muted); }
