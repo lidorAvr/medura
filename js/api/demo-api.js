@@ -7,8 +7,8 @@
 // Every call loads a fresh copy, runs one RPC against it, and saves only on success —
 // so a failed call never leaves partial changes behind (like a SQL transaction).
 
-import { ApiError, flightFailure, flightInput } from './errors.js?v=8a35ae3';
-import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=8a35ae3';
+import { ApiError, flightFailure, flightInput } from './errors.js?v=6fb25aa';
+import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=6fb25aa';
 import {
   DEMO_VERSION,
   DEFAULT_CATEGORIES,
@@ -19,7 +19,7 @@ import {
   buildDemoSeed,
   demoFlight,
   jerusalemYmd,
-} from './demo-seed.js?v=8a35ae3';
+} from './demo-seed.js?v=6fb25aa';
 
 export const DEMO_STORAGE_KEY = 'medura:demo:v1';
 export const DEMO_UID_KEY = 'medura:demo:uid';
@@ -666,7 +666,7 @@ function fmtShekel(amount) {
   return `₪${n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })}`;
 }
 
-function notify(ctx, tripId, { title, body = null, audience = null, link = null, kind = 'system' }) {
+function notify(ctx, tripId, { title, body = null, audience = null, link = null, kind = 'system', exceptUser = null }) {
   ctx.db.notifications.push({
     id: newId(),
     trip_id: tripId,
@@ -677,12 +677,15 @@ function notify(ctx, tripId, { title, body = null, audience = null, link = null,
     author_member: null,
     urgent: false,
     link,
+    // a notice about ME that my own devices don't get ("X בפרופיל שלכם עכשיו") — SQL notifications.except_user
+    except_user: exceptUser,
     created_at: ctx.now(),
   });
 }
 
 /** `admin`: this device holds admin rights (amAdmin), like RLS's _is_admin. */
-function canSeeNotification(n, me, admin) {
+function canSeeNotification(n, me, admin, uid = null) {
+  if (n.except_user && uid && n.except_user === uid) return false;
   return (
     n.audience == null ||
     n.audience.includes(me.id) ||
@@ -1583,7 +1586,7 @@ const RPC = {
     if (steppedIn) {
       notify(ctx, trip.id, {
         title: `🙋 ${person || member.display_name} בפרופיל שלכם עכשיו`, body: 'לא מכירים? מסירים במסך החבר׳ה',
-        audience: [member.id], link: `#/t/${trip.id}/people`,
+        audience: [member.id], link: `#/t/${trip.id}/people`, exceptUser: ctx.uid,
       });
     }
     bump(ctx, trip.id);
@@ -1693,7 +1696,7 @@ const RPC = {
       expense_shares: db.expense_shares.filter(inTrip).map((s) => pick(s, K.share)),
       payments: db.payments.filter(inTrip).sort(newest).map((p) => pick(p, K.payment)),
       notifications: db.notifications
-        .filter((n) => inTrip(n) && canSeeNotification(n, me, admin))
+        .filter((n) => inTrip(n) && canSeeNotification(n, me, admin, ctx.uid))
         .sort(newest)
         .slice(0, 200)
         .map((n) => ({ ...pick(n, K.notification), by_person: n.author_member ? n.by_person ?? null : null })),
@@ -3540,7 +3543,7 @@ const RPC = {
     const person = myLink(db, tripId, ctx.uid)?.person || null;
     for (const id of new Set(ids || [])) {
       const n = byId(db.notifications, id);
-      if (!n || n.trip_id !== tripId || !canSeeNotification(n, me, admin)) continue;
+      if (!n || n.trip_id !== tripId || !canSeeNotification(n, me, admin, ctx.uid)) continue;
       const row = db.notification_reads.find((r) => r.notification_id === n.id && r.member_id === me.id);
       if (row) {
         // per person: my name joins its readers (a device with no person reads it for the whole profile)
@@ -3739,8 +3742,8 @@ const RPC = {
     const account = db.accounts.find((a) => a.email === email) || null;
     const name = [...((account?.name && account.name.trim()) || inv.name)].slice(0, 40).join('');
     const link = `#/t/${tripId}/people`;
-    const tell = (title, audience, body = null) => {
-      if (audience.length) notify(ctx, tripId, { title, body, audience, link });
+    const tell = (title, audience, body = null, exceptUser = null) => {
+      if (audience.length) notify(ctx, tripId, { title, body, audience, link, exceptUser });
     };
     if (!accept) {
       inv.status = 'declined';
@@ -3802,7 +3805,7 @@ const RPC = {
     const uids = myEmailsUids(db, ctx.uid);
     remove(db.profile_requests, (r) => uids.includes(r.user_id) && r.trip_id === tripId && r.status === 'pending');
     if (target?.how !== 'device') {
-      if (target?.how === 'listed') tell(`🙋 ${person} בפרופיל שלכם עכשיו`, [member.id], 'לא מכירים? מסירים במסך החבר׳ה');
+      if (target?.how === 'listed') tell(`🙋 ${person} בפרופיל שלכם עכשיו`, [member.id], 'לא מכירים? מסירים במסך החבר׳ה', ctx.uid);
       if (inv.invited_by && byId(db.members, inv.invited_by)) tell(`🎉 ההזמנה עבדה — ${name} בטיול`, [inv.invited_by]);
       tell(`🎉 ${name} איתנו בטיול`, membersOf(db, tripId).filter((m) => isAdmin(m) && m.id !== inv.invited_by && m.id !== member.id)
         .sort((a, b) => byCreated(a, b) || cmp(a.id, b.id)).map((m) => m.id));
@@ -3837,7 +3840,7 @@ const RPC = {
       const rides = moduleOn(trip, 'rides');
       const items = new Map(db.items.filter(inTrip).map((i) => [i.id, i]));
 
-      const visible = db.notifications.filter((n) => inTrip(n) && canSeeNotification(n, m, admin)).sort((a, b) => newest(a, b) || cmp(a.id, b.id)).slice(0, 200);
+      const visible = db.notifications.filter((n) => inTrip(n) && canSeeNotification(n, m, admin, link.user_id)).sort((a, b) => newest(a, b) || cmp(a.id, b.id)).slice(0, 200);
       const unread = visible.filter((n) => n.author_member !== m.id
         && !db.notification_reads.some((r) => r.notification_id === n.id && r.member_id === m.id && readByMe(r, m, link.person)));
 

@@ -1,24 +1,25 @@
 // Onboarding (SPEC §8.1): landing / new trip / join ("מי אתם?") / link device.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore } from '../store.js?v=8a35ae3';
-import { navigate, href } from '../router.js?v=8a35ae3';
-import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=8a35ae3';
+import { actions, store, useStore } from '../store.js?v=6fb25aa';
+import { navigate, href } from '../router.js?v=6fb25aa';
+import { flightErrorText, hebrewError, toApiError } from '../api/errors.js?v=6fb25aa';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, hebrewCount, inviteUrl, isAdmin,
-} from '../lib/logic.js?v=8a35ae3';
+} from '../lib/logic.js?v=6fb25aa';
 import {
   Avatar, Button, Card, ColorPicker, CopyButton, EmojiPicker, EmptyState, Field, Pill, ShareButton, Skeleton, TextInput,
   confirmDialog, fireConfetti,
-} from '../ui/components.js?v=8a35ae3';
-import { Icon } from '../ui/icons.js?v=8a35ae3';
-import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=8a35ae3';
-import { Entry, cleanPhone } from '../ui/account.js?v=8a35ae3';
+} from '../ui/components.js?v=6fb25aa';
+import { Icon } from '../ui/icons.js?v=6fb25aa';
+import { EmailGate, linkThisDevice } from '../ui/email-gate.js?v=6fb25aa';
+import { Entry, cleanPhone } from '../ui/account.js?v=6fb25aa';
 import {
-  AIRPORTS, FAMILIES, MODULES, composeType, tripSeed, typeModules, wizardCopy,
-} from '../lib/templates.js?v=8a35ae3';
-import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
-import { flightFit, hmOf } from '../lib/flights.js?v=8a35ae3';
+  AIRPORTS, FAMILIES, MODULES, composeType, hasLists, itemTypeOn, tripSeed, typeModules, wizardCopy,
+} from '../lib/templates.js?v=6fb25aa';
+import { ListEditor, countOf, fromSeed, toSeed } from '../ui/list-editor.js?v=6fb25aa';
+import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
+import { flightFit, hmOf } from '../lib/flights.js?v=6fb25aa';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const PROFILE_EMOJIS = ['⛺', '🔥', '🌲', '🦊', '🐻', '🦉', '🦔', '🐢', '🦎', '🌙', '⭐', '🍉', '🥩', '🍺', '🎸', '🏕️', '🌈', '🐬', '🦄', '🌵'];
@@ -836,11 +837,22 @@ function NewTrip() {
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [createdId, setCreatedId] = useState(null);
+  // the type's lists, as the organiser shapes them in step 3 (null until they get there; re-seeded when the type/features change)
+  const [lists, setLists] = useState(null);
+  const listsFor = useRef('');
 
   const custom = trip.subtype === 'custom' ? { label: trip.customLabel.trim(), emoji: trip.customEmoji || null } : null;
   const composed = trip.family ? composeType(trip.family, trip.subtype, trip.where, custom) : null;
   const copy = composed ? wizardCopy(composed) : null;
   const single = copy?.dates === 'single' && !trip.multiDay;
+  // the lists step exists when the trip has lists, tasks or a packing list (features picked in step 1)
+  const typeSeed = composed ? tripSeed({ family: trip.family, subtype: trip.subtype, where: trip.where, custom, modules: trip.modules,
+    airport: copy?.askAirport ? trip.airport : undefined }) : null;
+  const withLists = Boolean(typeSeed && hasLists({ settings: typeSeed.settings }));
+  const PROFILE = withLists ? 4 : 3;
+  const INVITE = PROFILE + 1;
+  const seedKey = typeSeed ? JSON.stringify([trip.family, trip.subtype, trip.where, custom, typeSeed.settings.modules]) : '';
+  const allowedTypes = typeSeed ? ['buy', 'bring', 'each', 'task'].filter((t) => itemTypeOn({ settings: typeSeed.settings }, t)) : [];
 
   const clearErr = (...keys) => {
     if (keys.some((k) => errors[k])) setErrors((e) => ({ ...e, ...Object.fromEntries(keys.map((k) => [k, undefined])) }));
@@ -938,7 +950,13 @@ function NewTrip() {
       else if (back && !(trip.endDate || trip.startDate)) errs.flightBack = 'צריך תאריך חזרה (למעלה) כדי למצוא אותה';
     }
     if (fail(errs)) return;
-    go(3);
+    if (withLists) {
+      if (listsFor.current !== seedKey) {            // first time here, or the type / features changed since: start from the type's own
+        listsFor.current = seedKey;
+        setLists(fromSeed(typeSeed));
+      }
+      go(3);
+    } else go(PROFILE);
   };
 
   const create = async (profile) => {
@@ -947,6 +965,8 @@ function NewTrip() {
       family: trip.family, subtype: trip.subtype, where: trip.where, custom, modules: trip.modules,
       airport: copy.askAirport ? trip.airport : undefined,
     });
+    const shaped = withLists && lists ? toSeed(lists) : null;
+    const itemsToAdd = shaped ? shaped.items : seed.items;
     const range = tripRange(trip, single);
     const bookings = copy.askFlight ? flightBookings(trip) : [];
     const place = trip.place;
@@ -959,8 +979,9 @@ function NewTrip() {
       starts_at: range.starts_at,
       ends_at: range.ends_at,
       settings: seed.settings,
-      info: bookings.length ? { ...seed.info, bookings } : seed.info,
-      categories: seed.categories,
+      info: { ...seed.info, ...(shaped ? { packing: shaped.packing } : {}), ...(bookings.length ? { bookings } : {}) },
+      // an emptied list still needs one category (the server would add the camping defaults to none)
+      categories: shaped ? (shaped.categories.length ? shaped.categories : [{ name: 'שונות', emoji: '📦' }]) : seed.categories,
     };
     const res = await actions.run((api) => api.createTrip(payload, profile), { refresh: false });
     if (!res?.trip_id) {
@@ -968,8 +989,9 @@ function NewTrip() {
       return;
     }
     // the type's ready-made lists (a failure here isn't fatal — the trip exists, the lists can be filled later)
-    if (seed.items.length) {
-      await actions.run(async (api) => { await api.addItemsBulk(res.trip_id, seed.items); return true; }, { refresh: false })
+    for (let i = 0; i < itemsToAdd.length; i += 150) {
+      const chunk = itemsToAdd.slice(i, i + 150);
+      await actions.run(async (api) => { await api.addItemsBulk(res.trip_id, chunk); return true; }, { refresh: false })
         .catch(() => null);
     }
     if (bookings.length) await fillFlights(res.trip_id, trip, bookings);
@@ -977,7 +999,7 @@ function NewTrip() {
     await actions.openTrip(res.trip_id, { force: true });
     setBusy(false);
     setCreatedId(res.trip_id);
-    go(4);
+    go(INVITE);
     fireConfetti();
   };
 
@@ -985,8 +1007,9 @@ function NewTrip() {
     <div class="onb-flow__top">
       ${step === 1 ? html`<${BackBar} to="/" label="חזרה למסך הראשי" />` : null}
       ${step === 2 ? html`<${BackBar} label="חזרה לסוג הטיול" onClick=${() => go(1)} />` : null}
-      ${step === 3 ? html`<${BackBar} label="חזרה לפרטי הטיול" onClick=${() => go(2)} />` : null}
-      <${StepDots} step=${step} labels=${['סוג', 'פרטים', 'הפרופיל שלך', 'הזמנה']} />
+      ${step === 3 && withLists ? html`<${BackBar} label="חזרה לפרטי הטיול" onClick=${() => go(2)} />` : null}
+      ${step === PROFILE ? html`<${BackBar} label=${withLists ? 'חזרה לרשימות' : 'חזרה לפרטי הטיול'} onClick=${() => go(withLists ? 3 : 2)} />` : null}
+      <${StepDots} step=${step} labels=${withLists ? ['סוג', 'פרטים', 'רשימות', 'הפרופיל שלך', 'הזמנה'] : ['סוג', 'פרטים', 'הפרופיל שלך', 'הזמנה']} />
     </div>
     <div class="onb__body">
     ${step === 1
@@ -1000,18 +1023,32 @@ function NewTrip() {
           set=${set} setPatch=${setPatch} onNext=${nextFromDetails} onBack=${() => go(1)} />`
       : null}
 
-    ${step === 3
+    ${step === 3 && withLists && lists
+      ? html`<div class="stack-lg" data-testid="wizard-lists">
+          <div class="onb-flow__title">
+            <h1>הרשימות של הטיול 📋</h1>
+            <p class="muted">הכנו התחלה לפי סוג הטיול — אבל אתם המארגנים, וזה שלכם: שנו שמות, הוסיפו, מחקו וסדרו. אפשר גם אחר כך.</p>
+          </div>
+          <${ListEditor} value=${lists} onChange=${setLists} allowedTypes=${allowedTypes} showLists=${allowedTypes.length > 0} showPacking=${Boolean(typeSeed?.settings?.modules?.packing !== false)} />
+          <div class="stack">
+            <${Button} block onClick=${() => go(PROFILE)} data-testid="wizard-lists-next">${(() => { const c = countOf(lists); return c.items ? `המשך — ${c.items} פריטים ב־${c.categories} קטגוריות` : 'המשך'; })()}</${Button}>
+            <button type="button" class="link onb-back-link" onClick=${() => go(2)}><${Icon} name="arrow-right" size=${18} /> חזרה לפרטי הטיול</button>
+          </div>
+        </div>`
+      : null}
+
+    ${step === PROFILE
       ? html`<div class="stack-lg">
           <div class="onb-flow__title">
             <h1>ומי את/ה? 🙂</h1>
             <p class="muted">הפרופיל שלך בטיול. מגיעים בזוג? בחרו "זוג" — ההתחשבנות תספור אתכם כשניים.</p>
           </div>
           <${ProfileForm} submitLabel="צור את הטיול 🔥" busy=${busy} onSubmit=${create} />
-          <button type="button" class="link onb-back-link" onClick=${() => go(2)}><${Icon} name="arrow-right" size=${18} /> חזרה לפרטי הטיול</button>
+          <button type="button" class="link onb-back-link" onClick=${() => go(withLists ? 3 : 2)}><${Icon} name="arrow-right" size=${18} /> ${withLists ? 'חזרה לרשימות' : 'חזרה לפרטי הטיול'}</button>
         </div>`
       : null}
 
-    ${step === 4 && createdId ? html`<${InviteStep} tripId=${createdId} />` : null}
+    ${step === INVITE && createdId ? html`<${InviteStep} tripId=${createdId} />` : null}
     </div>
   </div>`;
 }

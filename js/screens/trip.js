@@ -4,25 +4,25 @@
 // only: the album on top, schedule / rules / notes folded to rows, no weather, navigation, invite or rides.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=8a35ae3';
+import { actions, useTrip } from '../store.js?v=6fb25aa';
 import {
   AIRPORTS, ARRIVAL_MODES, FAMILIES, MODULES, arrivalOf, composeType, dayCount, hasLists, hasModule, resolveType, schedulePlan,
   schedulePresets,
-} from '../lib/templates.js?v=8a35ae3';
-import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=8a35ae3';
-import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
-import { CURRENCIES } from '../lib/fx.js?v=8a35ae3';
-import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=8a35ae3';
-import { href, navigate } from '../router.js?v=8a35ae3';
+} from '../lib/templates.js?v=6fb25aa';
+import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=6fb25aa';
+import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
+import { CURRENCIES } from '../lib/fx.js?v=6fb25aa';
+import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=6fb25aa';
+import { href, navigate } from '../router.js?v=6fb25aa';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, adminPersons,
   rideModel, tripOver,
-} from '../lib/logic.js?v=8a35ae3';
+} from '../lib/logic.js?v=6fb25aa';
 import {
   Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, Fold, IconButton, OverBanner, Sheet,
   ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=8a35ae3';
-import { Icon } from '../ui/icons.js?v=8a35ae3';
+} from '../ui/components.js?v=6fb25aa';
+import { Icon } from '../ui/icons.js?v=6fb25aa';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';

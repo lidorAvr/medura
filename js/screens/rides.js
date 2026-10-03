@@ -4,15 +4,16 @@
 // picks which ways a trip offers (settings.arrival). Used on the rides tab, the trip screen and the wizard.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=8a35ae3';
-import { navigate } from '../router.js?v=8a35ae3';
-import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel, tripPhase } from '../lib/logic.js?v=8a35ae3';
-import { AIRPORTS, ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=8a35ae3';
-import { findFlight, flightCode, flightDest, flightFit, hmOf, isFlightNumber, isYmd, legDate, travelFromFlight } from '../lib/flights.js?v=8a35ae3';
-import { hasCoords, navLinks } from '../lib/places.js?v=8a35ae3';
-import { FlightLive, LookupNote, nearOf, tripDays, useFlightLookup, wall, whereOf } from './trip-extras.js?v=8a35ae3';
-import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
-import { Avatar, Button, Card, Chip, Field, OverBanner, Sheet, Skeleton, Stepper, TextInput, confirmDialog, tripOver } from '../ui/components.js?v=8a35ae3';
+import { actions, useTrip } from '../store.js?v=6fb25aa';
+import { navigate } from '../router.js?v=6fb25aa';
+import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel, tripPhase } from '../lib/logic.js?v=6fb25aa';
+import { AIRPORTS, ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=6fb25aa';
+import { CrewArrival } from '../ui/crew-arrival.js?v=6fb25aa';
+import { findFlight, flightCode, flightDest, flightFit, hmOf, isFlightNumber, isYmd, legDate, travelFromFlight } from '../lib/flights.js?v=6fb25aa';
+import { hasCoords, navLinks } from '../lib/places.js?v=6fb25aa';
+import { FlightLive, LookupNote, nearOf, tripDays, useFlightLookup, wall, whereOf } from './trip-extras.js?v=6fb25aa';
+import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
+import { Avatar, Button, Card, Chip, Field, OverBanner, Sheet, Skeleton, Stepper, TextInput, confirmDialog, tripOver } from '../ui/components.js?v=6fb25aa';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const ok = (fn) => async (api) => {
@@ -79,6 +80,7 @@ export default function RidesScreen({ route }) {
   return html`<div class="screen rides-screen">
     <${OverBanner} trip=${snap.trip} />
     ${over ? null : html`<${MyArrival} snap=${snap} me=${me} onOffer=${(kind) => setSheet({ kind })} />`}
+    ${over ? null : html`<${CrewArrival} snap=${snap} me=${me} isAdmin=${isAdmin} tripId=${snap.trip.id} />`}
     ${arrival.flights && !over ? html`<${FlightsCard} snap=${snap} me=${me} />` : null}
     <${RidesCard} snap=${snap} me=${me} isAdmin=${isAdmin} sheet=${sheet} setSheet=${setSheet} readOnly=${over} hideOffer=${offering} />
   </div>`;

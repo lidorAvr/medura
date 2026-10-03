@@ -7,13 +7,13 @@
 //                link?: {itemId, who} (import only: the item is already in the list — put `who` on it instead) }
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions } from '../store.js?v=8a35ae3';
-import { hebrewError } from '../api/errors.js?v=8a35ae3';
-import { displayName, personsOf, similarItems, titleSimilarity } from '../lib/logic.js?v=8a35ae3';
-import { itemTypeOn } from '../lib/templates.js?v=8a35ae3';
-import { Chip, Pill, Sheet } from './components.js?v=8a35ae3';
-import { Icon } from './icons.js?v=8a35ae3';
-import { UNIT_CHIPS, cx, emojiKey, normText } from '../screens/lists.js?v=8a35ae3';
+import { actions } from '../store.js?v=6fb25aa';
+import { hebrewError } from '../api/errors.js?v=6fb25aa';
+import { displayName, personsOf, similarItems, titleSimilarity } from '../lib/logic.js?v=6fb25aa';
+import { itemTypeOn } from '../lib/templates.js?v=6fb25aa';
+import { Chip, Pill, Sheet } from './components.js?v=6fb25aa';
+import { Icon } from './icons.js?v=6fb25aa';
+import { UNIT_CHIPS, cx, emojiKey, normText } from '../screens/lists.js?v=6fb25aa';
 
 export const BULK_MAX = 150; // add_items_bulk limit per call (SPEC §4)
 

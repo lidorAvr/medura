@@ -3,8 +3,8 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=8a35ae3';
-import { href, navigate } from '../router.js?v=8a35ae3';
+import { actions, useTrip } from '../store.js?v=6fb25aa';
+import { href, navigate } from '../router.js?v=6fb25aa';
 import {
   actorName,
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
@@ -12,18 +12,18 @@ import {
   visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats, adminPersons, personsOf,
   departureOf, myRideText, pinnedNotices, myInbox, tripPlan, moneyPots, myNet, openMoneyRequests, partyBalances,
   partyName, partyOf, splitsMoney,
-} from '../lib/logic.js?v=8a35ae3';
+} from '../lib/logic.js?v=6fb25aa';
 import {
   Avatar, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js?v=8a35ae3';
-import { Icon } from '../ui/icons.js?v=8a35ae3';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=8a35ae3';
-import { InboxCard } from '../ui/inbox.js?v=8a35ae3';
-import { payMethodsOf } from './money-requests.js?v=8a35ae3';
-import { AlbumSheet } from './trip-extras.js?v=8a35ae3';
-import { hebrewError } from '../api/errors.js?v=8a35ae3';
-import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=8a35ae3';
+} from '../ui/components.js?v=6fb25aa';
+import { Icon } from '../ui/icons.js?v=6fb25aa';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=6fb25aa';
+import { InboxCard } from '../ui/inbox.js?v=6fb25aa';
+import { payMethodsOf } from './money-requests.js?v=6fb25aa';
+import { AlbumSheet } from './trip-extras.js?v=6fb25aa';
+import { hebrewError } from '../api/errors.js?v=6fb25aa';
+import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=6fb25aa';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 3;

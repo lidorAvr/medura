@@ -5,18 +5,18 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=8a35ae3';
-import { cleanPhone } from '../ui/account.js?v=8a35ae3';
-import { navigate } from '../router.js?v=8a35ae3';
+import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=6fb25aa';
+import { cleanPhone } from '../ui/account.js?v=6fb25aa';
+import { navigate } from '../router.js?v=6fb25aa';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
   ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, Fold,
-} from '../ui/components.js?v=8a35ae3';
-import { Icon } from '../ui/icons.js?v=8a35ae3';
-import { CoupleCard } from '../ui/couple.js?v=8a35ae3';
-import { disablePush, enablePush, pushState } from '../lib/device.js?v=8a35ae3';
-import { arrivalOf, resolveType, tripType } from '../lib/templates.js?v=8a35ae3';
-import { adminPersons, deviceLinkUrl, displayName, formatMoney, payingMembers, personsOf, whatsappChatUrl } from '../lib/logic.js?v=8a35ae3';
+} from '../ui/components.js?v=6fb25aa';
+import { Icon } from '../ui/icons.js?v=6fb25aa';
+import { CoupleCard } from '../ui/couple.js?v=6fb25aa';
+import { disablePush, enablePush, pushState } from '../lib/device.js?v=6fb25aa';
+import { arrivalOf, resolveType, tripType } from '../lib/templates.js?v=6fb25aa';
+import { adminPersons, deviceLinkUrl, displayName, formatMoney, payingMembers, personsOf, whatsappChatUrl } from '../lib/logic.js?v=6fb25aa';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 

@@ -3,14 +3,15 @@
 // Times here are wall-clock strings ('YYYY-MM-DDTHH:MM', local to the place) — shown as typed.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=8a35ae3';
-import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=8a35ae3';
-import { hasModule, resolveType } from '../lib/templates.js?v=8a35ae3';
-import { symbolOf } from '../lib/fx.js?v=8a35ae3';
-import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=8a35ae3';
-import { navLinks } from '../lib/places.js?v=8a35ae3';
-import { PlaceInput } from '../ui/place-input.js?v=8a35ae3';
-import { Button, Card, Chip, Field, IconButton, Segmented, Sheet, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=8a35ae3';
+import { actions, store, useTrip } from '../store.js?v=6fb25aa';
+import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=6fb25aa';
+import { hasModule, resolveType } from '../lib/templates.js?v=6fb25aa';
+import { symbolOf } from '../lib/fx.js?v=6fb25aa';
+import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=6fb25aa';
+import { navLinks } from '../lib/places.js?v=6fb25aa';
+import { PlaceInput } from '../ui/place-input.js?v=6fb25aa';
+import { CHECKIN_HOURS, checkinDue, checkinItem, checkinStatus, syncCheckin } from '../lib/checkin.js?v=6fb25aa';
+import { Button, Card, Chip, Field, IconButton, MemberPicker, Segmented, Sheet, Stepper, TextInput, Toggle, confirmDialog } from '../ui/components.js?v=6fb25aa';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -151,9 +152,13 @@ export function BookingsCard({ trip, isAdmin, force }) {
   const { snap } = useTrip();
   const list = arr(trip.info?.bookings);
   const [sheet, setSheet] = useState(null); // null | {index, booking}
+  const madeTask = useRef(null);                 // a check-in task made by a save whose booking didn't save: a retry reuses it
   if (!list.length && !(isAdmin && force)) return null;
   const remove = async (i) => {
     if (!(await confirmDialog({ title: 'למחוק את ההזמנה?', confirmText: 'מחיקה', danger: true }))) return;
+    // a flight's check-in is a task with a reminder: it goes with the booking
+    const task = checkinItem(snap, list[i]);
+    if (task && (await actions.run((api) => api.deleteItem(task.id))) === undefined) return;
     await save(trip, 'bookings', list.filter((_, j) => j !== i), 'נמחק');
   };
   return html`<${Card} emoji="🎫" title="הזמנות" class="bookings" data-testid="bookings">
@@ -177,13 +182,23 @@ export function BookingsCard({ trip, isAdmin, force }) {
           <${Button} size="sm" variant="secondary" onClick=${() => setSheet({ index: -1, booking: { kind: 'other' } })}>🎟️ הזמנה אחרת</${Button}>
         </div>`
       : null}
-    <${BookingSheet} open=${Boolean(sheet)} data=${sheet} trip=${trip} onClose=${() => setSheet(null)}
+    <${BookingSheet} open=${Boolean(sheet)} data=${sheet} trip=${trip} members=${snap?.members || []} onClose=${() => setSheet(null)}
       onSave=${async (b) => {
+        // a flight's check-in is a real task (due time + a person): create / update / drop it with the booking
+        if (b.kind === 'flight') {
+          const prev = sheet.index >= 0 ? list[sheet.index] : (madeTask.current ? { checkin: { item: madeTask.current } } : null);
+          const res = await actions.run(async (api) => ({ checkin: await syncCheckin(api, snap, trip.id, b, prev) }));
+          if (res === undefined) return false;
+          if (res.checkin) { b = { ...b, checkin: res.checkin }; madeTask.current = res.checkin.item; }
+          else { const { checkin: _c, ...rest } = b; b = rest; madeTask.current = null; }
+        }
         const next = [...list];
         if (sheet.index >= 0) next[sheet.index] = b;
         else next.push(b);
         next.sort((x, y) => String(x.at || x.check_in || '~').localeCompare(String(y.at || y.check_in || '~')));
-        return save(trip, 'bookings', next, 'נשמר ✅');
+        const saved = await save(trip, 'bookings', next, 'נשמר ✅');
+        if (saved) madeTask.current = null;
+        return saved;
       }} />
   </${Card}>`;
 }
@@ -197,8 +212,10 @@ function bookingBody(b, snap) {
       <p class="booking__line">${wall(b.at)}${b.at && route.length ? ' · ' : ''}${route.map((x, i) => html`${i ? ' ← ' : ''}<bdi>${x}</bdi>`)}${b.terminal ? ` · טרמינל ${b.terminal}` : ''}</p>
       ${b.arr_at ? html`<p class="booking__line">🛬 נחיתה ${wall(b.arr_at)}</p>` : null}
       ${live ? html`<p class="booking__line"><${FlightLive} row=${live} /></p>` : null}
+      ${b.seats ? html`<p class="booking__line" data-testid="booking-seats">💺 מושבים: <bdi>${b.seats}</bdi></p>` : null}
       ${b.baggage ? html`<p class="booking__line">🧳 ${b.baggage}</p>` : null}
       ${b.ref ? html`<p class="booking__line">🔖 הזמנה <b dir="ltr">${b.ref}</b></p>` : null}
+      <${CheckinLine} b=${b} snap=${snap} />
       ${b.note ? html`<p class="booking__line muted">📝 ${b.note}</p>` : null}`;
   }
   if (b.kind === 'hotel') {
@@ -221,7 +238,59 @@ function bookingBody(b, snap) {
     ${b.url ? html`<a class="booking__link" href=${b.url} target="_blank" rel="noopener noreferrer">קישור ↗</a>` : null}`;
 }
 
-function BookingSheet({ open, data, trip, onClose, onSave }) {
+/** An ISO instant → the Israeli wall-clock text the cards use ("יום ב׳ 5.10 · 21:30"). */
+const wallOf = (iso) => { const w = ilWall(new Date(iso)); return wall(`${w.ymd}T${w.hm}`); };
+
+/** A flight's check-in on its card: ✅ done / ⏳ who + until when / ⏰ late — and "בוצע ✓" for who took it (or an admin). */
+function CheckinLine({ b, snap }) {
+  const st = checkinStatus(snap, b);
+  const [busy, setBusy] = useState(false);
+  if (!st) return null;
+  const who = (snap.members || []).find((m) => m.id === st.who);
+  const mine = snap.me?.member_id === st.who || ['owner', 'admin'].includes(snap.me?.role);
+  const dueText = st.due ? wallOf(st.due) : '';
+  const done = async () => {
+    setBusy(true);
+    await actions.run((api) => api.setItemDone(st.item.id, true), { success: 'סומן שהצ׳ק־אין בוצע ✅' });
+    setBusy(false);
+  };
+  const text = st.state === 'done' ? `✅ צ׳ק־אין בוצע${who ? ` · ${displayName(who)}` : ''}`
+    : st.state === 'late' ? `⏰ צ׳ק־אין עבר המועד${who ? ` · ${displayName(who)}` : ''}${dueText ? ` · ${dueText}` : ''}`
+      : `⏳ צ׳ק־אין${who ? ` · ${displayName(who)}` : ''}${dueText ? ` · עד ${dueText}` : ''}`;
+  return html`<p class=${cx('booking__line', 'booking__checkin', `is-${st.state}`)} data-testid="checkin-status" data-state=${st.state}>${text}
+    ${st.state !== 'done' && st.item && mine
+      ? html` <${Button} size="sm" variant="secondary" loading=${busy} onClick=${done}>בוצע ✓</${Button}>` : null}</p>`;
+}
+
+/** The organiser's side of a flight's check-in: switch, who takes it, how long before takeoff — and the resulting time. */
+function CheckinFields({ b, setB, members }) {
+  const c = b.checkin || null;
+  const on = Boolean(c);
+  const due = c && b.at ? checkinDue(b.at, c.hours) : null;
+  const dueText = due ? wallOf(due) : '';
+  const setC = (patch) => setB((x) => ({ ...x, checkin: { ...(x.checkin || {}), ...patch } }));
+  const toggle = (v) => setB((x) => {
+    if (!v) { const { checkin: _c, ...rest } = x; return { ...rest, checkin: undefined }; }
+    return { ...x, checkin: { ...(x.checkin || {}), hours: x.checkin?.hours || 24, who: x.checkin?.who || null } };
+  });
+  return html`<div class="checkin-fields" data-testid="checkin-fields">
+    <${Toggle} checked=${on} onChange=${toggle} label="לנהל צ׳ק־אין לטיסה הזו"
+      hint=${on ? 'נוצרת משימה עם מועד — מי שלקח/ה אותה יקבל/ת תזכורת, ואתם רואים אם בוצע' : 'משימה עם תזכורת למי שאחראי/ת על הצ׳ק־אין'} />
+    ${on
+      ? html`<${Field} label="מי עושה צ׳ק־אין?"><div data-testid="checkin-who"><${MemberPicker} members=${members} value=${c.who} onChange=${(id) => id && setC({ who: id })} label="מי עושה צ׳ק־אין?" /></div></${Field}>
+        <${Field} label="עד מתי?">
+          <div class="sched-quick" role="group" aria-label="כמה זמן לפני ההמראה" data-testid="checkin-hours">
+            ${CHECKIN_HOURS.map((h) => html`<${Chip} key=${h.hours} active=${Number(c.hours) === h.hours} onClick=${() => setC({ hours: h.hours })}>${h.label}</${Chip}>`)}
+          </div>
+          ${b.at
+            ? html`<p class="tiny muted" data-testid="checkin-due">${dueText ? `התזכורת תגיע ב־${dueText}` : ''}</p>`
+            : html`<p class="tiny muted">צריך שעת המראה כדי לחשב מתי</p>`}
+        </${Field}>`
+      : null}
+  </div>`;
+}
+
+function BookingSheet({ open, data, trip, members = [], onClose, onSave }) {
   const [b, setB] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -283,6 +352,8 @@ function BookingSheet({ open, data, trip, onClose, onSave }) {
         if (!clean.name) clean.name = place.name;
       } else if (text) clean.address = text;
     }
+    if (clean.kind === 'flight' && clean.checkin && !clean.checkin.who) return setError('מי עושה את הצ׳ק־אין? אפשר לבחור למעלה, או לכבות');
+    if (clean.kind === 'flight' && clean.checkin && !clean.at) return setError('צ׳ק־אין צריך שעת המראה (למעלה)');
     if (clean.kind === 'hotel' && !clean.name) return setError('איך קוראים למקום?');
     if (clean.kind === 'other' && !clean.title) return setError('מה הוזמן?');
     if (clean.flight) clean.flight = flightCode(clean.flight);
@@ -343,7 +414,9 @@ function BookingSheet({ open, data, trip, onClose, onSave }) {
             <${Field} label="נחיתה (שעה מקומית)"><${TextInput} type="datetime-local" value=${b.arr_at || ''} onInput=${set('arr_at')} /></${Field}>
             <${Field} label="טרמינל"><${TextInput} dir="ltr" value=${b.terminal || ''} maxlength="6" placeholder="3" onInput=${set('terminal')} /></${Field}>
           </div>
+          <${Field} label="מושבים (לא חובה)"><${TextInput} value=${b.seats || ''} maxlength="60" placeholder="14A, 14B, 14C" onInput=${set('seats')} /></${Field}>
           <${Field} label="כבודה"><${TextInput} value=${b.baggage || ''} maxlength="80" placeholder="טרולי + תיק גב" onInput=${set('baggage')} /></${Field}>
+          <${CheckinFields} b=${b} setB=${setB} members=${members} />
           <${Field} label="קוד הזמנה (לא חובה)"><${TextInput} dir="ltr" value=${b.ref || ''} maxlength="20" onInput=${set('ref')} /></${Field}>`
         : null}
       ${kind === 'hotel'

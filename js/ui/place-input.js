@@ -9,7 +9,7 @@
 //           Typed text and a picked name are both cut to it, so a long OSM name never fails a save.
 import { html } from 'htm/preact';
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'preact/hooks';
-import { createSearcher, navLinks, placeEmoji, ATTRIBUTION } from '../lib/places.js?v=8a35ae3';
+import { createSearcher, navLinks, placeEmoji, ATTRIBUTION } from '../lib/places.js?v=6fb25aa';
 
 let seq = 0;
 export const PLACE_MAX = 80;
