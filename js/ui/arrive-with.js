@@ -1,8 +1,8 @@
 // "🤝 מגיע/ה יחד עם…" — who I'm arriving with (prefs.transport.with = [member ids]). Shown to everyone on the crew
 // arrival card; the others in the list see it from their side too (the link is read both ways, see crewArrival).
 import { html } from 'htm/preact';
-import { displayName } from '../lib/logic.js?v=853199b';
-import { Chip } from './components.js?v=853199b';
+import { displayName } from '../lib/logic.js?v=9252f89';
+import { Chip } from './components.js?v=9252f89';
 
 /** The ids I'm with: mine, plus everybody who named me (a link is read both ways). Only members that still exist. */
 export function withIds(members, meId) {

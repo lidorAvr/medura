@@ -7,8 +7,8 @@
 // Every call loads a fresh copy, runs one RPC against it, and saves only on success —
 // so a failed call never leaves partial changes behind (like a SQL transaction).
 
-import { ApiError, flightFailure, flightInput } from './errors.js?v=853199b';
-import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=853199b';
+import { ApiError, flightFailure, flightInput } from './errors.js?v=9252f89';
+import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=9252f89';
 import {
   DEMO_VERSION,
   DEFAULT_CATEGORIES,
@@ -19,7 +19,7 @@ import {
   buildDemoSeed,
   demoFlight,
   jerusalemYmd,
-} from './demo-seed.js?v=853199b';
+} from './demo-seed.js?v=9252f89';
 
 export const DEMO_STORAGE_KEY = 'medura:demo:v1';
 export const DEMO_UID_KEY = 'medura:demo:uid';
@@ -1733,8 +1733,12 @@ const RPC = {
         closed: p.closed,
         created_by: p.created_by ?? null,
         created_at: p.created_at,
+        voters: new Set(db.poll_votes.filter((v) => v.poll_id === p.id).map((v) => v.member_id)).size,
       })),
-      poll_votes: db.poll_votes.filter(inTrip).map((v) => pick(v, K.pollVote)),
+      // who chose what: organisers always; the others only once they voted themselves (or the poll is closed)
+      poll_votes: db.poll_votes.filter((v) => inTrip(v) && (amAdmin(ctx, me) || v.member_id === me.id
+        || db.polls.some((p) => p.id === v.poll_id && p.closed)
+        || db.poll_votes.some((x) => x.poll_id === v.poll_id && x.member_id === me.id))).map((v) => pick(v, K.pollVote)),
       personal_items: db.personal_items
         .filter((p) => inTrip(p) && p.member_id === me.id && mineByPerson(p, myLink(db, tripId, ctx.uid)?.person))
         .sort(bySort)

@@ -3,15 +3,15 @@
 // add_items_bulk (with who takes what) → back to lists.
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=853199b';
-import { navigate, href } from '../router.js?v=853199b';
-import { hebrewCount, parseListText } from '../lib/logic.js?v=853199b';
-import { itemTypeOn } from '../lib/templates.js?v=853199b';
-import { Button, Field, IconButton, Skeleton, TextArea, fireConfetti } from '../ui/components.js?v=853199b';
+import { actions, useTrip } from '../store.js?v=9252f89';
+import { navigate, href } from '../router.js?v=9252f89';
+import { hebrewCount, parseListText } from '../lib/logic.js?v=9252f89';
+import { itemTypeOn } from '../lib/templates.js?v=9252f89';
+import { Button, Field, IconButton, Skeleton, TextArea, fireConfetti } from '../ui/components.js?v=9252f89';
 import {
   DraftRows, assignMode, isTasksCategory, markDups, resolveWho, saveDrafts, tripNames,
-} from '../ui/draft-rows.js?v=853199b';
-import { matchCategory, sortedCategories } from './lists.js?v=853199b';
+} from '../ui/draft-rows.js?v=9252f89';
+import { matchCategory, sortedCategories } from './lists.js?v=9252f89';
 
 const SAMPLE = `🥩 בשרים
 פרגיות - פר אדם 300 גרם

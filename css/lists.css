@@ -958,5 +958,6 @@
 
 /* groom mode: the 🤫 mark on a surprise and the category toggle */
 .ls-secret { margin-inline-start: 4px; font-size: 0.9em; }
-.ls-cat__secret { border: 0; background: transparent; width: 34px; height: 34px; border-radius: 10px; cursor: pointer; opacity: 0.45; font-size: 1rem; }
-.ls-cat__secret.is-on { opacity: 1; background: var(--surface-2); }
+.ls-cat__secret { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); height: 32px; padding: 0 10px; border-radius: 999px; cursor: pointer; font-size: 0.8rem; font-weight: 700; white-space: nowrap; }
+.ls-cat__secret.is-on { background: var(--primary-soft, var(--surface-2)); border-color: var(--primary); color: var(--text); }
+@media (max-width: 440px) { .ls-cat__buyer:has(+ .ls-cat__secret) { display: none; } }   /* room for the category name next to the 🤫 pill */

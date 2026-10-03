@@ -3,16 +3,16 @@
 // share to WhatsApp) and polls (create, vote, live result bars, close / delete).
 import { html } from 'htm/preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { useTrip, actions } from '../store.js?v=853199b';
+import { useTrip, actions } from '../store.js?v=9252f89';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, IconButton, MemberPicker, Pill,
   ProgressBar, Segmented, Sheet, ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog, OverBanner, tripOver,
-} from '../ui/components.js?v=853199b';
-import { Icon } from '../ui/icons.js?v=853199b';
+} from '../ui/components.js?v=9252f89';
+import { Icon } from '../ui/icons.js?v=9252f89';
 import {
   actorName, displayName, membersById, pinnedNotices, visibleNotifications, pollResults, timeAgo, formatDate, formatDateTime,
   formatTime, hebrewCount,
-} from '../lib/logic.js?v=853199b';
+} from '../lib/logic.js?v=9252f89';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';
@@ -629,7 +629,9 @@ function PollCard({ poll: raw, snap, me, admin, byId, now, over = false }) {
     ? [...serverVotes.filter((v) => v.member_id !== me.id), ...pending.map((o) => ({ poll_id: poll.id, member_id: me.id, option_id: o }))]
     : serverVotes;
   const results = pollResults(poll, votes);
-  const voters = new Set(votes.map((v) => v.member_id)).size;
+  const voters = Math.max(new Set(votes.map((v) => v.member_id)).size, Number(poll.voters) || 0);
+  // others' picks are sent to the organisers, and to everyone else only after they voted (or once the poll is closed)
+  const seesPicks = admin || poll.closed || mine.length > 0;
   const top = Math.max(0, ...results.map((r) => r.count));
   const creator = poll.created_by ? byId.get(poll.created_by) : null;
   const canManage = admin || (poll.created_by && poll.created_by === me.id);
@@ -703,8 +705,9 @@ function PollCard({ poll: raw, snap, me, admin, byId, now, over = false }) {
             ${on ? html`<${Icon} name="check" size=${14} />` : null}
           </span>
           <span class="msg-opt__label">${win ? '🏆 ' : ''}${r.label}</span>
-          ${people.length ? html`<${AvatarStack} members=${people} max=${3} size=${22} />` : null}
-          <span class="msg-opt__count num" aria-hidden="true">${r.count ? `${r.pct}%` : ''}</span>
+          <span class="msg-opt__count num" aria-hidden="true">${r.count && seesPicks ? `${r.pct}%` : ''}</span>
+          ${people.length && seesPicks
+            ? html`<span class="msg-opt__names" data-testid="poll-names">${people.map((m) => displayName(m)).join('، ')}</span>` : null}
         </button>`;
       })}
     </div>
@@ -714,7 +717,7 @@ function PollCard({ poll: raw, snap, me, admin, byId, now, over = false }) {
       : null}
     <div class="msg-poll__foot">
       <span class="msg-poll__votes">
-        ${voters ? `הצביעו ${voters} מתוך ${snap.members.length}` : 'עוד אין קולות — תהיו ראשונים!'}
+        ${voters ? `הצביעו ${voters} מתוך ${snap.members.length}` : 'עוד אין קולות — תהיו ראשונים!'}${!seesPicks && voters ? ' · בחרו כדי לראות מי בחר מה 👀' : ''}
       </span>
       <div class="msg-poll__actions">
         <${ShareButton} size="sm" variant="ghost" label="שיתוף" text=${pollShareText(snap.trip, poll, results)} />

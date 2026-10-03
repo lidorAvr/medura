@@ -4,19 +4,19 @@
 // Also exports small helpers that shopping.js and import.js reuse.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=853199b';
-import { navigate, href } from '../router.js?v=853199b';
+import { actions, useTrip } from '../store.js?v=9252f89';
+import { navigate, href } from '../router.js?v=9252f89';
 import {
   actorName, buildSummaryText, dueInfo, displayName, eachSplitOf, formatQty, headcountTotal, hebrewCount, itemEffectiveQty,
   itemProgress, membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
   ilIso as ilIsoDue, ilWall as ilWallDue,
-} from '../lib/logic.js?v=853199b';
+} from '../lib/logic.js?v=9252f89';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, OverBanner, Pill, ProgressBar,
   Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=853199b';
-import { Icon } from '../ui/icons.js?v=853199b';
-import { hasModule, itemTypeOn } from '../lib/templates.js?v=853199b';
+} from '../ui/components.js?v=9252f89';
+import { Icon } from '../ui/icons.js?v=9252f89';
+import { hasModule, itemTypeOn } from '../lib/templates.js?v=9252f89';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by shopping.js and import.js)
@@ -629,7 +629,7 @@ function CategoryGroup({ group, stat, ctx }) {
       : null}${ctx.isAdmin && cat && ctx.model.snap.trip.settings?.groom
       ? html`<button type="button" class=${cx('ls-cat__secret', cat.secret && 'is-on')} data-testid="cat-secret" aria-pressed=${cat.secret ? 'true' : 'false'}
           title=${cat.secret ? 'הקטגוריה מוסתרת מהחוגג/ת — לחיצה לביטול' : 'להסתיר את כל הקטגוריה מהחוגג/ת'}
-          onClick=${() => runOk((api) => api.setSecret('category', cat.id, !cat.secret), { success: cat.secret ? 'הקטגוריה גלויה לכולם' : 'הקטגוריה מוסתרת מהחוגג/ת 🤫' })}>🤫</button>` : null}`}
+          onClick=${() => runOk((api) => api.setSecret('category', cat.id, !cat.secret), { success: cat.secret ? 'הקטגוריה גלויה לכולם' : 'הקטגוריה מוסתרת מהחוגג/ת 🤫' })}>🤫 ${cat.secret ? 'מוסתר' : 'הסתרה'}</button>` : null}`}
   >
     <div class="list ls-list">
       ${stat && stat.total

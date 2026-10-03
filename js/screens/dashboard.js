@@ -3,17 +3,17 @@
 // Also serves #/invite/:inviteId (the e-mail / push link of an invitation).
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useStore } from '../store.js?v=853199b';
-import { navigate } from '../router.js?v=853199b';
-import { countdown, formatMoney, hebrewCount, isAdmin, timeAgo, tripPhase } from '../lib/logic.js?v=853199b';
-import { adminParts, cardThings, splitTrips, totals, tripDebt, urgentStrip } from '../lib/overview.js?v=853199b';
-import { Avatar, Button, IconButton, Pill, Section, Sheet, Skeleton, confirmDialog, fireConfetti } from '../ui/components.js?v=853199b';
-import { Icon } from '../ui/icons.js?v=853199b';
-import { EmailGate } from '../ui/email-gate.js?v=853199b';
-import { Entry } from '../ui/account.js?v=853199b';
-import { CodeEntry, Hero, Landing, TripCard, dateRange } from './onboarding.js?v=853199b';
-import { AccountForm } from './me.js?v=853199b';
-import { CloneSheet } from '../ui/clone-sheet.js?v=853199b';
+import { actions, useStore } from '../store.js?v=9252f89';
+import { navigate } from '../router.js?v=9252f89';
+import { countdown, formatMoney, hebrewCount, isAdmin, timeAgo, tripPhase } from '../lib/logic.js?v=9252f89';
+import { adminParts, cardThings, splitTrips, totals, tripDebt, urgentStrip } from '../lib/overview.js?v=9252f89';
+import { Avatar, Button, IconButton, Pill, Section, Sheet, Skeleton, confirmDialog, fireConfetti } from '../ui/components.js?v=9252f89';
+import { Icon } from '../ui/icons.js?v=9252f89';
+import { EmailGate } from '../ui/email-gate.js?v=9252f89';
+import { Entry } from '../ui/account.js?v=9252f89';
+import { CodeEntry, Hero, Landing, TripCard, dateRange } from './onboarding.js?v=9252f89';
+import { AccountForm } from './me.js?v=9252f89';
+import { CloneSheet } from '../ui/clone-sheet.js?v=9252f89';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const REFRESH_MS = 60000;

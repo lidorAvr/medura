@@ -6,8 +6,8 @@
 //   toSeed(value) → what create_trip / add_items_bulk take: {categories, items, packing}
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { DRAFT_TYPES } from './draft-rows.js?v=853199b';
-import { confirmDialog } from './components.js?v=853199b';
+import { DRAFT_TYPES } from './draft-rows.js?v=9252f89';
+import { confirmDialog } from './components.js?v=9252f89';
 
 const MAX_CATEGORIES = 20;
 const MAX_ITEMS = 300;

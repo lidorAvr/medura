@@ -2,18 +2,18 @@
 import { html } from 'htm/preact';
 import { Component } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { useRoute, href, navigate } from './router.js?v=853199b';
-import { useStore, useTrip, actions, emailRequired } from './store.js?v=853199b';
-import { unreadCount } from './lib/logic.js?v=853199b';
-import { hebrewError } from './api/errors.js?v=853199b';
-import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=853199b';
-import { Icon } from './ui/icons.js?v=853199b';
-import { EmailGate } from './ui/email-gate.js?v=853199b';
-import { Tour, tourDue } from './ui/tour.js?v=853199b';
-import { PendingGate } from './ui/pending.js?v=853199b';
-import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=853199b';
-import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=853199b';
-import { answersOf } from './lib/overview.js?v=853199b';
+import { useRoute, href, navigate } from './router.js?v=9252f89';
+import { useStore, useTrip, actions, emailRequired } from './store.js?v=9252f89';
+import { unreadCount } from './lib/logic.js?v=9252f89';
+import { hebrewError } from './api/errors.js?v=9252f89';
+import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=9252f89';
+import { Icon } from './ui/icons.js?v=9252f89';
+import { EmailGate, linkThisDevice } from './ui/email-gate.js?v=9252f89';
+import { Tour, tourDue } from './ui/tour.js?v=9252f89';
+import { PendingGate } from './ui/pending.js?v=9252f89';
+import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=9252f89';
+import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=9252f89';
+import { answersOf } from './lib/overview.js?v=9252f89';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -22,24 +22,24 @@ const cx = (...a) => a.filter(Boolean).join(' ');
 // ---------------------------------------------------------------------------
 
 const SCREENS = {
-  landing: './screens/dashboard.js?v=853199b',
-  invite: './screens/dashboard.js?v=853199b',
-  new: './screens/onboarding.js?v=853199b',
-  join: './screens/onboarding.js?v=853199b',
-  link: './screens/onboarding.js?v=853199b',
-  home: './screens/home.js?v=853199b',
-  trip: './screens/trip.js?v=853199b',
-  rides: './screens/rides.js?v=853199b',
-  lists: './screens/lists.js?v=853199b',
-  shop: './screens/shopping.js?v=853199b',
-  import: './screens/import.js?v=853199b',
-  build: './screens/build.js?v=853199b',
-  money: './screens/money.js?v=853199b',
-  messages: './screens/messages.js?v=853199b',
-  people: './screens/people.js?v=853199b',
-  me: './screens/me.js?v=853199b',
-  welcome: './screens/welcome.js?v=853199b',
-  signin: './screens/signin.js?v=853199b',
+  landing: './screens/dashboard.js?v=9252f89',
+  invite: './screens/dashboard.js?v=9252f89',
+  new: './screens/onboarding.js?v=9252f89',
+  join: './screens/onboarding.js?v=9252f89',
+  link: './screens/onboarding.js?v=9252f89',
+  home: './screens/home.js?v=9252f89',
+  trip: './screens/trip.js?v=9252f89',
+  rides: './screens/rides.js?v=9252f89',
+  lists: './screens/lists.js?v=9252f89',
+  shop: './screens/shopping.js?v=9252f89',
+  import: './screens/import.js?v=9252f89',
+  build: './screens/build.js?v=9252f89',
+  money: './screens/money.js?v=9252f89',
+  messages: './screens/messages.js?v=9252f89',
+  people: './screens/people.js?v=9252f89',
+  me: './screens/me.js?v=9252f89',
+  welcome: './screens/welcome.js?v=9252f89',
+  signin: './screens/signin.js?v=9252f89',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
@@ -294,7 +294,7 @@ function Toasts() {
   </div>`;
 }
 
-function AccessGate({ code }) {
+function AccessGate({ code, onEmail = null }) {
   const network = code === 'network';
   const missing = code === 'not_found'; // deleted by an admin (or a link to a trip that never existed)
   return html`<div class="screen gate">
@@ -311,12 +311,41 @@ function AccessGate({ code }) {
         action=${html`<div class="row row--center wrap">
           ${network
             ? html`<${Button} icon="refresh" onClick=${() => actions.refresh()}>לנסות שוב</${Button}>`
-            : html`<${Button} icon="link" href="#/?link=1">יש לי קישור</${Button}>`}
+            : html`<${Button} icon="link" href="#/?link=1">יש לי קישור</${Button}>
+              ${onEmail ? html`<${Button} variant="secondary" icon="user" data-testid="gate-email" onClick=${onEmail}>כבר הצטרפתי — התחברות עם המייל</${Button}>` : null}`}
           <${Button} variant="ghost" href="#/">לטיולים שלי</${Button}>
         </div>`}
       />
     </${Card}>
   </div>`;
+}
+
+const autoLinked = new Set();
+
+/**
+ * A trip link opened in a browser that isn't signed in as me (WhatsApp's, Gmail's …): the trip is probably mine by e-mail.
+ * E-mail already verified on this device → link it to my profiles at once and open the trip; otherwise offer the e-mail sign-in
+ * (the code verifies once, and the device then stays signed in).
+ */
+function NotMineGate({ code, tripId, needEmail }) {
+  const verified = useStore((s) => Boolean(s.contact?.verified));
+  const [asking, setAsking] = useState(false);
+  const [tried, setTried] = useState(() => autoLinked.has(tripId));
+  useEffect(() => {
+    if (!verified || tried) return undefined;
+    autoLinked.add(tripId);
+    let alive = true;
+    (async () => {
+      const linked = await linkThisDevice();
+      if (linked.some((l) => l.trip_id === tripId)) await actions.openTrip(tripId, { force: true });
+      if (alive) setTried(true);
+    })();
+    return () => { alive = false; };
+  }, [verified, tried, tripId]);
+  if (code !== 'forbidden') return html`<${AccessGate} code=${code} />`;
+  if (needEmail || asking) return html`<${EmailGate} mode="signin" tripId=${tripId} />`;
+  if (verified && !tried) return html`<div class="screen gate"><${Skeleton} lines=${3} /></div>`;
+  return html`<${AccessGate} code=${code} onEmail=${() => setAsking(true)} />`;
 }
 
 function BootError({ code }) {
@@ -431,9 +460,9 @@ export function App() {
   if (route.name === 'notfound') body = html`<${NotFound} />`;
   else if (gated && error.code === 'forbidden') {
     // a fresh browser (Gmail's, WhatsApp's …) opening a link: the trip is probably mine by e-mail — verify it to link this device
-    const fallback = needEmail ? html`<${EmailGate} mode="signin" tripId=${routeTrip} />` : html`<${AccessGate} code=${error.code} />`;
+    const fallback = html`<${NotMineGate} code=${error.code} tripId=${routeTrip} needEmail=${needEmail} />`;
     body = html`<${PendingGate} key=${routeTrip} tripId=${routeTrip} fallback=${fallback} />`;
-  } else if (gated) body = html`<${AccessGate} code=${error.code} />`;
+  } else if (gated) body = html`<${NotMineGate} code=${error.code} tripId=${routeTrip} needEmail=${needEmail} />`;
   else if (emailGate) body = html`<${EmailGate} />`;
   else body = html`<${ScreenHost} route=${route} />`;
 

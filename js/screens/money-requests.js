@@ -4,15 +4,15 @@
 // Money collected before buying stays "בקופה" (out of the settle-up) until the purchase is recorded.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { actions, store } from '../store.js?v=853199b';
-import { href } from '../router.js?v=853199b';
+import { actions, store } from '../store.js?v=9252f89';
+import { href } from '../router.js?v=9252f89';
 import {
   actorName, balanceSettled, balances, displayName, expenseShares, formatMoney, headcountTotal, hebrewCount, moneyPots,
   partyBalances, personPhone, personsOf, titleSimilarity, whatsappChatUrl,
-} from '../lib/logic.js?v=853199b';
+} from '../lib/logic.js?v=9252f89';
 import {
   Avatar, Button, Card, CopyButton, Field, MemberPicker, MoneyInput, Segmented, Sheet, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=853199b';
+} from '../ui/components.js?v=9252f89';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const METHOD = { bit: '📱 ביט', paybox: '📦 פייבוקס', bank: '🏦 העברה בנקאית', cash: '💵 מזומן' };
