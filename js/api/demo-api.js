@@ -7,8 +7,8 @@
 // Every call loads a fresh copy, runs one RPC against it, and saves only on success —
 // so a failed call never leaves partial changes behind (like a SQL transaction).
 
-import { ApiError, flightFailure, flightInput } from './errors.js?v=8d87c37';
-import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=8d87c37';
+import { ApiError, flightFailure, flightInput } from './errors.js?v=5ff55d3';
+import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=5ff55d3';
 import {
   DEMO_VERSION,
   DEFAULT_CATEGORIES,
@@ -19,7 +19,7 @@ import {
   buildDemoSeed,
   demoFlight,
   jerusalemYmd,
-} from './demo-seed.js?v=8d87c37';
+} from './demo-seed.js?v=5ff55d3';
 
 export const DEMO_STORAGE_KEY = 'medura:demo:v1';
 export const DEMO_UID_KEY = 'medura:demo:uid';
@@ -277,6 +277,17 @@ function infoVal(v) {
     const u = v.album_url === '' ? null : v.album_url;
     if (u !== null && (typeof u !== 'string' || u.length > 500 || !/^https?:\/\/\S+$/.test(u))) bad();
     out.album_url = u;
+  }
+  if (has(v, 'retro')) {
+    // "what worked / what to change": two short notes (SQL: ≤600 chars each); null clears it
+    const r = v.retro;
+    if (r !== null) {
+      if (!isObj(r)) bad();
+      for (const k of ['worked', 'change']) {
+        if (r[k] != null && (typeof r[k] !== 'string' || cpLen(r[k]) > 600)) bad();
+      }
+    }
+    out.retro = r;
   }
   for (const key of ['bookings', 'costs', 'rooms']) {
     if (given(v, key)) {
@@ -673,6 +684,22 @@ function fmtShekel(amount) {
   return `₪${n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })}`;
 }
 
+// Mirrors SQL _on_notification: non-urgent, created 23:00-07:00 Israel time, and the trip isn't about to
+// start / under way -> delivery 'night' (one push bundle after 07:00); otherwise 'now'.
+function nightDelivery(ctx, tripId, urgent) {
+  if (urgent) return 'now';
+  const at = new Date(ctx.now());
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hourCycle: 'h23' }).format(at));
+  if (!(hour >= 23 || hour < 7)) return 'now';
+  const trip = ctx.db.trips.find((t) => t.id === tripId);
+  if (trip && trip.starts_at) {
+    const start = Date.parse(trip.starts_at);
+    const end = trip.ends_at ? Date.parse(trip.ends_at) : start + 86400000;
+    if (start < at.getTime() + 86400000 && end > at.getTime()) return 'now';
+  }
+  return 'night';
+}
+
 function notify(ctx, tripId, { title, body = null, audience = null, link = null, kind = 'system', exceptUser = null }) {
   ctx.db.notifications.push({
     id: newId(),
@@ -868,6 +895,7 @@ const NUDGE = {
   polls: ['📊 מחכים לקול שלך', 'עוד לא הצבעת · לוקח שנייה', '/messages'],
   lists: ['🤲 יש דברים שמחכים למישהו', 'עוד לא לקחת כלום', '/lists'],
   money: ['💰 בקשת תשלום מחכה לך', 'פרטי העברה בלחיצה', '/money'],
+  settle: ['🤝 עוד רגע סוגרים את הטיול', 'כשנוח לך — למי וכמה, בלחיצה. תודה! 🔥', '/money'],
 };
 
 /** A member's balance, the way the settle-up (logic.js balances) and the server's _member_balance count it. */
@@ -1782,8 +1810,17 @@ const RPC = {
     requireAdmin(ctx, tripId);
     if (!Object.prototype.hasOwnProperty.call(NUDGE, module)) bad();
     const trip = byId(db.trips, tripId);
-    const gap = moduleGaps(db, tripId).find((g) => g.key === module);
-    if (!gap) return 0;
+    let gap;
+    if (module === 'settle') {
+      // SQL: after the trip, whoever still owes in the settle-up (the balance, not an open request)
+      const end = trip.ends_at || (trip.starts_at ? new Date(new Date(trip.starts_at).getTime() + 86400000).toISOString() : null);
+      if (!end || new Date(ctx.now()) < new Date(end)) bad();
+      if (moduleOn(trip, 'money')) {
+        gap = { key: 'settle', missing: membersOf(db, tripId).sort(byCreated)
+          .filter((m) => db.member_users.some((l) => l.member_id === m.id) && memberBalance(db, tripId, m.id) < -1).map((m) => m.id) };
+      }
+    } else gap = moduleGaps(db, tripId).find((g) => g.key === module);
+    if (!gap || !gap.missing.length) return 0;
     const day = new Date(ctx.now()).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
     const kind = `nudge:${module}:${day}`;
     if (!Array.isArray(db.reminders_sent)) db.reminders_sent = [];
@@ -1791,7 +1828,7 @@ const RPC = {
     let count = 0;
     for (const id of gap.missing) {
       // money notifications switched off: a money nudge is one of them (SQL nudge_members)
-      if (module === 'money' && byId(db.members, id)?.prefs?.notify?.money === false) continue;
+      if ((module === 'money' || module === 'settle') && byId(db.members, id)?.prefs?.notify?.money === false) continue;
       if (db.reminders_sent.some((r) => r.trip_id === tripId && r.kind === kind && r.member_id === id)) continue;
       db.reminders_sent.push({ trip_id: tripId, kind, member_id: id, sent_at: ctx.now() });
       const m = byId(db.members, id);
@@ -1807,6 +1844,8 @@ const RPC = {
         const open = db.items.filter((i) => i.trip_id === tripId && i.status === 'active' && ['buy', 'bring', 'task'].includes(i.type)
           && !i.done && itemOnIn(trip, i.type) && !db.pledges.some((p) => p.item_id === i.id)).length;
         b = `${body} · ${open} פנויים`;
+      } else if (module === 'settle') {
+        t = `🤝 עוד רגע סוגרים את הטיול · ~${fmtShekel(Math.round(-memberBalance(db, tripId, id)))}`;
       } else if (module === 'money') {
         const mine = db.money_request_members
           .filter((x) => x.member_id === id && !x.payment_id)
@@ -3577,7 +3616,7 @@ const RPC = {
     const row = {
       id: newId(), trip_id: tripId, kind: 'announcement', title: t, body: b, audience: aud,
       author_member: me.id, urgent: urgent == null ? false : toBool(urgent), link: null, created_at: ctx.now(),
-      delivery: toBool(digest ?? false) && !toBool(urgent ?? false) ? 'digest' : 'now',
+      delivery: toBool(digest ?? false) && !toBool(urgent ?? false) ? 'digest' : nightDelivery(ctx, tripId, toBool(urgent ?? false)),
     };
     db.notifications.push(row);
     bump(ctx, tripId);

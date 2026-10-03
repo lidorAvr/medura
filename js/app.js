@@ -2,18 +2,18 @@
 import { html } from 'htm/preact';
 import { Component } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { useRoute, href, navigate } from './router.js?v=8d87c37';
-import { useStore, useTrip, actions, emailRequired } from './store.js?v=8d87c37';
-import { unreadCount } from './lib/logic.js?v=8d87c37';
-import { hebrewError } from './api/errors.js?v=8d87c37';
-import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=8d87c37';
-import { Icon } from './ui/icons.js?v=8d87c37';
-import { EmailGate, linkThisDevice } from './ui/email-gate.js?v=8d87c37';
-import { Tour, tourDue } from './ui/tour.js?v=8d87c37';
-import { PendingGate } from './ui/pending.js?v=8d87c37';
-import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=8d87c37';
-import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=8d87c37';
-import { answersOf } from './lib/overview.js?v=8d87c37';
+import { useRoute, href, navigate } from './router.js?v=5ff55d3';
+import { useStore, useTrip, actions, emailRequired } from './store.js?v=5ff55d3';
+import { unreadCount } from './lib/logic.js?v=5ff55d3';
+import { hebrewError } from './api/errors.js?v=5ff55d3';
+import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=5ff55d3';
+import { Icon } from './ui/icons.js?v=5ff55d3';
+import { EmailGate, linkThisDevice } from './ui/email-gate.js?v=5ff55d3';
+import { Tour, tourDue } from './ui/tour.js?v=5ff55d3';
+import { PendingGate } from './ui/pending.js?v=5ff55d3';
+import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=5ff55d3';
+import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=5ff55d3';
+import { answersOf } from './lib/overview.js?v=5ff55d3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -22,24 +22,24 @@ const cx = (...a) => a.filter(Boolean).join(' ');
 // ---------------------------------------------------------------------------
 
 const SCREENS = {
-  landing: './screens/dashboard.js?v=8d87c37',
-  invite: './screens/dashboard.js?v=8d87c37',
-  new: './screens/onboarding.js?v=8d87c37',
-  join: './screens/onboarding.js?v=8d87c37',
-  link: './screens/onboarding.js?v=8d87c37',
-  home: './screens/home.js?v=8d87c37',
-  trip: './screens/trip.js?v=8d87c37',
-  rides: './screens/rides.js?v=8d87c37',
-  lists: './screens/lists.js?v=8d87c37',
-  shop: './screens/shopping.js?v=8d87c37',
-  import: './screens/import.js?v=8d87c37',
-  build: './screens/build.js?v=8d87c37',
-  money: './screens/money.js?v=8d87c37',
-  messages: './screens/messages.js?v=8d87c37',
-  people: './screens/people.js?v=8d87c37',
-  me: './screens/me.js?v=8d87c37',
-  welcome: './screens/welcome.js?v=8d87c37',
-  signin: './screens/signin.js?v=8d87c37',
+  landing: './screens/dashboard.js?v=5ff55d3',
+  invite: './screens/dashboard.js?v=5ff55d3',
+  new: './screens/onboarding.js?v=5ff55d3',
+  join: './screens/onboarding.js?v=5ff55d3',
+  link: './screens/onboarding.js?v=5ff55d3',
+  home: './screens/home.js?v=5ff55d3',
+  trip: './screens/trip.js?v=5ff55d3',
+  rides: './screens/rides.js?v=5ff55d3',
+  lists: './screens/lists.js?v=5ff55d3',
+  shop: './screens/shopping.js?v=5ff55d3',
+  import: './screens/import.js?v=5ff55d3',
+  build: './screens/build.js?v=5ff55d3',
+  money: './screens/money.js?v=5ff55d3',
+  messages: './screens/messages.js?v=5ff55d3',
+  people: './screens/people.js?v=5ff55d3',
+  me: './screens/me.js?v=5ff55d3',
+  welcome: './screens/welcome.js?v=5ff55d3',
+  signin: './screens/signin.js?v=5ff55d3',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
@@ -296,13 +296,14 @@ function Toasts() {
 
 function AccessGate({ code, onEmail = null }) {
   const network = code === 'network';
-  const missing = code === 'not_found'; // deleted by an admin (or a link to a trip that never existed)
+  const missing = code === 'not_found' || code === 'invalid_input'; // (a malformed id in the link is just as "not found")
+  // not_found: deleted by an admin, or a link to a trip that never existed
   return html`<div class="screen gate">
     <div class="gate__brand" aria-hidden="true">🔥 מדורה</div>
     <${Card}>
       <${EmptyState}
         emoji=${network ? '📶' : missing ? '🪵' : '🔒'}
-        title=${network ? 'אין חיבור כרגע' : missing ? 'הטיול הזה לא קיים יותר' : 'הטיול הזה עוד לא אצלך'}
+        title=${network ? 'אין חיבור כרגע' : missing ? 'הטיול לא נמצא' : 'הטיול הזה עוד לא אצלך'}
         text=${network
           ? 'לא הצלחנו לטעון את הטיול. בדקו את החיבור ונסו שוב.'
           : missing
@@ -311,9 +312,11 @@ function AccessGate({ code, onEmail = null }) {
         action=${html`<div class="row row--center wrap">
           ${network
             ? html`<${Button} icon="refresh" onClick=${() => actions.refresh()}>לנסות שוב</${Button}>`
-            : html`<${Button} icon="link" href="#/?link=1">יש לי קישור</${Button}>
-              ${onEmail ? html`<${Button} variant="secondary" icon="user" data-testid="gate-email" onClick=${onEmail}>כבר הצטרפתי — התחברות עם המייל</${Button}>` : null}`}
-          <${Button} variant="ghost" href="#/">לטיולים שלי</${Button}>
+            : missing
+              ? html`<${Button} icon="home" href="#/">לטיולים שלי</${Button}>`
+              : html`<${Button} icon="link" href="#/?link=1">יש לי קישור</${Button}>
+                ${onEmail ? html`<${Button} variant="secondary" icon="user" data-testid="gate-email" onClick=${onEmail}>כבר הצטרפתי — התחברות עם המייל</${Button}>` : null}`}
+          ${missing ? html`<${Button} variant="ghost" icon="link" href="#/?link=1">יש לי קישור</${Button}>` : html`<${Button} variant="ghost" href="#/">לטיולים שלי</${Button}>`}
         </div>`}
       />
     </${Card}>

@@ -3,23 +3,23 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=8d87c37';
-import { href, navigate } from '../router.js?v=8d87c37';
+import { actions, store, useTrip } from '../store.js?v=5ff55d3';
+import { href, navigate } from '../router.js?v=5ff55d3';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
   memberNets, membersById, openMoneyRequests, partyBalances, partyName, partyOf, payingMembers, personPhone, personsOf, potSettings,
   settleNets, splitsMoney, timeAgo, titleSimilarity, tripPlan, tripTotals, whatsappChatUrl, whatsappShareUrl,
-} from '../lib/logic.js?v=8d87c37';
+} from '../lib/logic.js?v=5ff55d3';
 import {
   Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, Fold, MemberPicker, MoneyInput, OverBanner, Pill,
   ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=8d87c37';
-import { Icon } from '../ui/icons.js?v=8d87c37';
-import { CURRENCIES, dayOf, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=8d87c37';
-import { MoneyRequests, payMethodsOf } from './money-requests.js?v=8d87c37';
-import { FxToggle, PotCard, PotSetupLink, useFx } from './money-pot.js?v=8d87c37';
-import { expenseTagsFor } from '../lib/templates.js?v=8d87c37';
-import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=8d87c37';
+} from '../ui/components.js?v=5ff55d3';
+import { Icon } from '../ui/icons.js?v=5ff55d3';
+import { CURRENCIES, dayOf, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=5ff55d3';
+import { MoneyRequests, payMethodsOf } from './money-requests.js?v=5ff55d3';
+import { FxToggle, PotCard, PotSetupLink, useFx } from './money-pot.js?v=5ff55d3';
+import { expenseTagsFor } from '../lib/templates.js?v=5ff55d3';
+import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=5ff55d3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 

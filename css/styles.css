@@ -1355,7 +1355,21 @@ button.chip:active { transform: scale(0.94); }
 .input[aria-invalid="true"]:focus { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 16%, transparent); }
 .input:disabled { opacity: 0.6; }
 .input[type="date"],
-.input[type="time"] { min-width: 0; text-align: start; }
+.input[type="time"],
+.input[type="datetime-local"] { min-width: 0; text-align: start; padding-inline: 10px; } /* F-39: leave room for the whole date on 360px phones */
+.input[type="date"]::-webkit-datetime-edit,
+.input[type="time"]::-webkit-datetime-edit,
+.input[type="datetime-local"]::-webkit-datetime-edit { padding: 0; }
+.input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+.input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+.input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+@media (max-width: 420px) {
+  /* a date-time field is too wide for half a row on a small phone: stack the pair */
+  .date-pair:has(.input[type="datetime-local"]) { grid-template-columns: minmax(0, 1fr); }
+  /* a date next to a time: the time gets just what its value needs (~97px), the date the rest */
+  .date-pair:has(.input[type="time"]),
+  .grid-2:has(.input[type="date"]):has(.input[type="time"]) { grid-template-columns: minmax(0, 1fr) 106px; }
+}
 .input[type="date"]::-webkit-calendar-picker-indicator,
 .input[type="time"]::-webkit-calendar-picker-indicator { opacity: 0.6; cursor: pointer; }
 .input[type="tel"],

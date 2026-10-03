@@ -4,17 +4,17 @@
 // picks which ways a trip offers (settings.arrival). Used on the rides tab, the trip screen and the wizard.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=8d87c37';
-import { navigate } from '../router.js?v=8d87c37';
-import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel, tripPhase } from '../lib/logic.js?v=8d87c37';
-import { AIRPORTS, ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=8d87c37';
-import { CrewArrival } from '../ui/crew-arrival.js?v=8d87c37';
-import { WithPicker, withIds } from '../ui/arrive-with.js?v=8d87c37';
-import { findFlight, flightCode, flightDest, flightFit, hmOf, isFlightNumber, isYmd, legDate, travelFromFlight } from '../lib/flights.js?v=8d87c37';
-import { hasCoords, navLinks } from '../lib/places.js?v=8d87c37';
-import { FlightLive, LookupNote, nearOf, tripDays, useFlightLookup, wall, whereOf } from './trip-extras.js?v=8d87c37';
-import { PlaceInput } from '../ui/place-input.js?v=8d87c37';
-import { Avatar, Button, Card, Chip, Field, OverBanner, Sheet, Skeleton, Stepper, TextInput, confirmDialog, tripOver } from '../ui/components.js?v=8d87c37';
+import { actions, useTrip } from '../store.js?v=5ff55d3';
+import { navigate } from '../router.js?v=5ff55d3';
+import { displayName, flightModel, formatDate, formatTime, hebrewCount, ilIso, ilWall, rideModel, tripPhase } from '../lib/logic.js?v=5ff55d3';
+import { AIRPORTS, ARRIVAL_MODES, arrivalOf } from '../lib/templates.js?v=5ff55d3';
+import { CrewArrival } from '../ui/crew-arrival.js?v=5ff55d3';
+import { WithPicker, withIds } from '../ui/arrive-with.js?v=5ff55d3';
+import { findFlight, flightCode, flightDest, flightFit, hmOf, isFlightNumber, isYmd, legDate, travelFromFlight } from '../lib/flights.js?v=5ff55d3';
+import { hasCoords, navLinks } from '../lib/places.js?v=5ff55d3';
+import { FlightLive, LookupNote, nearOf, tripDays, useFlightLookup, wall, whereOf } from './trip-extras.js?v=5ff55d3';
+import { PlaceInput } from '../ui/place-input.js?v=5ff55d3';
+import { Avatar, Button, Card, Chip, Field, OverBanner, Sheet, Skeleton, Stepper, TextInput, confirmDialog, tripOver } from '../ui/components.js?v=5ff55d3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const ok = (fn) => async (api) => {

@@ -4,25 +4,25 @@
 // only: the album on top, schedule / rules / notes folded to rows, no weather, navigation, invite or rides.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=8d87c37';
+import { actions, useTrip } from '../store.js?v=5ff55d3';
 import {
   AIRPORTS, ARRIVAL_MODES, FAMILIES, MODULES, arrivalOf, composeType, dayCount, hasLists, hasModule, resolveType, schedulePlan,
   schedulePresets,
-} from '../lib/templates.js?v=8d87c37';
-import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=8d87c37';
-import { PlaceInput } from '../ui/place-input.js?v=8d87c37';
-import { CURRENCIES } from '../lib/fx.js?v=8d87c37';
-import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=8d87c37';
-import { href, navigate } from '../router.js?v=8d87c37';
+} from '../lib/templates.js?v=5ff55d3';
+import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=5ff55d3';
+import { PlaceInput } from '../ui/place-input.js?v=5ff55d3';
+import { CURRENCIES } from '../lib/fx.js?v=5ff55d3';
+import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=5ff55d3';
+import { href, navigate } from '../router.js?v=5ff55d3';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, adminPersons,
   rideModel, tripOver,
-} from '../lib/logic.js?v=8d87c37';
+} from '../lib/logic.js?v=5ff55d3';
 import {
   Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, Fold, IconButton, MemberPicker, OverBanner, Sheet,
   ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=8d87c37';
-import { Icon } from '../ui/icons.js?v=8d87c37';
+} from '../ui/components.js?v=5ff55d3';
+import { Icon } from '../ui/icons.js?v=5ff55d3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';
@@ -1256,7 +1256,7 @@ function EditTripSheet({ open, onClose, trip, snap, section = null }) {
 
       <section class="trip-edit__group" data-section="when">
         <h3 class="trip-edit__h">📅 מתי</h3>
-        <div class="grid-2">
+        <div class="date-pair trip-edit__dates">
           <${Field} label="תאריך יציאה" error=${errors.startDate}>
             <${TextInput} type="date" value=${d.startDate} onInput=${(e) => {
               const v = e.target.value;

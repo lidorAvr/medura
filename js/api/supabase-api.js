@@ -2,7 +2,7 @@
 // Every method is a thin camelCase wrapper around one RPC from SPEC §4 with the exact
 // `p_*` parameter names. All failures are normalized to ApiError via toApiError.
 
-import { ApiError, FLIGHT_ERROR_CODES, flightFailure, flightInput, toApiError } from './errors.js?v=8d87c37';
+import { ApiError, FLIGHT_ERROR_CODES, flightFailure, flightInput, toApiError } from './errors.js?v=5ff55d3';
 
 const POLL_MS = 45000;
 

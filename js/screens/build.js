@@ -4,15 +4,15 @@
 // one save (add_items_bulk in chunks) → lists.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=8d87c37';
-import { navigate, href } from '../router.js?v=8d87c37';
-import { hebrewCount, parseListText, similarItems, titleSimilarity } from '../lib/logic.js?v=8d87c37';
-import { hasModule, itemTypeOn, suggestionsFor, tripType } from '../lib/templates.js?v=8d87c37';
-import { Button, EmptyState, IconButton, Skeleton, fireConfetti } from '../ui/components.js?v=8d87c37';
+import { actions, useTrip } from '../store.js?v=5ff55d3';
+import { navigate, href } from '../router.js?v=5ff55d3';
+import { hebrewCount, parseListText, similarItems, titleSimilarity } from '../lib/logic.js?v=5ff55d3';
+import { hasModule, itemTypeOn, suggestionsFor, tripType } from '../lib/templates.js?v=5ff55d3';
+import { Button, EmptyState, IconButton, Skeleton, fireConfetti } from '../ui/components.js?v=5ff55d3';
 import {
   DraftRows, assignMode, isTasksCategory, markDups, resolveWho, saveDrafts, tripNames,
-} from '../ui/draft-rows.js?v=8d87c37';
-import { cx, emojiKey, matchCategory, normText, sortedCategories } from './lists.js?v=8d87c37';
+} from '../ui/draft-rows.js?v=5ff55d3';
+import { cx, emojiKey, matchCategory, normText, sortedCategories } from './lists.js?v=5ff55d3';
 
 const SUGGESTIONS_SHOWN = 12;
 // A category hints at the likely item type when neither its items nor the trip type say otherwise.

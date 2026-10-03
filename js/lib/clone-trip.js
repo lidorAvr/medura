@@ -2,7 +2,7 @@
 // categories in order) without what belonged to that one trip (the people, who took what, ticks, bookings, costs, rooms, the
 // money, the album). Built from the old trip's snapshot and sent through the same calls the new-trip wizard uses, so the
 // server needs nothing new. The caller becomes the owner of the new trip; the group is invited from "מטיולים קודמים".
-import { ilIso, ilWall } from './logic.js?v=8d87c37';
+import { ilIso, ilWall } from './logic.js?v=5ff55d3';
 
 const DAY_MS = 86400000;
 const HM = /^\d{2}:\d{2}$/;

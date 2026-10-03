@@ -3,8 +3,8 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=8d87c37';
-import { href, navigate } from '../router.js?v=8d87c37';
+import { actions, useTrip } from '../store.js?v=5ff55d3';
+import { href, navigate } from '../router.js?v=5ff55d3';
 import {
   actorName,
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
@@ -12,19 +12,19 @@ import {
   visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats, adminPersons, personsOf,
   departureOf, myRideText, pinnedNotices, myInbox, tripPlan, moneyPots, myNet, openMoneyRequests, partyBalances,
   partyName, partyOf, splitsMoney,
-} from '../lib/logic.js?v=8d87c37';
+} from '../lib/logic.js?v=5ff55d3';
 import {
   Avatar, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js?v=8d87c37';
-import { Icon } from '../ui/icons.js?v=8d87c37';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=8d87c37';
-import { InboxCard } from '../ui/inbox.js?v=8d87c37';
-import { CloneSheet } from '../ui/clone-sheet.js?v=8d87c37';
-import { payMethodsOf } from './money-requests.js?v=8d87c37';
-import { AlbumSheet } from './trip-extras.js?v=8d87c37';
-import { hebrewError } from '../api/errors.js?v=8d87c37';
-import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=8d87c37';
+} from '../ui/components.js?v=5ff55d3';
+import { Icon } from '../ui/icons.js?v=5ff55d3';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=5ff55d3';
+import { InboxCard } from '../ui/inbox.js?v=5ff55d3';
+import { CloneSheet } from '../ui/clone-sheet.js?v=5ff55d3';
+import { payMethodsOf } from './money-requests.js?v=5ff55d3';
+import { AlbumSheet } from './trip-extras.js?v=5ff55d3';
+import { hebrewError } from '../api/errors.js?v=5ff55d3';
+import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=5ff55d3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 3;
@@ -603,6 +603,8 @@ const prettyPhone = (phone) => {
 function AfterCard({ snap, me, isAdmin, onAlbum }) {
   const trip = snap.trip;
   const [cloning, setCloning] = useState(false);
+  const [retroOpen, setRetroOpen] = useState(false);
+  const [nudging, setNudging] = useState(false);
   const money = hasModule(trip, 'money');
   const bals = money ? balances(snap) : [];
   // the same plan the money screen shows (a couple that pays each their own part settles per person)
@@ -653,6 +655,16 @@ function AfterCard({ snap, me, isAdmin, onAlbum }) {
     sentRows.length ? (sentRows.length === 1 ? 'העברה אחת מחכה לאישור' : `${sentRows.length} העברות מחכות לאישור`) : null,
   ].filter(Boolean);
   const moneyHref = href(`/t/${trip.id}/money`);
+  // 🔔 one tap: a friendly "almost done" nudge to everyone who still owes (server: nudge_members 'settle', once a day each)
+  const nudgeOwing = async () => {
+    setNudging(true);
+    const n = await actions.run((api) => api.nudgeMembers(trip.id, 'settle'), { refresh: false });
+    setNudging(false);
+    if (n == null) return;
+    actions.toast(n ? `נשלחה תזכורת חיובית ל-${hebrewCount(n, 'משתתף/ת', 'משתתפים')} 🤝` : 'כולם כבר קיבלו תזכורת היום 🙂', 'success', 3200);
+  };
+  const retro = trip.info?.retro || null;
+  const hasRetro = Boolean(retro && (String(retro.worked || '').trim() || String(retro.change || '').trim()));
 
   const stats = tripStats(snap);
   const album = trip.info?.album_url || null;
@@ -708,7 +720,10 @@ function AfterCard({ snap, me, isAdmin, onAlbum }) {
         ? html`<a class="after__row" href=${moneyHref} data-testid="after-admin">
             <span>👑 ${pct >= 100 && adminParts.length ? 'כמעט סגור' : html`נסגר <b class="num">${pct}%</b>`}${adminParts.length ? ` · ${adminParts.join(' · ')}` : ''}</span>
             <${Icon} name="chevron-left" size=${16} />
-          </a>`
+          </a>
+          ${openFrom
+            ? html`<${Button} variant="secondary" size="sm" block loading=${nudging} onClick=${nudgeOwing} data-testid="after-nudge">🔔 שליחת תזכורת חיובית${openFrom === 1 ? ' למי שעוד לא סגר' : ` ל-${openFrom} שעוד לא סגרו`}</${Button}>`
+            : null}`
         : !action
           ? html`<a class="after__row" href=${moneyHref}><span>לפרטים במסך הכסף</span><${Icon} name="chevron-left" size=${16} /></a>`
           : null}
@@ -717,6 +732,16 @@ function AfterCard({ snap, me, isAdmin, onAlbum }) {
 
   return html`<section class="after" data-testid="after">
     ${moneyBody}
+    ${hasRetro
+      ? html`<div class="after__retro" data-testid="after-retro">
+          ${String(retro.worked || '').trim() ? html`<p><span aria-hidden="true">👍</span> <b>מה עבד:</b> ${retro.worked}</p>` : null}
+          ${String(retro.change || '').trim() ? html`<p><span aria-hidden="true">🔧</span> <b>לשנות בפעם הבאה:</b> ${retro.change}</p>` : null}
+          ${isAdmin ? html`<button type="button" class="link small" onClick=${() => setRetroOpen(true)} data-testid="after-retro-edit">עריכה</button>` : null}
+        </div>`
+      : isAdmin
+        ? html`<${Button} variant="secondary" block onClick=${() => setRetroOpen(true)} data-testid="after-retro-add">📝 מה עבד ומה לשנות בפעם הבאה</${Button}>`
+        : null}
+    ${isAdmin ? html`<${RetroSheet} open=${retroOpen} onClose=${() => setRetroOpen(false)} trip=${trip} />` : null}
     ${isAdmin
       ? html`<div class="after__again" data-testid="after-again"><${Button} variant="secondary" block onClick=${() => setCloning(true)}>🔁 לעשות את זה שוב — טיול חדש מהרשימות האלה</${Button}>
           <${CloneSheet} open=${cloning} tripId=${trip.id} name=${trip.name} snap=${snap} onClose=${() => setCloning(false)} /></div>`
@@ -736,6 +761,45 @@ function AfterCard({ snap, me, isAdmin, onAlbum }) {
       <${ShareButton} text=${share} label="שיתוף ״הטיול במספרים״" variant="secondary" block />
     </div>
   </section>`;
+}
+
+/** "מה עבד / מה לשנות": two short notes saved into info.retro (update_trip merges info). Offered again when the trip is cloned. */
+function RetroSheet({ open, onClose, trip }) {
+  const [worked, setWorked] = useState('');
+  const [change, setChange] = useState('');
+  const [saving, setSaving] = useState(false);
+  useLayoutEffect(() => {
+    if (!open) return;
+    setWorked(trip.info?.retro?.worked || '');
+    setChange(trip.info?.retro?.change || '');
+    setSaving(false);
+  }, [open]);
+  const submit = async (e) => {
+    e?.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    const w = worked.trim();
+    const c = change.trim();
+    const res = await actions.run(
+      async (api) => { await api.updateTrip(trip.id, { info: { retro: w || c ? { worked: w || null, change: c || null } : null } }); return true; },
+      { success: 'נשמר 📝 נזכיר את זה כשיוצאים שוב' },
+    );
+    setSaving(false);
+    if (res) onClose();
+  };
+  return html`<${Sheet} open=${open} onClose=${onClose} title="📝 מה למדנו מהטיול"
+    footer=${html`<${Button} type="submit" form="retro-form" block loading=${saving} data-testid="retro-save">שמירה</${Button}>`}>
+    <form id="retro-form" class="stack" onSubmit=${submit} noValidate>
+      <${Field} label="👍 מה עבד טוב?">
+        <${TextArea} value=${worked} maxlength="600" rows="3" placeholder="למשל: הרשימה המשותפת, המנגל בשבת" data-autofocus data-testid="retro-worked"
+          onInput=${(e) => setWorked(e.target.value)} />
+      </${Field}>
+      <${Field} label="🔧 מה נשנה בפעם הבאה?" hint="יופיע לך כשתעשו את הטיול הזה שוב">
+        <${TextArea} value=${change} maxlength="600" rows="3" placeholder="למשל: לצאת מוקדם יותר, עוד מים" data-testid="retro-change"
+          onInput=${(e) => setChange(e.target.value)} />
+      </${Field}>
+    </form>
+  </${Sheet}>`;
 }
 
 function Readiness({ model }) {

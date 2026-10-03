@@ -5,18 +5,18 @@
 // Also exports `ProfileForm`, reused by the People screen for "הוסף פרופיל לחבר/ה".
 import { html } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=8d87c37';
-import { cleanPhone } from '../ui/account.js?v=8d87c37';
-import { navigate } from '../router.js?v=8d87c37';
+import { useTrip, useStore, actions, emailRequired, store } from '../store.js?v=5ff55d3';
+import { cleanPhone } from '../ui/account.js?v=5ff55d3';
+import { navigate } from '../router.js?v=5ff55d3';
 import {
   Avatar, Button, Card, Chip, ColorPicker, CopyButton, EmojiPicker, Field, Pill, Segmented, Sheet,
   ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, Fold,
-} from '../ui/components.js?v=8d87c37';
-import { Icon } from '../ui/icons.js?v=8d87c37';
-import { CoupleCard } from '../ui/couple.js?v=8d87c37';
-import { disablePush, enablePush, pushState } from '../lib/device.js?v=8d87c37';
-import { arrivalOf, resolveType, tripType } from '../lib/templates.js?v=8d87c37';
-import { adminPersons, deviceLinkUrl, displayName, formatMoney, payingMembers, personsOf, whatsappChatUrl } from '../lib/logic.js?v=8d87c37';
+} from '../ui/components.js?v=5ff55d3';
+import { Icon } from '../ui/icons.js?v=5ff55d3';
+import { CoupleCard } from '../ui/couple.js?v=5ff55d3';
+import { disablePush, enablePush, pushState } from '../lib/device.js?v=5ff55d3';
+import { arrivalOf, resolveType, tripType } from '../lib/templates.js?v=5ff55d3';
+import { adminPersons, deviceLinkUrl, displayName, formatMoney, payingMembers, personsOf, whatsappChatUrl } from '../lib/logic.js?v=5ff55d3';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -63,6 +63,7 @@ const REMINDER_KEYS = [
   ['expense_missing', '🧾 לרשום הוצאה על הקניות', 'בערב שלפני היציאה, אם יש לך קניות ועוד לא רשמת הוצאה (מנהלים: מי עוד לא)'],
   ['departure_morning', '🚗 בוקר היציאה', 'מה לא לשכוח לפני שיוצאים'],
   ['pay_after_trip', '💸 אחרי הטיול — להתחשבן', 'למי להעביר וכמה'],
+  ['tidy_up', '🧹 סגירת הטיול (מנהלים)', 'יום ושבוע אחרי הטיול — מי עוד לא סגר, ולכתוב מה עבד ומה לשנות'],
 ];
 
 const DEFAULT_QUIET = { from: '22:30', to: '07:00' };
@@ -447,25 +448,54 @@ function InventoryCard({ me }) {
 function DietCard({ me }) {
   const server = String(me.prefs?.diet || '');
   const [text, setText] = useState(server);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => setText(server), [server]);
-  const dirty = text.trim() !== server.trim();
+  const [status, setStatus] = useState('idle'); // idle | saving | saved
+  const textRef = useRef(text);
+  const lastSaved = useRef(server.trim()); // what the server is known to hold (or is about to)
+  const timer = useRef(0);
+  const doneTimer = useRef(0);
+  textRef.current = text;
+  // a change that came from elsewhere (another device / refresh) replaces the text only if I haven't typed since
+  useEffect(() => {
+    if (textRef.current.trim() === lastSaved.current) setText(server);
+    lastSaved.current = server.trim();
+  }, [server]);
+  useEffect(() => () => { clearTimeout(timer.current); clearTimeout(doneTimer.current); }, []);
+
+  // F-52: no save button, the text saves itself shortly after typing stops
+  const save = async (value) => {
+    const v = value.trim();
+    if (v === lastSaved.current) return;
+    lastSaved.current = v;
+    setStatus('saving');
+    const done = await actions.run(ok((api) => api.updateMember(me.id, { prefs: { diet: v } })));
+    if (!done) lastSaved.current = null; // failed (a toast says so): the next edit retries
+    setStatus(done ? 'saved' : 'idle');
+    clearTimeout(doneTimer.current);
+    if (done) doneTimer.current = setTimeout(() => setStatus('idle'), 2200);
+  };
+  const change = (value) => {
+    setText(value);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => save(value), 800);
+  };
+  const flush = () => {
+    clearTimeout(timer.current);
+    save(textRef.current);
+  };
 
   const addChip = (chip) => {
     const t = text.trim();
     if (t.includes(chip)) return;
-    setText(t ? `${t}, ${chip}` : chip);
+    change(t ? `${t}, ${chip}` : chip);
   };
 
-  const save = async () => {
-    setBusy(true);
-    await actions.run(ok((api) => api.updateMember(me.id, { prefs: { diet: text.trim() } })), {
-      success: 'ההעדפות נשמרו 🍽️',
-    });
-    setBusy(false);
-  };
+  const statusNode = status === 'saving'
+    ? html`<span class="me-saved is-saving" aria-live="polite">שומר…</span>`
+    : status === 'saved'
+      ? html`<span class="me-saved" aria-live="polite"><${Icon} name="check" size=${14} /> נשמר</span>`
+      : html`<span class="me-saved" aria-live="polite"></span>`;
 
-  return html`<${Card} emoji="🍽️" title="אוכל והעדפות" class="me-diet">
+  return html`<${Card} emoji="🍽️" title="אוכל והעדפות" class="me-diet" action=${statusNode}>
     <p class="muted small me-card__lead">ככה מי שקונה יודע/ת — צמחוני? בלי גלוטן? אוהבים יין מבעבע? 🥂</p>
     <div class="h-scroll me-diet__chips" role="group" aria-label="הוספה מהירה">
       ${DIET_CHIPS.map((c) => html`<${Chip} key=${c} active=${text.includes(c)} onClick=${() => addChip(c)}>${c}</${Chip}>`)}
@@ -476,15 +506,10 @@ function DietCard({ me }) {
         rows=${2}
         maxlength="300"
         placeholder="למשל: איתי צמחוני, נועה בלי חריף 🌶️"
-        onInput=${(e) => setText(e.target.value)}
+        onInput=${(e) => change(e.target.value)}
+        onBlur=${flush}
       />
     </${Field}>
-    ${dirty
-      ? html`<div class="row me-diet__actions">
-          <${Button} variant="primary" icon="check" loading=${busy} onClick=${save}>שמירה</${Button}>
-          <${Button} variant="ghost" disabled=${busy} onClick=${() => setText(server)}>ביטול</${Button}>
-        </div>`
-      : null}
   </${Card}>`;
 }
 
@@ -544,7 +569,7 @@ function NotifyCard({ me, tripId, trip, admin }) {
       ? html`<div class="me-sub">
           <h3 class="me-sub__title">אילו תזכורות?</h3>
           <div class="me-toggles">
-            ${REMINDER_KEYS.filter(([k]) => admin || k !== 'unclaimed').map(([k, label, hint]) => html`<${Toggle}
+            ${REMINDER_KEYS.filter(([k]) => admin || (k !== 'unclaimed' && k !== 'tidy_up')).map(([k, label, hint]) => html`<${Toggle}
               key=${k}
               checked=${prefs.reminders[k]}
               label=${label}

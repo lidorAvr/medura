@@ -1326,6 +1326,11 @@ function joinNotes(parts) {
 
 const NUM_WORD_RE = new RegExp(`^${NUM}\\s+\\p{L}[\\p{L}׳'"]*$`, 'u'); // "2 ארגזים" as a side segment
 
+/** 1-2 plain words (Hebrew/Latin letters only): looks like a person's name. */
+function looksLikeName(t) {
+  return /^[\p{L}'׳]{2,}(?: [\p{L}'׳]{2,})?$/u.test(t) && !/\d/.test(t);
+}
+
 /** Parses one list line into an item token (or a note / skip token). */
 function parseItemLine(body, raw, ctx) {
   let s = body;
@@ -1406,6 +1411,23 @@ function parseItemLine(body, raw, ctx) {
     }
   }
   segs.push({ text: s.slice(start), i: start });
+
+  // "נועה - מנגל" / "נועה לוי: 2 חבילות פחמים": a leading person name (a member or not) is not the item.
+  // The name stays as a note; the item is the segment that looks like one (leading quantity or verb).
+  {
+    const live = segs.filter((g) => g.text.trim() && !(qtyOnly(g.text.trim())?.qty != null));
+    const [a, b] = live;
+    if (a && b && a === segs.find((g) => g.text.trim()) && looksLikeName(a.text.trim()) && !catHits(a.text, ITEM_MATCHERS).length) {
+      const bt = b.text.trim();
+      // (a bare item word after the name — "רון - פחמים" — keeps the older reading: master's tests pin it)
+      // a lone first word + "2 מטר" is as likely an item ("חבל - 2 מטר"): only a full name (2+ words) or a verb splits
+      const itemish = LEADING_VERB_RE.test(bt) || (leadingQty(bt)?.qty != null && a.text.trim().split(/\s+/).length >= 2);
+      if (itemish) {
+        notes.push({ i: a.i, text: a.text.trim() });
+        segs.splice(segs.indexOf(a), 1);
+      }
+    }
+  }
 
   let qty = null;
   let unit = null;
@@ -2653,6 +2675,11 @@ export function tripPhase(trip, now = new Date()) {
 /** The trip is over ('after' / 'past'): every tab switches to "closing the trip · read only" (ux-spec §3.1). */
 export function tripOver(trip, now = new Date()) {
   return ['after', 'past'].includes(tripPhase(trip, now));
+}
+
+/** Alias of tripOver (F-46): true once the trip is over, so creation buttons make no sense any more. */
+export function tripEnded(trip, now = new Date()) {
+  return tripOver(trip, now);
 }
 
 /**

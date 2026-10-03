@@ -496,3 +496,9 @@
 .home-news__body { -webkit-line-clamp: 2; line-clamp: 2; }
 .home-news__foot .avatar { display: none; }
 .checklist .checklist__bar { display: none; }
+
+.after__retro { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--accent, #2F6B4F) 8%, var(--surface)); font-size: 0.9375rem; line-height: 1.45; }
+.after__retro p { margin: 0; }
+.after__retro .link { align-self: flex-start; min-height: 32px; }
+.clone__retro { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--accent, #2F6B4F) 10%, var(--surface)); font-size: 0.9375rem; line-height: 1.45; }
+.clone__retro p { margin: 0; }

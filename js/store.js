@@ -1,11 +1,11 @@
 // App store (SPEC §7.3): one tiny observable object + hooks + actions.
 import { useEffect, useReducer, useRef } from 'preact/hooks';
-import { createApi } from './api/index.js?v=8d87c37';
-import { hebrewError, toApiError } from './api/errors.js?v=8d87c37';
-import { isAdmin as memberIsAdmin, tripPhase, visibleNotifications } from './lib/logic.js?v=8d87c37';
-import { parseHash, navigate } from './router.js?v=8d87c37';
-import { withModules } from './lib/templates.js?v=8d87c37';
-import { landingTrip } from './lib/overview.js?v=8d87c37';
+import { createApi } from './api/index.js?v=5ff55d3';
+import { hebrewError, toApiError } from './api/errors.js?v=5ff55d3';
+import { isAdmin as memberIsAdmin, tripPhase, visibleNotifications } from './lib/logic.js?v=5ff55d3';
+import { parseHash, navigate } from './router.js?v=5ff55d3';
+import { withModules } from './lib/templates.js?v=5ff55d3';
+import { landingTrip } from './lib/overview.js?v=5ff55d3';
 
 const THEME_KEY = 'medura:theme';
 const THEMES = ['auto', 'light', 'dark'];
