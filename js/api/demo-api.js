@@ -7,8 +7,8 @@
 // Every call loads a fresh copy, runs one RPC against it, and saves only on success —
 // so a failed call never leaves partial changes behind (like a SQL transaction).
 
-import { ApiError, flightFailure, flightInput } from './errors.js?v=5ff55d3';
-import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=5ff55d3';
+import { ApiError, flightFailure, flightInput } from './errors.js?v=dded77b';
+import { balances, eachSplitOf, expenseShares, partyBalances, splitsItems, splitsMoney } from '../lib/logic.js?v=dded77b';
 import {
   DEMO_VERSION,
   DEFAULT_CATEGORIES,
@@ -19,7 +19,7 @@ import {
   buildDemoSeed,
   demoFlight,
   jerusalemYmd,
-} from './demo-seed.js?v=5ff55d3';
+} from './demo-seed.js?v=dded77b';
 
 export const DEMO_STORAGE_KEY = 'medura:demo:v1';
 export const DEMO_UID_KEY = 'medura:demo:uid';
@@ -896,6 +896,7 @@ const NUDGE = {
   lists: ['🤲 יש דברים שמחכים למישהו', 'עוד לא לקחת כלום', '/lists'],
   money: ['💰 בקשת תשלום מחכה לך', 'פרטי העברה בלחיצה', '/money'],
   settle: ['🤝 עוד רגע סוגרים את הטיול', 'כשנוח לך — למי וכמה, בלחיצה. תודה! 🔥', '/money'],
+  confirm: ['✅ העברות מחכות לאישור שלך', 'הכסף הגיע? לחיצה אחת ב"הכסף הגיע" וסגרנו. תודה! 🔥', '/money'],
 };
 
 /** A member's balance, the way the settle-up (logic.js balances) and the server's _member_balance count it. */
@@ -1819,6 +1820,13 @@ const RPC = {
         gap = { key: 'settle', missing: membersOf(db, tripId).sort(byCreated)
           .filter((m) => db.member_users.some((l) => l.member_id === m.id) && memberBalance(db, tripId, m.id) < -1).map((m) => m.id) };
       }
+    } else if (module === 'confirm') {
+      // SQL: whoever was paid and hasn't confirmed — a transfer to them is still 'sent'
+      if (moduleOn(trip, 'money')) {
+        gap = { key: 'confirm', missing: membersOf(db, tripId).sort(byCreated)
+          .filter((m) => db.member_users.some((l) => l.member_id === m.id)
+            && db.payments.some((p) => p.trip_id === tripId && p.to_member === m.id && p.status === 'sent' && p.from_member !== p.to_member)).map((m) => m.id) };
+      }
     } else gap = moduleGaps(db, tripId).find((g) => g.key === module);
     if (!gap || !gap.missing.length) return 0;
     const day = new Date(ctx.now()).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
@@ -1828,7 +1836,7 @@ const RPC = {
     let count = 0;
     for (const id of gap.missing) {
       // money notifications switched off: a money nudge is one of them (SQL nudge_members)
-      if ((module === 'money' || module === 'settle') && byId(db.members, id)?.prefs?.notify?.money === false) continue;
+      if ((module === 'money' || module === 'settle' || module === 'confirm') && byId(db.members, id)?.prefs?.notify?.money === false) continue;
       if (db.reminders_sent.some((r) => r.trip_id === tripId && r.kind === kind && r.member_id === id)) continue;
       db.reminders_sent.push({ trip_id: tripId, kind, member_id: id, sent_at: ctx.now() });
       const m = byId(db.members, id);
@@ -1844,6 +1852,10 @@ const RPC = {
         const open = db.items.filter((i) => i.trip_id === tripId && i.status === 'active' && ['buy', 'bring', 'task'].includes(i.type)
           && !i.done && itemOnIn(trip, i.type) && !db.pledges.some((p) => p.item_id === i.id)).length;
         b = `${body} · ${open} פנויים`;
+      } else if (module === 'confirm') {
+        const mine = db.payments.filter((p) => p.trip_id === tripId && p.to_member === id && p.status === 'sent' && p.from_member !== p.to_member);
+        const sum = mine.reduce((s, p) => s + Number(p.amount), 0);
+        t = `✅ ${mine.length === 1 ? 'העברה אחת מחכה' : `${mine.length} העברות מחכות`} לאישור שלך · ${fmtShekel(sum)}`;
       } else if (module === 'settle') {
         t = `🤝 עוד רגע סוגרים את הטיול · ~${fmtShekel(Math.round(-memberBalance(db, tripId, id)))}`;
       } else if (module === 'money') {

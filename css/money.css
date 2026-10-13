@@ -743,3 +743,12 @@ ul.list { list-style: none; margin: 0; padding: 0; }
 .pot-tag { font-weight: 700; color: var(--accent-text); }
 .pot-toggle { padding: 4px 0; }
 .money-pot-link { align-self: flex-start; min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; color: var(--muted); }
+
+/* "שילמתי אני": filter chips + the summary of what I paid */
+.money-who-filter { padding-block: 2px 8px; }
+.money-mine-summary { padding: 12px 14px; margin-bottom: 10px; display: grid; gap: 6px; }
+.money-mine-summary__row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.money-mine-summary__row--accent { color: var(--primary-text, inherit); }
+.money-mine-summary__kinds { list-style: none; margin: 6px 0 0; padding: 8px 0 0; border-top: 1px dashed var(--border); display: grid; gap: 4px; font-size: 0.9rem; }
+.money-mine-summary__kinds li { display: flex; justify-content: space-between; gap: 8px; }
+.money-nudge-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; margin-bottom: 8px; border-radius: 14px; background: var(--surface-2); }

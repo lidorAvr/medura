@@ -3,15 +3,15 @@
 // Times here are wall-clock strings ('YYYY-MM-DDTHH:MM', local to the place) — shown as typed.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=5ff55d3';
-import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=5ff55d3';
-import { hasModule, resolveType } from '../lib/templates.js?v=5ff55d3';
-import { symbolOf } from '../lib/fx.js?v=5ff55d3';
-import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=5ff55d3';
-import { navLinks } from '../lib/places.js?v=5ff55d3';
-import { PlaceInput } from '../ui/place-input.js?v=5ff55d3';
-import { CHECKIN_HOURS, checkinDue, checkinItem, checkinStatus, syncCheckin } from '../lib/checkin.js?v=5ff55d3';
-import { Button, Card, Chip, Field, IconButton, MemberPicker, Segmented, Sheet, Stepper, TextInput, Toggle, confirmDialog } from '../ui/components.js?v=5ff55d3';
+import { actions, store, useTrip } from '../store.js?v=dded77b';
+import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=dded77b';
+import { hasModule, resolveType } from '../lib/templates.js?v=dded77b';
+import { symbolOf } from '../lib/fx.js?v=dded77b';
+import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=dded77b';
+import { navLinks } from '../lib/places.js?v=dded77b';
+import { PlaceInput } from '../ui/place-input.js?v=dded77b';
+import { CHECKIN_HOURS, checkinDue, checkinItem, checkinStatus, syncCheckin } from '../lib/checkin.js?v=dded77b';
+import { Button, Card, Chip, Field, IconButton, MemberPicker, Segmented, Sheet, Stepper, TextInput, Toggle, confirmDialog } from '../ui/components.js?v=dded77b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];

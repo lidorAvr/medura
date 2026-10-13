@@ -1,10 +1,10 @@
 // The "🔁 לעשות את זה שוב" sheet: a name and a start date, then a new trip with this one's structure and lists.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { actions, store } from '../store.js?v=5ff55d3';
-import { navigate } from '../router.js?v=5ff55d3';
-import { runClone } from '../lib/clone-trip.js?v=5ff55d3';
-import { Button, Field, Sheet, TextInput } from './components.js?v=5ff55d3';
+import { actions, store } from '../store.js?v=dded77b';
+import { navigate } from '../router.js?v=dded77b';
+import { runClone } from '../lib/clone-trip.js?v=dded77b';
+import { Button, Field, Sheet, TextInput } from './components.js?v=dded77b';
 
 /**
  * `tripId` + `name` identify the old trip; `snap` is its snapshot when it is the open trip (the dashboard passes none:

@@ -3,16 +3,16 @@
 // share to WhatsApp) and polls (create, vote, live result bars, close / delete).
 import { html } from 'htm/preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { useTrip, actions } from '../store.js?v=5ff55d3';
+import { useTrip, actions } from '../store.js?v=dded77b';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Field, IconButton, MemberPicker, Pill,
   ProgressBar, Segmented, Sheet, ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog, OverBanner, tripOver,
-} from '../ui/components.js?v=5ff55d3';
-import { Icon } from '../ui/icons.js?v=5ff55d3';
+} from '../ui/components.js?v=dded77b';
+import { Icon } from '../ui/icons.js?v=dded77b';
 import {
   actorName, displayName, membersById, pinnedNotices, visibleNotifications, pollResults, timeAgo, formatDate, formatDateTime,
   formatTime, hebrewCount,
-} from '../lib/logic.js?v=5ff55d3';
+} from '../lib/logic.js?v=dded77b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';

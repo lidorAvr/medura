@@ -3,23 +3,23 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=5ff55d3';
-import { href, navigate } from '../router.js?v=5ff55d3';
+import { actions, store, useTrip } from '../store.js?v=dded77b';
+import { href, navigate } from '../router.js?v=dded77b';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
   memberNets, membersById, openMoneyRequests, partyBalances, partyName, partyOf, payingMembers, personPhone, personsOf, potSettings,
   settleNets, splitsMoney, timeAgo, titleSimilarity, tripPlan, tripTotals, whatsappChatUrl, whatsappShareUrl,
-} from '../lib/logic.js?v=5ff55d3';
+} from '../lib/logic.js?v=dded77b';
 import {
   Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, Fold, MemberPicker, MoneyInput, OverBanner, Pill,
   ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=5ff55d3';
-import { Icon } from '../ui/icons.js?v=5ff55d3';
-import { CURRENCIES, dayOf, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=5ff55d3';
-import { MoneyRequests, payMethodsOf } from './money-requests.js?v=5ff55d3';
-import { FxToggle, PotCard, PotSetupLink, useFx } from './money-pot.js?v=5ff55d3';
-import { expenseTagsFor } from '../lib/templates.js?v=5ff55d3';
-import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=5ff55d3';
+} from '../ui/components.js?v=dded77b';
+import { Icon } from '../ui/icons.js?v=dded77b';
+import { CURRENCIES, dayOf, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=dded77b';
+import { MoneyRequests, payMethodsOf } from './money-requests.js?v=dded77b';
+import { FxToggle, PotCard, PotSetupLink, useFx } from './money-pot.js?v=dded77b';
+import { expenseTagsFor } from '../lib/templates.js?v=dded77b';
+import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=dded77b';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -719,6 +719,16 @@ function PaymentsSection({ snap, me, admin, byId, nameOf, sideKey, busyId, onCon
     ? (p.to_member === me.id ? p.to_person === snap.me?.person : admin)
     : p.from_member !== me.id && (p.to_member === me.id || admin));
   const waiting = list.filter(canConfirmOf).length;
+  // whoever was PAID and hasn't confirmed yet (a transfer to them is still 'sent'): an admin's gentle nudge reaches them
+  const unconfirmedPayees = [...new Set(list.filter((p) => p.status !== 'confirmed' && p.from_member !== p.to_member).map((p) => p.to_member))];
+  const [nudging, setNudging] = useState(false);
+  const nudgeConfirm = async () => {
+    setNudging(true);
+    const n = await actions.run((api) => api.nudgeMembers(snap.trip.id, 'confirm'), { refresh: false });
+    setNudging(false);
+    if (n == null) return;
+    actions.toast(n ? `נשלחה תזכורת לאישור ל-${hebrewCount(n, 'משתתף/ת', 'משתתפים')} 🤝` : 'כולם כבר קיבלו תזכורת היום 🙂', 'success', 3200);
+  };
 
   return html`<section class="money-section" aria-labelledby="money-pay-title">
     <div class=${cx('money-section__head', bare && 'sr-only')}>
@@ -726,6 +736,11 @@ function PaymentsSection({ snap, me, admin, byId, nameOf, sideKey, busyId, onCon
       <span class="section__count num">${list.length}</span>
       ${waiting ? html`<${Pill} tone="warning">${waiting} מחכות לאישור</${Pill}>` : null}
     </div>
+    ${admin && unconfirmedPayees.length
+      ? html`<div class="money-nudge-confirm" data-testid="nudge-confirm">
+          <span class="small muted">⏳ ${unconfirmedPayees.map((id) => displayName(byId.get(id))).join('، ')} — עוד לא אישר/ו שקיבלו</span>
+          <${Button} size="sm" variant="secondary" icon="send" loading=${nudging} onClick=${nudgeConfirm}>🔔 תזכורת לאישור</${Button}>
+        </div>` : null}
     <ul class="list money-pay-list" data-testid="payments-list">
       ${shown.map((p) => {
         const confirmed = p.status === 'confirmed';
@@ -798,9 +813,27 @@ function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd, onQui
   const used = tags ? [...new Set(all.map((e) => e.tag).filter(Boolean))].map((n) => tagOf(tags, n))
     .sort((a, b) => tags.findIndex((t) => t.n === a.n) - tags.findIndex((t) => t.n === b.n)) : [];
   const [filter, setFilter] = useState(null);
+  const [onlyMine, setOnlyMine] = useState(false);          // "אני שילמתי": just what I paid, with its own summary
   const active = filter && used.some((t) => t.n === filter) ? filter : null;
-  const list = active ? all.filter((e) => e.tag === active) : all;
-  const shown = active ? list.reduce((sum, e) => sum + Number(e.amount || 0), 0) : totals.spent;
+  const myPerson = snap.me?.person || null;
+  const paidByMe = (e) => e.paid_by === me.id && (!e.paid_by_person || !myPerson || e.paid_by_person === myPerson);
+  const mineCount = all.filter(paidByMe).length;
+  const mineOn = onlyMine && mineCount > 0;
+  const list = all.filter((e) => (!active || e.tag === active) && (!mineOn || paidByMe(e)));
+  const shown = active || mineOn ? list.reduce((sum, e) => sum + Number(e.amount || 0), 0) : totals.spent;
+  const mineSummary = mineOn ? (() => {
+    const total = list.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const mine = list.reduce((s, e) => s + (expenseShares(e, snap).find((x) => x.member_id === me.id)?.amount || 0), 0);
+    const byKind = new Map();
+    for (const e of list) {
+      const t = tags || e.tag ? tagOf(tags, e.tag) : null;
+      const c = cats.get(e.category_id);
+      const key = t?.n || c?.name || 'אחר';
+      const cur = byKind.get(key) || { e: t?.e || c?.emoji || '🧾', n: key, sum: 0, cnt: 0 };
+      cur.sum += Number(e.amount || 0); cur.cnt += 1; byKind.set(key, cur);
+    }
+    return { total, mine, others: Math.max(0, total - mine), kinds: [...byKind.values()].sort((a, b) => b.sum - a.sum) };
+  })() : null;
 
   return html`<section class="money-section" aria-labelledby="money-exp-title">
     <div class=${cx('money-section__head', bare && 'sr-only')}>
@@ -810,6 +843,19 @@ function ExpensesSection({ snap, me, byId, totals, flashId, onOpen, onAdd, onQui
       ${all.length ? html`<span class="money-section__sum" data-testid="expenses-sum">סה״כ <${Money} value=${shown} /></span>` : null}
     </div>
     ${tags && onQuick ? html`<${QuickChips} tags=${tags} onQuick=${onQuick} />` : null}
+    ${mineCount > 0
+      ? html`<div class="h-scroll money-who-filter" role="group" aria-label="סינון לפי מי שילם" data-testid="expense-who-filter">
+          <${Chip} active=${!mineOn} onClick=${() => setOnlyMine(false)} data-who="all">הכל</${Chip}>
+          <${Chip} active=${mineOn} onClick=${() => setOnlyMine(true)} data-who="me">💳 ${splitsMoney(me) ? 'שילמנו אנחנו' : 'שילמתי אני'} <span class="money-tag-filter__n num">${mineCount}</span></${Chip}>
+        </div>` : null}
+    ${mineSummary
+      ? html`<div class="card money-mine-summary" data-testid="mine-summary">
+          <div class="money-mine-summary__row"><span>שילמתי בסך הכול</span><strong><${Money} value=${mineSummary.total} /></strong></div>
+          <div class="money-mine-summary__row"><span>החלק שלי מתוכם</span><${Money} value=${mineSummary.mine} /></div>
+          <div class="money-mine-summary__row money-mine-summary__row--accent"><span>אחרים חייבים לי על אלה</span><strong><${Money} value=${mineSummary.others} /></strong></div>
+          ${mineSummary.kinds.length > 1
+            ? html`<ul class="money-mine-summary__kinds">${mineSummary.kinds.map((k) => html`<li key=${k.n}><span>${k.e} ${k.n} <span class="muted num">×${k.cnt}</span></span><${Money} value=${k.sum} /></li>`)}</ul>` : null}
+        </div>` : null}
     ${used.length
       ? html`<div class="h-scroll money-tag-filter" role="group" aria-label="סינון לפי סוג" data-testid="expense-tag-filter">
           <${Chip} active=${!active} onClick=${() => setFilter(null)} data-tag="">הכל</${Chip}>
