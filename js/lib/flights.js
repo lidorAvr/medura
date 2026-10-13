@@ -75,6 +75,26 @@ export function delayMinutes(flight) {
   return Math.round((b - s) / 60000);
 }
 
+/** "2 שעות ו־35 דקות" / "שעה" / "שעתיים" / "45 דקות" - a length of time in words (minutes, sign ignored). */
+export function durationHe(min) {
+  const m = Math.abs(Math.round(Number(min) || 0));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  const hs = h === 1 ? 'שעה' : h === 2 && r === 0 ? 'שעתיים' : `${h} שעות`;
+  const rs = r === 1 ? 'דקה' : `${r} דקות`;
+  if (h === 0) return rs;
+  return r === 0 ? hs : `${hs} ו־${rs}`;
+}
+
+/** "+2:35" / "+45 דק׳" / "−20 דק׳" - the signed shift of a time. */
+export function deltaShort(min) {
+  const n = Math.round(Number(min) || 0);
+  const sign = n < 0 ? '−' : '+';
+  const m = Math.abs(n);
+  const h = Math.floor(m / 60);
+  return h === 0 ? `${sign}${m} דק׳` : `${sign}${h}:${String(m % 60).padStart(2, '0')}`;
+}
+
 /** " · T3 · שער B7" parts for a side (only what is known). */
 function gateBits(side) {
   return [side?.terminal ? `T${side.terminal}` : null, side?.gate ? `שער ${side.gate}` : null].filter(Boolean);
@@ -106,14 +126,39 @@ export function flightStatus(flight) {
   const delay = delayMinutes(flight);
   const was = hmOf(dep.sched);
   const now = hmOf(bestTime(dep));
-  if (delay != null && delay >= LATE_MIN) return make('late', '🟠', 'עיכוב', [`${now} (במקום ${was})`, ...gateBits(dep)]);
-  if (delay != null && delay <= -LATE_MIN) return make('late', '🟠', 'מקדימה', [`${now} (במקום ${was})`, ...gateBits(dep)]);
+  if (delay != null && delay >= LATE_MIN) return make('late', '🟠', 'עיכוב', [`${now} (במקום ${was})`, deltaShort(delay), ...gateBits(dep)]);
+  if (delay != null && delay <= -LATE_MIN) return make('late', '🟠', 'מקדימה', [`${now} (במקום ${was})`, deltaShort(delay), ...gateBits(dep)]);
   if (st === 'Delayed') return make('late', '🟠', 'עיכוב', [now || null, ...gateBits(dep)]);
   if (st === 'GateClosed') return make('late', '🟠', 'השער נסגר', gateBits(dep));
   if (st === 'Boarding') return make('ok', '🟢', 'עלייה למטוס', gateBits(dep));
   if (st === 'CheckIn') return make('ok', '🟢', 'צ׳ק־אין פתוח', [dep.checkin ? `דלפק ${dep.checkin}` : null, ...gateBits(dep)]);
   if (st === 'Unknown' && !dep.sched) return make('unknown', '⚪', 'אין עדיין עדכון');
   return make('ok', '🟢', 'בזמן', gateBits(dep));
+}
+
+const ON_THE_WAY = ['Departed', 'EnRoute', 'Approaching', 'Arrived'];
+
+/**
+ * The rows under a live status line - only what the provider returned, nothing invented:
+ * ["הטיסה מתעכבת בכ־2 שעות ו־35 דקות · מתוכנן 18:30 ← עכשיו 21:05 (+2:35)", "דלפק צ׳ק־אין 12 · מסוע מזוודות 4"].
+ */
+export function flightDetails(flight) {
+  if (!flight || typeof flight !== 'object') return [];
+  const st = String(flight.status || 'Unknown');
+  if (st === 'Canceled' || st === 'CanceledUncertain' || st === 'Diverted') return [];
+  const dep = flight.dep || {};
+  const arr = flight.arr || {};
+  const rows = [];
+  const delay = delayMinutes(flight);
+  if (delay != null && Math.abs(delay) >= LATE_MIN && !ON_THE_WAY.includes(st)) {
+    const say = delay > 0 ? `הטיסה מתעכבת בכ־${durationHe(delay)}` : `הטיסה מקדימה בכ־${durationHe(delay)}`;
+    rows.push(`${say} · מתוכנן ${hmOf(dep.sched)} ← עכשיו ${hmOf(bestTime(dep))} (${deltaShort(delay)})`);
+  }
+  const bits = [];
+  if (dep.checkin && !ON_THE_WAY.includes(st)) bits.push(`דלפק צ׳ק־אין ${dep.checkin}`);
+  if (arr.belt) bits.push(`מסוע מזוודות ${arr.belt}`);
+  if (bits.length) rows.push(bits.join(' · '));
+  return rows;
 }
 
 /** "El Al · TLV T3 10:10 → LHR T4 13:35" (+ " · עם עצירה" for a multi-leg flight). */

@@ -3,15 +3,15 @@
 // Times here are wall-clock strings ('YYYY-MM-DDTHH:MM', local to the place) — shown as typed.
 import { html } from 'htm/preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=dded77b';
-import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=dded77b';
-import { hasModule, resolveType } from '../lib/templates.js?v=dded77b';
-import { symbolOf } from '../lib/fx.js?v=dded77b';
-import { bookingFromFlight, canLookup, findFlight, flightCode, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=dded77b';
-import { navLinks } from '../lib/places.js?v=dded77b';
-import { PlaceInput } from '../ui/place-input.js?v=dded77b';
-import { CHECKIN_HOURS, checkinDue, checkinItem, checkinStatus, syncCheckin } from '../lib/checkin.js?v=dded77b';
-import { Button, Card, Chip, Field, IconButton, MemberPicker, Segmented, Sheet, Stepper, TextInput, Toggle, confirmDialog } from '../ui/components.js?v=dded77b';
+import { actions, store, useTrip } from '../store.js?v=38181ca';
+import { displayName, formatMoney, hebrewCount, ilWall } from '../lib/logic.js?v=38181ca';
+import { hasModule, resolveType } from '../lib/templates.js?v=38181ca';
+import { symbolOf } from '../lib/fx.js?v=38181ca';
+import { bookingFromFlight, canLookup, findFlight, flightCode, flightDetails, flightFit, flightLine, flightStatus, updatedAgo, ymdOf } from '../lib/flights.js?v=38181ca';
+import { navLinks } from '../lib/places.js?v=38181ca';
+import { PlaceInput } from '../ui/place-input.js?v=38181ca';
+import { CHECKIN_HOURS, checkinDue, checkinItem, checkinStatus, syncCheckin } from '../lib/checkin.js?v=38181ca';
+import { Button, Card, Chip, Field, IconButton, MemberPicker, Segmented, Sheet, Stepper, TextInput, Toggle, confirmDialog } from '../ui/components.js?v=38181ca';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -104,9 +104,11 @@ export function FlightLive({ row }) {
   if (!row?.data) return null;
   const st = flightStatus(row.data);
   const ago = updatedAgo(row.checked_at || row.data.updated);
+  const details = flightDetails(row.data);
   const color = TONE_COLOR[st.tone];
   return html`<span class="flight-live small" data-testid="flight-live" data-tone=${st.tone}>
     <b style=${color ? `color: ${color}` : undefined}>${st.text}</b>${ago ? html` <span class="muted">· ${ago}</span>` : null}
+    ${details.map((line) => html`<span class="flight-live__more muted" data-testid="flight-live-more" style="display: block">${line}</span>`)}
   </span>`;
 }
 

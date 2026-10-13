@@ -3,8 +3,8 @@
 import { html } from 'htm/preact';
 import { render, cloneElement, isValidElement, toChildArray } from 'preact';
 import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
-import { Icon } from './icons.js?v=dded77b';
-import { whatsappShareUrl, displayName, tripOver } from '../lib/logic.js?v=dded77b';
+import { Icon } from './icons.js?v=38181ca';
+import { whatsappShareUrl, displayName, tripOver } from '../lib/logic.js?v=38181ca';
 
 // ---------------------------------------------------------------------------
 // helpers (module-private)

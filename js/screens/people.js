@@ -5,19 +5,19 @@
 // (add a placeholder profile, remove a member).
 import { html } from 'htm/preact';
 import { useState, useMemo, useEffect, useLayoutEffect } from 'preact/hooks';
-import { useTrip, useStore, actions, store } from '../store.js?v=dded77b';
+import { useTrip, useStore, actions, store } from '../store.js?v=38181ca';
 import {
   Avatar, AvatarStack, Button, Card, CopyButton, EmptyState, Field, Pill, Sheet, ShareButton, Skeleton,
   TextArea, TextInput, Toggle, confirmDialog, Fold, OverBanner, tripOver,
-} from '../ui/components.js?v=dded77b';
-import { Icon } from '../ui/icons.js?v=dded77b';
-import { hebrewError, toApiError } from '../api/errors.js?v=dded77b';
+} from '../ui/components.js?v=38181ca';
+import { Icon } from '../ui/icons.js?v=38181ca';
+import { hebrewError, toApiError } from '../api/errors.js?v=38181ca';
 import {
   adminPersons, adminVoteCounts, balances, buildInviteText, displayName, formatMoney, formatQty, headcountTotal,
   hebrewCount, inviteUrl, isAdmin, memberNets, membersById, personPhone, personsOf, presence, rideModel, timeAgo, whatsappChatUrl,
   whatsappShareUrl, splitsItems, splitsMoney,
-} from '../lib/logic.js?v=dded77b';
-import { ProfileForm } from './me.js?v=dded77b';
+} from '../lib/logic.js?v=38181ca';
+import { ProfileForm } from './me.js?v=38181ca';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 

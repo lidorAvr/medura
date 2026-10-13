@@ -2,10 +2,10 @@
 // the profile's people answer. Polls, and opens the trip the moment the request is approved.
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { actions, store } from '../store.js?v=dded77b';
-import { navigate } from '../router.js?v=dded77b';
-import { formatDate, formatTime } from '../lib/logic.js?v=dded77b';
-import { Avatar, Button, Card, Skeleton } from './components.js?v=dded77b';
+import { actions, store } from '../store.js?v=38181ca';
+import { navigate } from '../router.js?v=38181ca';
+import { formatDate, formatTime } from '../lib/logic.js?v=38181ca';
+import { Avatar, Button, Card, Skeleton } from './components.js?v=38181ca';
 
 const POLL_MS = 15000;
 

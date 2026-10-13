@@ -4,25 +4,25 @@
 // only: the album on top, schedule / rules / notes folded to rows, no weather, navigation, invite or rides.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=dded77b';
+import { actions, useTrip } from '../store.js?v=38181ca';
 import {
   AIRPORTS, ARRIVAL_MODES, FAMILIES, MODULES, arrivalOf, composeType, dayCount, hasLists, hasModule, resolveType, schedulePlan,
   schedulePresets,
-} from '../lib/templates.js?v=dded77b';
-import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=dded77b';
-import { PlaceInput } from '../ui/place-input.js?v=dded77b';
-import { CURRENCIES } from '../lib/fx.js?v=dded77b';
-import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=dded77b';
-import { href, navigate } from '../router.js?v=dded77b';
+} from '../lib/templates.js?v=38181ca';
+import { hasCoords as placeHasCoords, navLinks as placeNavLinks } from '../lib/places.js?v=38181ca';
+import { PlaceInput } from '../ui/place-input.js?v=38181ca';
+import { CURRENCIES } from '../lib/fx.js?v=38181ca';
+import { AlbumSheet, BookingsCard, CostsCard, MoreDetails, RoomsCard } from './trip-extras.js?v=38181ca';
+import { href, navigate } from '../router.js?v=38181ca';
 import {
   buildInviteText, countdown, displayName, formatDate, formatTime, headcountTotal, hebrewCount, inviteUrl, adminPersons,
   rideModel, tripOver,
-} from '../lib/logic.js?v=dded77b';
+} from '../lib/logic.js?v=38181ca';
 import {
   Avatar, AvatarStack, Button, Card, Chip, CopyButton, EmojiPicker, EmptyState, Field, Fold, IconButton, MemberPicker, OverBanner, Sheet,
   ShareButton, Skeleton, TextArea, TextInput, Toggle, confirmDialog,
-} from '../ui/components.js?v=dded77b';
-import { Icon } from '../ui/icons.js?v=dded77b';
+} from '../ui/components.js?v=38181ca';
+import { Icon } from '../ui/icons.js?v=38181ca';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const TZ = 'Asia/Jerusalem';

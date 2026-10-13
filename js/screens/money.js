@@ -3,23 +3,23 @@
 // Every number comes from logic.js (balances, settlePlan, expenseShares, tripTotals).
 import { html } from 'htm/preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, store, useTrip } from '../store.js?v=dded77b';
-import { href, navigate } from '../router.js?v=dded77b';
+import { actions, store, useTrip } from '../store.js?v=38181ca';
+import { href, navigate } from '../router.js?v=38181ca';
 import {
   balances, buildSummaryText, displayName, expenseShares, formatDate, formatMoney, headcountTotal, hebrewCount,
   memberNets, membersById, openMoneyRequests, partyBalances, partyName, partyOf, payingMembers, personPhone, personsOf, potSettings,
-  settleNets, splitsMoney, timeAgo, titleSimilarity, tripPlan, tripTotals, whatsappChatUrl, whatsappShareUrl,
-} from '../lib/logic.js?v=dded77b';
+  isPersonalExpense, settleNets, splitsMoney, timeAgo, titleSimilarity, tripPlan, tripTotals, whatsappChatUrl, whatsappShareUrl,
+} from '../lib/logic.js?v=38181ca';
 import {
   Avatar, Button, Card, Chip, CopyButton, EmptyState, Fab, Field, Fold, MemberPicker, MoneyInput, OverBanner, Pill,
   ProgressBar, Segmented, ShareButton, Sheet, Skeleton, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=dded77b';
-import { Icon } from '../ui/icons.js?v=dded77b';
-import { CURRENCIES, dayOf, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=dded77b';
-import { MoneyRequests, payMethodsOf } from './money-requests.js?v=dded77b';
-import { FxToggle, PotCard, PotSetupLink, useFx } from './money-pot.js?v=dded77b';
-import { expenseTagsFor } from '../lib/templates.js?v=dded77b';
-import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=dded77b';
+} from '../ui/components.js?v=38181ca';
+import { Icon } from '../ui/icons.js?v=38181ca';
+import { CURRENCIES, dayOf, rateOn, symbolOf, toShekels } from '../lib/fx.js?v=38181ca';
+import { MoneyRequests, payMethodsOf } from './money-requests.js?v=38181ca';
+import { FxToggle, PotCard, PotSetupLink, useFx } from './money-pot.js?v=38181ca';
+import { expenseTagsFor } from '../lib/templates.js?v=38181ca';
+import { PAY_OPTIONS, chooseCouple, prefOf } from '../ui/couple.js?v=38181ca';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -480,6 +480,7 @@ function Hero({ snap, me, mine, net = 0, oursNet = null, totals, plan, isMine, n
     <p class="money-hero__line" data-testid="money-line">
       <span><${Money} value=${totals.spent} data-testid="money-total" /> הוצאות</span><span class="money-hero__sep" aria-hidden="true"> · </span>
       <span><${Money} value=${totals.perHead} data-testid="money-per-head" /> לאדם</span><span class="money-hero__sep" aria-hidden="true"> · </span>
+      ${totals.personal > 0 ? html`<span data-testid="money-personal">🧍 <${Money} value=${totals.personal} /> אישיות</span><span class="money-hero__sep" aria-hidden="true"> · </span>` : null}
       <span><span class="num" data-testid="money-heads">${totals.heads}</span> משתתפים</span>
       ${exemptNames.length ? html`<span class="money-hero__sep" aria-hidden="true"> · </span><span>${exemptNames.join(', ')} ${exemptNames.length > 1 ? 'פטורים' : 'פטור/ה'} 🎁</span>` : null}
     </p>
@@ -782,6 +783,7 @@ function PaymentsSection({ snap, me, admin, byId, nameOf, sideKey, busyId, onCon
 // ---------------------------------------------------------------------------
 
 function splitText(expense, snap) {
+  if (isPersonalExpense(expense, snap)) return '🧍 אישית — לא לחלוקה';
   if (expense.split_mode === 'members') {
     const n = snap.expense_shares.filter((s) => s.expense_id === expense.id).length;
     return n === 1 ? 'משתתף/ת אחד/ת' : `${n} משתתפים`;
@@ -1015,8 +1017,9 @@ function ExpenseForm({ open, exp, editing, preset, snap, me, admin, onClose, onS
   const [categoryId, setCategoryId] = useState(exp?.category_id || null);
   const tags = tripTags(snap.trip);
   const [tag, setTag] = useState(exp?.tag || (!exp && tags && preset?.tag ? preset.tag : null));   // a quick chip starts with its tag
-  const tagChips = tags ? (tag && !tags.some((t) => t.n === tag) ? [...tags, tagOf(tags, tag)] : tags) : null;
-  const [mode, setMode] = useState(exp?.split_mode === 'members' ? 'members' : 'all');
+  const withOther = tags && !tags.some((t) => t.n === 'אחר') ? [...tags, { e: '🧾', n: 'אחר' }] : tags;      // the way out of the required kind
+  const tagChips = withOther ? (tag && !withOther.some((t) => t.n === tag) ? [...withOther, tagOf(withOther, tag)] : withOther) : null;
+  const [mode, setMode] = useState(exp && isPersonalExpense(exp, snap) ? 'self' : exp?.split_mode === 'members' ? 'members' : 'all');   // 'self' = only me, not shared
   const [chosen, setChosen] = useState(initialChosen);
   const [note, setNote] = useState(exp?.note || '');
   const [spentOn, setSpentOn] = useState(exp?.spent_on ? String(exp.spent_on).slice(0, 10) : todayYmd());
@@ -1056,9 +1059,10 @@ function ExpenseForm({ open, exp, editing, preset, snap, me, admin, onClose, onS
   const setChosenIds = (ids) => setChosen(ids.map((id) => chosen.find((c) => c.member_id === id) || { member_id: id }));
 
   // Live preview (logic.js: expenseShares / tripTotals).
-  const participants = mode === 'all' ? payingMembers(snap) : chosenIds.map((id) => byId.get(id)).filter(Boolean);
+  const participants = mode === 'all' ? payingMembers(snap) : mode === 'self' ? [byId.get(paidBy)].filter(Boolean) : chosenIds.map((id) => byId.get(id)).filter(Boolean);
   const valid = amountIls > 0 && amountIls <= MAX_AMOUNT && participants.length > 0;
-  const draft = { amount: valid ? amountIls : 0, split_mode: mode, members: mode === 'members' ? chosen : undefined };
+  const draft = { amount: valid ? amountIls : 0, split_mode: mode === 'self' ? 'members' : mode,
+    members: mode === 'members' ? chosen : mode === 'self' ? [{ member_id: paidBy }] : undefined };
   const shares = valid ? expenseShares(draft, snap) : [];
   const customWeights = mode === 'members' && chosen.some((c) => c.weight != null && Number(c.weight) !== (Number(byId.get(c.member_id)?.headcount) || 1));
   const perHead = valid && !customWeights ? tripTotals({ members: participants, expenses: [{ amount: amountIls }] }).perHead : null;
@@ -1105,6 +1109,7 @@ function ExpenseForm({ open, exp, editing, preset, snap, me, admin, onClose, onS
       : moneyError(amount);
     if (amountErr) errs.amount = amountErr;
     if (!title.trim()) errs.title = 'על מה ההוצאה?';
+    if (tags && !tag) errs.tag = 'בחרו סוג הוצאה — או ״אחר״';          // every expense gets a kind (so the summaries are meaningful)
     if (mode === 'members' && !chosen.length) errs.members = 'בחרו לפחות משתתף/ת אחד/ת';
     setErrors(errs);
     if (Object.keys(errs).length) {
@@ -1123,11 +1128,12 @@ function ExpenseForm({ open, exp, editing, preset, snap, me, admin, onClose, onS
       ...(tags || exp?.tag ? { tag: tag || null } : {}),
       note: note.trim() || null,
       spent_on: spentOn || todayYmd(),
-      split_mode: mode,
+      split_mode: mode === 'self' ? 'members' : mode,
     };
     if (potCfg || exp?.from_pot) payload.from_pot = fromPot && Boolean(potCfg);
     if (canPickPayer || fromPot) payload.paid_by = paidBy;
     if (payerSplits) payload.paid_by_person = (payer.people || []).includes(payPerson) ? payPerson : null;
+    if (mode === 'self') payload.members = [{ member_id: paidBy }];
     if (mode === 'members') {
       payload.members = chosen.map((c) => (c.weight != null ? { member_id: c.member_id, weight: Number(c.weight) } : { member_id: c.member_id }));
     }
@@ -1239,13 +1245,13 @@ function ExpenseForm({ open, exp, editing, preset, snap, me, admin, onClose, onS
       </${Field}>
 
       ${tagChips
-        ? html`<${Field} label="סוג ההוצאה (לא חובה)">
+        ? html`<${Field} label="סוג ההוצאה" error=${errors.tag}>
             <div class="h-scroll money-cats money-tags" data-testid="expense-tags">
               ${tagChips.map((t) => html`<${Chip}
                 key=${t.n}
                 active=${tag === t.n}
                 data-tag=${t.n}
-                onClick=${() => setTag(tag === t.n ? null : t.n)}
+                onClick=${() => { setTag(tag === t.n ? null : t.n); if (errors.tag) setErrors({ ...errors, tag: null }); }}
               ><span aria-hidden="true">${t.e}</span> ${t.n}</${Chip}>`)}
             </div>
           </${Field}>`
@@ -1270,11 +1276,13 @@ function ExpenseForm({ open, exp, editing, preset, snap, me, admin, onClose, onS
               setMode(v);
               // starts from whoever shares "כולם": the exempt aren't ticked (they can be added by hand)
               if (v === 'members' && chosen.length <= 1) setChosen(payingMembers(snap).map((m) => ({ member_id: m.id })));
+              if (v === 'self') setChosen([{ member_id: paidBy }]);
               if (errors.members) setErrors({ ...errors, members: null });
             }}
             options=${[
               { value: 'all', label: '👥 כולם (לפי ראשים)' },
               { value: 'members', label: '🙋 רק חלק / כולם חוץ מ…' },
+              { value: 'self', label: '🧍 רק עליי' },
             ]}
           />
           ${mode === 'members'
@@ -1286,8 +1294,10 @@ function ExpenseForm({ open, exp, editing, preset, snap, me, admin, onClose, onS
         </div>
       </${Field}>
 
+      ${mode === 'self'
+        ? html`<p class="tiny muted" data-testid="expense-self-note">🧍 נרשם בהוצאות הטיול (בסיכומים ובמעקב), אבל לא נחלק עם אף אחד — לא משפיע על המאזן.</p>` : null}
       <${SplitPreview}
-        valid=${valid}
+        valid=${valid && mode !== 'self'}
         shares=${shares}
         perHead=${perHead}
         heads=${heads}

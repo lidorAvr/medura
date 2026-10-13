@@ -3,10 +3,10 @@
 // from what the members already told the app (prefs.transport, rides, seats, prefs.travel) — nothing new is stored.
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { actions } from '../store.js?v=dded77b';
-import { displayName, formatTime, hebrewCount, rideModel } from '../lib/logic.js?v=dded77b';
-import { Avatar, Button, Card, Chip } from './components.js?v=dded77b';
-import { withIds } from './arrive-with.js?v=dded77b';
+import { actions } from '../store.js?v=38181ca';
+import { displayName, formatTime, hebrewCount, rideModel } from '../lib/logic.js?v=38181ca';
+import { Avatar, Button, Card, Chip } from './components.js?v=38181ca';
+import { withIds } from './arrive-with.js?v=38181ca';
 
 const SELF = { own: '🧍 מגיעים בדרך שלהם', drop: '🙋 מקפיצים אותם', transit: '🚆 ברכבת / באוטובוס', park: '🅿️ חונים בשדה' };
 

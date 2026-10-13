@@ -26,13 +26,13 @@ export async function createApi(opts = {}) {
   const config = opts.config ?? globalThis.MEDURA_CONFIG ?? {};
   const search = opts.search ?? (globalThis.location ? globalThis.location.search : '');
   if (isDemoMode(config, search)) {
-    const { createDemoApi } = await import('./demo-api.js?v=dded77b');
+    const { createDemoApi } = await import('./demo-api.js?v=38181ca');
     return createDemoApi();
   }
-  const { createSupabaseApi } = await import('./supabase-api.js?v=dded77b');
+  const { createSupabaseApi } = await import('./supabase-api.js?v=38181ca');
   const siteKey = String(config.turnstileSiteKey || '').trim();
   const getCaptchaToken = siteKey
-    ? () => import('../lib/turnstile.js?v=dded77b').then((m) => m.turnstileToken(siteKey))
+    ? () => import('../lib/turnstile.js?v=38181ca').then((m) => m.turnstileToken(siteKey))
     : null;
   return createSupabaseApi({ url: config.supabaseUrl.trim(), anonKey: config.supabaseAnonKey, getCaptchaToken });
 }

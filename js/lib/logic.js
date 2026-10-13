@@ -922,11 +922,21 @@ export function openMoneyRequests(snap) {
   return out;
 }
 
+/** "רק על עצמי": an expense of one person that is nobody else's to share (members split with its payer as the only share).
+ *  It is recorded with the trip — spent, listed, filtered — but it never moves a balance. */
+export function isPersonalExpense(e, snap) {
+  if (!e || e.split_mode !== 'members') return false;
+  const shares = list(snap?.expense_shares).filter((s) => s.expense_id === e.id);
+  return shares.length === 1 && shares[0].member_id === e.paid_by;
+}
+
 export function tripTotals(snap) {
   const spentCents = list(snap?.expenses).reduce((s, e) => s + (e ? toCents(e.amount) : 0), 0);
+  const personalCents = list(snap?.expenses).reduce((s, e) => s + (isPersonalExpense(e, snap) ? toCents(e.amount) : 0), 0);
   const heads = headcountTotal(payingMembers(snap));               // the exempt don't share everyone-expenses
   const spent = fromCents(spentCents);
-  return { spent, perHead: heads ? Math.round(spentCents / heads) / 100 : 0, heads };
+  // per head: what is shared (a personal expense is not divided between the others)
+  return { spent, perHead: heads ? Math.round((spentCents - personalCents) / heads) / 100 : 0, heads, personal: fromCents(personalCents) };
 }
 
 export function formatMoney(n) {

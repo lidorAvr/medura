@@ -2,7 +2,7 @@
 // to miss. Once per device per tab; "?" in the top bar opens it again. Automated browsers skip it (?tour=1 forces).
 import { html } from 'htm/preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Sheet } from './components.js?v=dded77b';
+import { Button, Sheet } from './components.js?v=38181ca';
 
 export const GUIDES = {
   lists: {

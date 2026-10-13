@@ -6,16 +6,16 @@
 // (asking for one happens on the rides tab); the footer's action stays in reach.
 import { html } from 'htm/preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { actions, store, useStore, useTrip } from '../store.js?v=dded77b';
-import { href, navigate } from '../router.js?v=dded77b';
-import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=dded77b';
-import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=dded77b';
-import { flightFit } from '../lib/flights.js?v=dded77b';
-import { PlaceInput } from '../ui/place-input.js?v=dded77b';
-import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=dded77b';
-import { seatsFor } from './rides.js?v=dded77b';
-import { WithPicker } from '../ui/arrive-with.js?v=dded77b';
-import { AIRPORTS, arrivalQuestion, tripType, welcomeSteps } from '../lib/templates.js?v=dded77b';
+import { actions, store, useStore, useTrip } from '../store.js?v=38181ca';
+import { href, navigate } from '../router.js?v=38181ca';
+import { displayName, ilIso, ilWall, rideModel, whatsappChatUrl } from '../lib/logic.js?v=38181ca';
+import { Avatar, Button, Chip, Field, Skeleton, Stepper, TextInput, confirmDialog } from '../ui/components.js?v=38181ca';
+import { flightFit } from '../lib/flights.js?v=38181ca';
+import { PlaceInput } from '../ui/place-input.js?v=38181ca';
+import { DIET_CHIPS, INVENTORY_SUGGESTIONS } from './me.js?v=38181ca';
+import { seatsFor } from './rides.js?v=38181ca';
+import { WithPicker } from '../ui/arrive-with.js?v=38181ca';
+import { AIRPORTS, arrivalQuestion, tripType, welcomeSteps } from '../lib/templates.js?v=38181ca';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/;

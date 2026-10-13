@@ -3,8 +3,8 @@
 // still missing with one-tap "I'm on it".
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=dded77b';
-import { href, navigate } from '../router.js?v=dded77b';
+import { actions, useTrip } from '../store.js?v=38181ca';
+import { href, navigate } from '../router.js?v=38181ca';
 import {
   actorName,
   balances, buildSummaryText, countdown, displayName, expenseShares, formatDate, formatMoney, formatQty, formatTime, headcountTotal,
@@ -12,19 +12,19 @@ import {
   visibleNotifications, rideModel, tripDayPhase, wazeUrl, tripPhase, myChecklist, tripStats, adminPersons, personsOf,
   departureOf, myRideText, pinnedNotices, myInbox, tripPlan, moneyPots, myNet, openMoneyRequests, partyBalances,
   partyName, partyOf, splitsMoney,
-} from '../lib/logic.js?v=dded77b';
+} from '../lib/logic.js?v=38181ca';
 import {
   Avatar, Button, Card, Chip, EmptyState, Field, MemberPicker, MoneyInput, Pill, ProgressBar, ProgressRing,
   Segmented, ShareButton, Sheet, Skeleton, Stepper, TextArea, TextInput, Toggle, fireConfetti,
-} from '../ui/components.js?v=dded77b';
-import { Icon } from '../ui/icons.js?v=dded77b';
-import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=dded77b';
-import { InboxCard } from '../ui/inbox.js?v=dded77b';
-import { CloneSheet } from '../ui/clone-sheet.js?v=dded77b';
-import { payMethodsOf } from './money-requests.js?v=dded77b';
-import { AlbumSheet } from './trip-extras.js?v=dded77b';
-import { hebrewError } from '../api/errors.js?v=dded77b';
-import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=dded77b';
+} from '../ui/components.js?v=38181ca';
+import { Icon } from '../ui/icons.js?v=38181ca';
+import { SimilarItemsNotice, confirmNotDuplicate } from './lists.js?v=38181ca';
+import { InboxCard } from '../ui/inbox.js?v=38181ca';
+import { CloneSheet } from '../ui/clone-sheet.js?v=38181ca';
+import { payMethodsOf } from './money-requests.js?v=38181ca';
+import { AlbumSheet } from './trip-extras.js?v=38181ca';
+import { hebrewError } from '../api/errors.js?v=38181ca';
+import { hasModule, itemTypeOn, tripSetupGaps } from '../lib/templates.js?v=38181ca';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 const MISSING_SHOWN = 3;

@@ -4,19 +4,19 @@
 // Also exports small helpers that shopping.js and import.js reuse.
 import { html } from 'htm/preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { actions, useTrip } from '../store.js?v=dded77b';
-import { navigate, href } from '../router.js?v=dded77b';
+import { actions, useTrip } from '../store.js?v=38181ca';
+import { navigate, href } from '../router.js?v=38181ca';
 import {
   actorName, buildSummaryText, dueInfo, displayName, eachSplitOf, formatQty, headcountTotal, hebrewCount, itemEffectiveQty,
   itemProgress, membersById, myAgenda, parseListText, similarItems, timeAgo, tripReadiness, whatsappChatUrl,
   ilIso as ilIsoDue, ilWall as ilWallDue,
-} from '../lib/logic.js?v=dded77b';
+} from '../lib/logic.js?v=38181ca';
 import {
   Avatar, AvatarStack, Button, Card, Chip, EmptyState, Fab, Field, IconButton, MemberPicker, OverBanner, Pill, ProgressBar,
   Section, Segmented, Sheet, ShareButton, Skeleton, Stepper, TextArea, TextInput, Toggle, confirmDialog, fireConfetti, tripOver,
-} from '../ui/components.js?v=dded77b';
-import { Icon } from '../ui/icons.js?v=dded77b';
-import { hasModule, itemTypeOn } from '../lib/templates.js?v=dded77b';
+} from '../ui/components.js?v=38181ca';
+import { Icon } from '../ui/icons.js?v=38181ca';
+import { hasModule, itemTypeOn } from '../lib/templates.js?v=38181ca';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by shopping.js and import.js)

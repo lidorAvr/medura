@@ -2,18 +2,18 @@
 import { html } from 'htm/preact';
 import { Component } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { useRoute, href, navigate } from './router.js?v=dded77b';
-import { useStore, useTrip, actions, emailRequired } from './store.js?v=dded77b';
-import { unreadCount } from './lib/logic.js?v=dded77b';
-import { hebrewError } from './api/errors.js?v=dded77b';
-import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=dded77b';
-import { Icon } from './ui/icons.js?v=dded77b';
-import { EmailGate, linkThisDevice } from './ui/email-gate.js?v=dded77b';
-import { Tour, tourDue } from './ui/tour.js?v=dded77b';
-import { PendingGate } from './ui/pending.js?v=dded77b';
-import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=dded77b';
-import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=dded77b';
-import { answersOf } from './lib/overview.js?v=dded77b';
+import { useRoute, href, navigate } from './router.js?v=38181ca';
+import { useStore, useTrip, actions, emailRequired } from './store.js?v=38181ca';
+import { unreadCount } from './lib/logic.js?v=38181ca';
+import { hebrewError } from './api/errors.js?v=38181ca';
+import { Avatar, Button, Card, EmptyState, IconButton, Skeleton } from './ui/components.js?v=38181ca';
+import { Icon } from './ui/icons.js?v=38181ca';
+import { EmailGate, linkThisDevice } from './ui/email-gate.js?v=38181ca';
+import { Tour, tourDue } from './ui/tour.js?v=38181ca';
+import { PendingGate } from './ui/pending.js?v=38181ca';
+import { arrivalOf, hasLists, hasModule } from './lib/templates.js?v=38181ca';
+import { TabGuide, hasGuide, openGuide } from './ui/tab-guide.js?v=38181ca';
+import { answersOf } from './lib/overview.js?v=38181ca';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -22,24 +22,24 @@ const cx = (...a) => a.filter(Boolean).join(' ');
 // ---------------------------------------------------------------------------
 
 const SCREENS = {
-  landing: './screens/dashboard.js?v=dded77b',
-  invite: './screens/dashboard.js?v=dded77b',
-  new: './screens/onboarding.js?v=dded77b',
-  join: './screens/onboarding.js?v=dded77b',
-  link: './screens/onboarding.js?v=dded77b',
-  home: './screens/home.js?v=dded77b',
-  trip: './screens/trip.js?v=dded77b',
-  rides: './screens/rides.js?v=dded77b',
-  lists: './screens/lists.js?v=dded77b',
-  shop: './screens/shopping.js?v=dded77b',
-  import: './screens/import.js?v=dded77b',
-  build: './screens/build.js?v=dded77b',
-  money: './screens/money.js?v=dded77b',
-  messages: './screens/messages.js?v=dded77b',
-  people: './screens/people.js?v=dded77b',
-  me: './screens/me.js?v=dded77b',
-  welcome: './screens/welcome.js?v=dded77b',
-  signin: './screens/signin.js?v=dded77b',
+  landing: './screens/dashboard.js?v=38181ca',
+  invite: './screens/dashboard.js?v=38181ca',
+  new: './screens/onboarding.js?v=38181ca',
+  join: './screens/onboarding.js?v=38181ca',
+  link: './screens/onboarding.js?v=38181ca',
+  home: './screens/home.js?v=38181ca',
+  trip: './screens/trip.js?v=38181ca',
+  rides: './screens/rides.js?v=38181ca',
+  lists: './screens/lists.js?v=38181ca',
+  shop: './screens/shopping.js?v=38181ca',
+  import: './screens/import.js?v=38181ca',
+  build: './screens/build.js?v=38181ca',
+  money: './screens/money.js?v=38181ca',
+  messages: './screens/messages.js?v=38181ca',
+  people: './screens/people.js?v=38181ca',
+  me: './screens/me.js?v=38181ca',
+  welcome: './screens/welcome.js?v=38181ca',
+  signin: './screens/signin.js?v=38181ca',
 };
 const pending = new Map(); // module path → Promise<Component>
 const resolved = new Map(); // module path → Component
